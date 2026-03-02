@@ -102,6 +102,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const [songArtist, setSongArtist] = useState('');
   const [scrapDialogOpen, setScrapDialogOpen] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
+  const isFirstTime = !localStorage.getItem(STORAGE_KEYS.HAS_REWRITTEN);
 
   // Parse state
   const [parseResult, setParseResult] = useState<ParseResult | null>(null);
@@ -221,6 +222,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
       llm_provider: llmSettings.provider,
       llm_model: llmSettings.model,
     });
+    localStorage.setItem(STORAGE_KEYS.HAS_REWRITTEN, '1');
     onSongSaved(song);
     return song.id;
   }, [profile, songTitle, songArtist, parsedContent, llmSettings, onSongSaved]);
@@ -533,6 +535,24 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
 
           <Card className="flex-1 min-h-0 flex flex-col">
             <CardContent className="pt-6 flex-1 flex flex-col min-h-0">
+              {hasProfile && hasModel && isFirstTime && (
+                <p className="mb-3 text-sm text-muted-foreground">
+                  Start with a sample:{' '}
+                  {SAMPLE_SONGS.map((s, i) => (
+                    <span key={s.title}>
+                      {i > 0 && ' · '}
+                      <button
+                        type="button"
+                        className="text-primary font-medium underline hover:opacity-80 cursor-pointer"
+                        onClick={() => handleLoadSample(s)}
+                      >
+                        {s.title}
+                      </button>
+                    </span>
+                  ))}
+                </p>
+              )}
+
               <Textarea
                 className="flex-1 min-h-0 resize-none"
                 value={input}
@@ -569,7 +589,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 </span>
               </div>
 
-              {hasProfile && hasModel && (
+              {hasProfile && hasModel && !isFirstTime && (
                 <p className="mt-3 text-xs text-muted-foreground">
                   Or try a sample:{' '}
                   {SAMPLE_SONGS.map((s, i) => (
