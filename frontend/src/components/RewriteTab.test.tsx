@@ -39,7 +39,7 @@ vi.mock('@/components/ui/resizable-columns', () => ({
   ),
 }));
 
-import api from '@/api';
+import api, { STORAGE_KEYS } from '@/api';
 
 function makeProps(overrides: Partial<AppShellContext> = {}): AppShellContext {
   return {
@@ -67,6 +67,7 @@ describe('RewriteTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();
+    localStorage.clear();
   });
 
   it('aborts in-flight parse when unmounted', async () => {
@@ -179,5 +180,28 @@ describe('RewriteTab', () => {
 
     // The input textarea should no longer be visible (we're past the input state)
     expect(screen.queryByPlaceholderText(/Paste your lyrics/)).not.toBeInTheDocument();
+  });
+
+  it('shows "Start with a sample" above textarea for first-time users', () => {
+    const props = makeProps();
+    render(<RewriteTab {...props} />);
+
+    const sampleText = screen.getByText(/Start with a sample/);
+    const textarea = screen.getByPlaceholderText(/Paste your lyrics/);
+
+    // Sample prompt should appear before the textarea in the DOM
+    expect(sampleText.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows "Or try a sample" below textarea for returning users', () => {
+    localStorage.setItem(STORAGE_KEYS.HAS_REWRITTEN, '1');
+    const props = makeProps();
+    render(<RewriteTab {...props} />);
+
+    const sampleText = screen.getByText(/Or try a sample/);
+    const textarea = screen.getByPlaceholderText(/Paste your lyrics/);
+
+    // Sample prompt should appear after the textarea in the DOM
+    expect(sampleText.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
   });
 });
