@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .config import settings
 from .database import get_db
@@ -53,6 +54,32 @@ async def health(db: Session = Depends(get_db)) -> HealthResponse | JSONResponse
         )
     return HealthResponse(status="ok", version=__version__)
 
+
+class CacheHeadersMiddleware:
+    """Add Cache-Control headers for hashed static assets (Vite /assets/*)."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path: str = scope.get("path", "")
+        is_hashed_asset = path.startswith("/assets/")
+
+        async def send_with_cache(message: Message) -> None:
+            if message["type"] == "http.response.start" and is_hashed_asset:
+                headers = list(message.get("headers", []))
+                headers.append((b"cache-control", b"public, max-age=31536000, immutable"))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_cache)
+
+
+app.add_middleware(CacheHeadersMiddleware)
 
 # Serve the React build output (frontend/dist) if it exists, otherwise serve frontend/ directly.
 frontend_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"

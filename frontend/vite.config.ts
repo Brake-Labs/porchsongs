@@ -17,6 +17,7 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    sourcemap: 'hidden',
   },
   test: {
     environment: 'jsdom',

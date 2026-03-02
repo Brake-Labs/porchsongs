@@ -924,3 +924,18 @@ def test_chat_message_rejects_oversized_content(client: TestClient) -> None:
         json=[{"role": "user", "content": "x" * 10_001}],
     )
     assert resp.status_code == 422
+
+
+# --- Cache headers middleware ---
+
+
+def test_hashed_asset_gets_cache_header(client: TestClient) -> None:
+    """Requests to /assets/* should include an immutable Cache-Control header."""
+    resp = client.get("/assets/index-abc123.js")
+    assert resp.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+
+def test_api_route_no_cache_header(client: TestClient) -> None:
+    """Non-asset routes should not get the static asset cache header."""
+    resp = client.get("/api/health")
+    assert "immutable" not in resp.headers.get("cache-control", "")

@@ -577,7 +577,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                       {i > 0 && ' · '}
                       <button
                         type="button"
-                        className="text-primary hover:underline cursor-pointer"
+                        className="text-primary underline hover:opacity-80 cursor-pointer"
                         onClick={() => handleLoadSample(s)}
                       >
                         {s.title}
