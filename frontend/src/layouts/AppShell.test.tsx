@@ -84,4 +84,12 @@ describe('AppShell layout', () => {
     expect(link).toHaveAttribute('href');
     expect(link).toHaveAttribute('target', '_blank');
   });
+
+  it('renders report issue link in footer', () => {
+    renderWithRouter(<AppShell />, { route: '/app/rewrite' });
+
+    const link = screen.getByRole('link', { name: /report issue/i });
+    expect(link).toHaveAttribute('href');
+    expect(link).toHaveAttribute('target', '_blank');
+  });
 });

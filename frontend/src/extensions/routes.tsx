@@ -21,3 +21,7 @@ export function shouldRedirectRootToApp(_isPremium: boolean): boolean {
 export function getFeatureRequestUrl(): string {
   return 'https://github.com/njbrake/porchsongs/issues/new?title=Feature+request:+&labels=enhancement';
 }
+
+export function getReportIssueUrl(): string {
+  return 'https://github.com/njbrake/porchsongs/issues/new?title=Bug:+&labels=bug';
+}

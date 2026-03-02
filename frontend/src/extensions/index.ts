@@ -5,6 +5,7 @@ export {
   getDefaultSettingsTab,
   shouldRedirectRootToApp,
   getFeatureRequestUrl,
+  getReportIssueUrl,
 } from './routes';
 export {
   getExtraSettingsTabs,

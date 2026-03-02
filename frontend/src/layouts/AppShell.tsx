@@ -10,7 +10,7 @@ import Header from '@/components/Header';
 import Tabs from '@/components/Tabs';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { getFeatureRequestUrl } from '@/extensions';
+import { getFeatureRequestUrl, getReportIssueUrl } from '@/extensions';
 import type { Profile, RewriteResult, RewriteMeta, ChatMessage, ChatHistoryRow, Song } from '@/types';
 
 function chatHistoryToMessages(rows: ChatHistoryRow[]): ChatMessage[] {
@@ -295,6 +295,14 @@ export default function AppShell() {
         <div className="flex items-center justify-center sm:justify-between max-w-[1800px] w-full mx-auto">
           <span className="hidden sm:inline">Made with ❤️ from open source</span>
           <div className="flex items-center gap-3">
+            <a
+              href={getReportIssueUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Report issue
+            </a>
             <a
               href={getFeatureRequestUrl()}
               target="_blank"
