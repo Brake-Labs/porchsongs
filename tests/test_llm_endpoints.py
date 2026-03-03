@@ -721,3 +721,70 @@ def test_chat_after_image_preserves_multimodal_for_llm(
     assert user_msgs[0]["content"][0]["type"] == "image_url"
     # Second user message is plain text
     assert user_msgs[1]["content"] == "Now improve the chorus"
+
+
+# --- POST /api/abc ---
+
+
+@patch("app.services.llm_service.acompletion")
+def test_abc_endpoint(mock_acompletion: MagicMock, client: TestClient) -> None:
+    """ABC endpoint should return parsed ABC notation."""
+    profile = client.post("/api/profiles", json={"name": "Test"}).json()
+
+    mock_acompletion.return_value = _fake_completion_response(
+        "<abc>\nX:1\nT:Test Song\nM:4/4\nL:1/4\nQ:1/4=120\nK:G\n"
+        '"G"B2 B A | "C"G2 G E |\n</abc>\nI assumed 4/4 time and key of G.'
+    )
+
+    resp = client.post(
+        "/api/abc",
+        json={
+            "profile_id": profile["id"],
+            "content": "G  Am\nHello world\nC  G\nGoodbye moon",
+            "title": "Test Song",
+            "artist": "Test Artist",
+            **LLM_SETTINGS,
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["abc"] is not None
+    assert "X:1" in data["abc"]
+    assert data["tips"] is None
+
+
+@patch("app.services.llm_service.acompletion")
+def test_abc_endpoint_tips(mock_acompletion: MagicMock, client: TestClient) -> None:
+    """ABC endpoint should return tips when no chords are present."""
+    profile = client.post("/api/profiles", json={"name": "Test"}).json()
+
+    mock_acompletion.return_value = _fake_completion_response(
+        "<tips>\nThis song needs chord symbols to generate sheet music.\n</tips>"
+    )
+
+    resp = client.post(
+        "/api/abc",
+        json={
+            "profile_id": profile["id"],
+            "content": "Hello world\nGoodbye moon",
+            **LLM_SETTINGS,
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["abc"] is None
+    assert data["tips"] is not None
+    assert "chord" in data["tips"].lower()
+
+
+def test_abc_profile_not_found(client: TestClient) -> None:
+    """ABC with invalid profile_id should return 404."""
+    resp = client.post(
+        "/api/abc",
+        json={
+            "profile_id": 9999,
+            "content": "Hello world",
+            **LLM_SETTINGS,
+        },
+    )
+    assert resp.status_code == 404

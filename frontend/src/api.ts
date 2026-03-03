@@ -1,4 +1,5 @@
 import type {
+  AbcResult,
   AuthConfig,
   AuthUser,
   ChatHistoryRow,
@@ -32,6 +33,8 @@ const STORAGE_KEYS = {
   REASONING_EFFORT: 'porchsongs_reasoning_effort',
   THEME: 'porchsongs_theme',
   HAS_REWRITTEN: 'porchsongs_has_rewritten',
+  ABC_PROVIDER: 'porchsongs_abc_provider',
+  ABC_MODEL: 'porchsongs_abc_model',
 } as const;
 
 export { STORAGE_KEYS };
@@ -258,6 +261,14 @@ const api = {
     if (error) _throwApiError(error, 'Failed to get revisions');
     return data as SongRevision[];
   },
+
+  // ABC Notation (SSE, stays manual)
+  abcStream: (
+    data: Record<string, unknown>,
+    onToken: (token: string) => void,
+    signal?: AbortSignal,
+    onReasoning?: (token: string) => void,
+  ): Promise<AbcResult> => _streamSse<AbcResult>('/abc/stream', data, onToken, signal, onReasoning),
 
   // Chat (SSE, stays manual)
   chatStream: (

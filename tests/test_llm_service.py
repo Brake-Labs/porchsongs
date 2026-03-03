@@ -3,10 +3,13 @@
 from types import SimpleNamespace
 
 from app.services.llm_service import (
+    ABC_SYSTEM_PROMPT,
     CHAT_SYSTEM_PROMPT,
     CLEAN_SYSTEM_PROMPT,
+    _build_abc_kwargs,
     _build_chat_kwargs,
     _build_parse_kwargs,
+    _parse_abc_response,
     _parse_chat_response,
     _parse_clean_response,
 )
@@ -175,3 +178,74 @@ def test_parse_clean_missing_tags_fallback() -> None:
     assert result["original"] == "fallback original"
     assert result["title"] is None
     assert result["artist"] is None
+
+
+# --- ABC System Prompt ---
+
+
+def test_abc_system_prompt_identifies_as_porchsongs() -> None:
+    """ABC_SYSTEM_PROMPT should identify the LLM as PorchSongs."""
+    assert "PorchSongs" in ABC_SYSTEM_PROMPT
+    assert "ABC" in ABC_SYSTEM_PROMPT
+
+
+def test_abc_system_prompt_describes_output_format() -> None:
+    """ABC_SYSTEM_PROMPT should describe both abc and tips output formats."""
+    assert "<abc>" in ABC_SYSTEM_PROMPT
+    assert "<tips>" in ABC_SYSTEM_PROMPT
+
+
+# --- _parse_abc_response ---
+
+
+def test_parse_abc_with_abc_tags() -> None:
+    raw = "<abc>\nX:1\nT:Test\nM:4/4\nK:G\n\"G\"B2 B A |\n</abc>\nI assumed 4/4 time."
+    result = _parse_abc_response(raw)
+    assert result["abc"] is not None
+    assert "X:1" in result["abc"]
+    assert result["tips"] is None
+    assert result["explanation"] == "I assumed 4/4 time."
+
+
+def test_parse_abc_with_tips_tags() -> None:
+    raw = "<tips>\nThis song needs chords.\n</tips>\nTry adding G, Am, C."
+    result = _parse_abc_response(raw)
+    assert result["abc"] is None
+    assert result["tips"] is not None
+    assert "needs chords" in result["tips"]
+    assert result["explanation"] == "Try adding G, Am, C."
+
+
+def test_parse_abc_with_neither_tags() -> None:
+    raw = "Just some text without any tags."
+    result = _parse_abc_response(raw)
+    assert result["abc"] is None
+    assert result["tips"] is None
+    assert result["explanation"] is None
+
+
+# --- _build_abc_kwargs ---
+
+
+def test_build_abc_kwargs_basic() -> None:
+    kwargs = _build_abc_kwargs("G Am\nHello world", "openai", "gpt-4o")
+    messages = kwargs["messages"]
+    assert messages[0]["role"] == "system"  # type: ignore[index]
+    assert "ABC" in messages[0]["content"]  # type: ignore[index]
+    assert messages[1]["role"] == "user"  # type: ignore[index]
+    assert "Hello world" in messages[1]["content"]  # type: ignore[index]
+
+
+def test_build_abc_kwargs_with_title_artist() -> None:
+    kwargs = _build_abc_kwargs(
+        "G Am\nHello world", "openai", "gpt-4o",
+        title="My Song", artist="Test Artist",
+    )
+    user_msg = kwargs["messages"][1]["content"]  # type: ignore[index]
+    assert "My Song" in user_msg
+    assert "Test Artist" in user_msg
+
+
+def test_build_abc_kwargs_reasoning_effort() -> None:
+    kwargs = _build_abc_kwargs("content", "openai", "gpt-4o", reasoning_effort="high")
+    assert kwargs["reasoning_effort"] == "high"

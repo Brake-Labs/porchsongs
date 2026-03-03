@@ -219,6 +219,27 @@ class ChatResponse(BaseModel):
     usage: TokenUsage | None = None
 
 
+# --- ABC Notation ---
+class AbcRequest(BaseModel):
+    profile_id: int
+    content: str = Field(max_length=100_000)
+    title: str | None = Field(default=None, max_length=500)
+    artist: str | None = Field(default=None, max_length=500)
+    provider: str
+    model: str
+    reasoning_effort: str | None = None
+    max_tokens: int | None = None
+    api_key: str | None = None
+
+
+class AbcResponse(BaseModel):
+    abc: str | None = None
+    tips: str | None = None
+    explanation: str | None = None
+    reasoning: str | None = None
+    usage: TokenUsage | None = None
+
+
 # --- Generic response models for OpenAPI spec ---
 class OkResponse(BaseModel):
     ok: bool

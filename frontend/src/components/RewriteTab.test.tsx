@@ -30,6 +30,7 @@ vi.mock('@/components/ChatPanel', () => ({
   ),
 }));
 vi.mock('@/components/ComparisonView', () => ({ default: () => <div data-testid="comparison-view" /> }));
+vi.mock('@/components/MidiDialog', () => ({ default: () => null }));
 vi.mock('@/components/ui/resizable-columns', () => ({
   default: ({ className, left, right }: { className?: string; left?: React.ReactNode; right?: React.ReactNode }) => (
     <div data-testid="resizable-columns" className={className}>

@@ -27,6 +27,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import MidiDialog from '@/components/MidiDialog';
 import { QuotaBanner, OnboardingBanner, isQuotaError, QuotaUpgradeLink } from '@/extensions/quota';
 import { SAMPLE_SONGS, sampleToParseResult } from '@/data/sample-songs';
 import type { AppShellContext } from '@/layouts/AppShell';
@@ -102,6 +103,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const [songArtist, setSongArtist] = useState('');
   const [scrapDialogOpen, setScrapDialogOpen] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
+  const [midiDialogOpen, setMidiDialogOpen] = useState(false);
   const isFirstTime = !localStorage.getItem(STORAGE_KEYS.HAS_REWRITTEN);
 
   // Parse state
@@ -668,6 +670,11 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                     </DropdownMenuItem>
                   )}
                   <DropdownMenuItem onClick={handleNewSong}>New Song</DropdownMenuItem>
+                  {(isParsed || isWorkshopping) && (
+                    <DropdownMenuItem onClick={() => setMidiDialogOpen(true)}>
+                      Sheet Music
+                    </DropdownMenuItem>
+                  )}
                   {isWorkshopping && (
                     <>
                       <DropdownMenuSeparator />
@@ -722,6 +729,9 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={handleNewSong}>New Song</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setMidiDialogOpen(true)}>
+                          Sheet Music
+                        </DropdownMenuItem>
                         {isWorkshopping && (
                           <>
                             <DropdownMenuSeparator />
@@ -790,6 +800,21 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
         variant="destructive"
         onConfirm={handleScrap}
       />
+
+      {(isParsed || isWorkshopping) && profile && (
+        <MidiDialog
+          open={midiDialogOpen}
+          onOpenChange={setMidiDialogOpen}
+          songContent={rewriteResult?.rewritten_content || parsedContent}
+          songTitle={songTitle || undefined}
+          songArtist={songArtist || undefined}
+          profileId={profile.id}
+          llmSettings={llmSettings}
+          savedModels={savedModels}
+          isPremium={isPremium ?? false}
+          isAdmin={ctx?.isAdmin ?? false}
+        />
+      )}
     </div>
   );
 }

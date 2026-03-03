@@ -38,6 +38,7 @@ vi.mock('@/api', () => ({
 vi.mock('sonner', () => ({
   toast: { error: vi.fn(), promise: vi.fn() },
 }));
+vi.mock('@/components/MidiDialog', () => ({ default: () => null }));
 
 import api from '@/api';
 

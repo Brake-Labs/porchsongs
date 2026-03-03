@@ -51,6 +51,14 @@ export interface ChatMessage {
   images?: string[];  // base64 data URLs for display in bubbles
 }
 
+export interface AbcResult {
+  abc: string | null;
+  tips: string | null;
+  explanation: string | null;
+  reasoning: string | null;
+  usage: { input_tokens: number; output_tokens: number } | null;
+}
+
 export interface LlmSettings {
   provider: string;
   model: string;

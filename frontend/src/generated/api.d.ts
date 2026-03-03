@@ -360,6 +360,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/abc": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate Abc */
+        post: operations["generate_abc_api_abc_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/abc/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Abc Stream */
+        post: operations["abc_stream_api_abc_stream_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/providers": {
         parameters: {
             query?: never;
@@ -558,6 +592,39 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AbcRequest */
+        AbcRequest: {
+            /** Profile Id */
+            profile_id: number;
+            /** Content */
+            content: string;
+            /** Title */
+            title?: string | null;
+            /** Artist */
+            artist?: string | null;
+            /** Provider */
+            provider: string;
+            /** Model */
+            model: string;
+            /** Reasoning Effort */
+            reasoning_effort?: string | null;
+            /** Max Tokens */
+            max_tokens?: number | null;
+            /** Api Key */
+            api_key?: string | null;
+        };
+        /** AbcResponse */
+        AbcResponse: {
+            /** Abc */
+            abc?: string | null;
+            /** Tips */
+            tips?: string | null;
+            /** Explanation */
+            explanation?: string | null;
+            /** Reasoning */
+            reasoning?: string | null;
+            usage?: components["schemas"]["TokenUsage"] | null;
+        };
         /** ChatMessage */
         ChatMessage: {
             /** Role */
@@ -1870,6 +1937,72 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_abc_api_abc_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AbcRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AbcResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    abc_stream_api_abc_stream_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AbcRequest"];
             };
         };
         responses: {

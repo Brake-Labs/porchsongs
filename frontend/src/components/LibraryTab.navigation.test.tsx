@@ -85,6 +85,8 @@ function NavButton() {
   );
 }
 
+vi.mock('@/components/MidiDialog', () => ({ default: () => null }));
+
 import LibraryTab from '@/components/LibraryTab';
 
 describe('LibraryTab navigation (issue #94)', () => {

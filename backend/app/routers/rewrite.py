@@ -14,6 +14,8 @@ from ..database import get_db
 from ..models import ChatMessage as ChatMessageModel
 from ..models import Profile, ProfileModel, ProviderConnection, Song, SongRevision, User
 from ..schemas import (
+    AbcRequest,
+    AbcResponse,
     ChatMessage,
     ChatRequest,
     ChatResponse,
@@ -449,6 +451,111 @@ async def chat_stream(
             "assistant_message": accumulated,
             "changes_summary": changes_summary,
             "version": song.current_version,
+            "reasoning": reasoning_accumulated or None,
+            "usage": usage_data,
+        }
+        yield f"event: done\ndata: {json.dumps(done_data)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# --- ABC Notation ---
+
+
+@router.post("/abc", response_model=AbcResponse)
+async def generate_abc(
+    req: AbcRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> AbcResponse:
+    get_user_profile(db, current_user, req.profile_id)
+    api_base = _lookup_api_base(db, req.profile_id, req.provider, req.model)
+
+    try:
+        result = await _cancellable(
+            request,
+            llm_service.generate_abc(
+                content=req.content,
+                provider=req.provider,
+                model=req.model,
+                title=req.title,
+                artist=req.artist,
+                api_base=api_base,
+                reasoning_effort=req.reasoning_effort,
+                max_tokens=req.max_tokens,
+                api_key=req.api_key,
+            ),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=_format_llm_error(e, req.provider)) from None
+
+    usage_data = result.get("usage")
+    usage = TokenUsage(**usage_data) if usage_data else None
+
+    return AbcResponse(
+        abc=result.get("abc"),
+        tips=result.get("tips"),
+        explanation=result.get("explanation"),
+        reasoning=result.get("reasoning"),
+        usage=usage,
+    )
+
+
+@router.post("/abc/stream")
+async def abc_stream(
+    req: AbcRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    get_user_profile(db, current_user, req.profile_id)
+    api_base = _lookup_api_base(db, req.profile_id, req.provider, req.model)
+
+    async def event_generator() -> AsyncIterator[str]:
+        accumulated = ""
+        reasoning_accumulated = ""
+        usage_data: dict[str, int] | None = None
+        try:
+            stream = llm_service.generate_abc_stream(
+                content=req.content,
+                provider=req.provider,
+                model=req.model,
+                title=req.title,
+                artist=req.artist,
+                api_base=api_base,
+                reasoning_effort=req.reasoning_effort,
+                max_tokens=req.max_tokens,
+                api_key=req.api_key,
+            )
+            async for kind, text in stream:
+                if await request.is_disconnected():
+                    return
+                if kind == "reasoning":
+                    reasoning_accumulated += text
+                    yield f"event: reasoning\ndata: {json.dumps(text)}\n\n"
+                elif kind == "usage":
+                    usage_data = json.loads(text)
+                else:
+                    accumulated += text
+                    yield f"event: token\ndata: {json.dumps(text)}\n\n"
+        except Exception as e:
+            logger.exception("ABC stream LLM error")
+            detail = _format_llm_error(e, req.provider)
+            yield f"event: error\ndata: {json.dumps({'detail': detail})}\n\n"
+            return
+
+        parsed = llm_service._parse_abc_response(accumulated)
+        done_data: dict[str, object] = {
+            "abc": parsed["abc"],
+            "tips": parsed["tips"],
+            "explanation": parsed["explanation"],
             "reasoning": reasoning_accumulated or None,
             "usage": usage_data,
         }

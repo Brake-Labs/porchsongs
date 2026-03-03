@@ -20,6 +20,7 @@ import ConfirmDialog from '@/components/ui/confirm-dialog';
 import PromptDialog, { type PromptField } from '@/components/ui/prompt-dialog';
 import { cn } from '@/lib/utils';
 import useAutoFontSize from '@/hooks/useAutoFontSize';
+import MidiDialog from '@/components/MidiDialog';
 import type { AppShellContext } from '@/layouts/AppShell';
 import type { Song, SongRevision } from '@/types';
 
@@ -413,6 +414,7 @@ export default function LibraryTab() {
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [page, setPage] = useState(0);
   const [dialogState, setDialogState] = useState<DialogState>({ kind: 'none' });
+  const [midiDialogOpen, setMidiDialogOpen] = useState(false);
 
   useEffect(() => {
     api.listSongs().then(data => {
@@ -739,6 +741,7 @@ export default function LibraryTab() {
           <Button variant="secondary" onClick={handleBack}>&larr; All Songs</Button>
           <div className="flex gap-2 justify-end flex-wrap">
             <Button variant="secondary" onClick={() => handleDownloadPdf(song)}>Download PDF</Button>
+            <Button variant="secondary" onClick={() => setMidiDialogOpen(true)}>Sheet Music</Button>
             <Button variant="secondary" onClick={() => onLoadSong(song)}>Edit in Rewrite</Button>
             <Button variant="danger" onClick={() => handleDeleteRequest(song.uuid)}>Delete</Button>
           </div>
@@ -797,6 +800,19 @@ export default function LibraryTab() {
           onConfirm={() => {
             if (dialogState.kind === 'delete') handleDeleteConfirmed(dialogState.songUuid);
           }}
+        />
+
+        <MidiDialog
+          open={midiDialogOpen}
+          onOpenChange={setMidiDialogOpen}
+          songContent={song.rewritten_content}
+          songTitle={song.title ?? undefined}
+          songArtist={song.artist ?? undefined}
+          profileId={song.profile_id}
+          llmSettings={ctx.llmSettings}
+          savedModels={ctx.savedModels}
+          isPremium={ctx.isPremium}
+          isAdmin={ctx.isAdmin}
         />
       </div>
     );
@@ -1105,6 +1121,7 @@ export default function LibraryTab() {
           if (dialogState.kind === 'deleteFolder') handleDeleteFolderConfirmed(dialogState.folder);
         }}
       />
+
     </div>
   );
 }
