@@ -102,7 +102,23 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const [songArtist, setSongArtist] = useState('');
   const [scrapDialogOpen, setScrapDialogOpen] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
-  const isFirstTime = !localStorage.getItem(STORAGE_KEYS.HAS_REWRITTEN);
+  const [hasSongs, setHasSongs] = useState(
+    () => !!localStorage.getItem(STORAGE_KEYS.HAS_REWRITTEN),
+  );
+
+  // Check server for existing songs when localStorage has no record.
+  // This handles the cross-browser case: user created songs on another device.
+  useEffect(() => {
+    if (hasSongs || !profile?.id) return;
+    api.listSongs(profile.id).then(songs => {
+      if (songs.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.HAS_REWRITTEN, '1');
+        setHasSongs(true);
+      }
+    }).catch(() => {});
+  }, [hasSongs, profile?.id]);
+
+  const isFirstTime = !hasSongs;
 
   // Parse state
   const [parseResult, setParseResult] = useState<ParseResult | null>(null);
@@ -223,6 +239,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
       llm_model: llmSettings.model,
     });
     localStorage.setItem(STORAGE_KEYS.HAS_REWRITTEN, '1');
+    setHasSongs(true);
     onSongSaved(song);
     return song.id;
   }, [profile, songTitle, songArtist, parsedContent, llmSettings, onSongSaved]);

@@ -14,12 +14,14 @@ vi.mock('react-router-dom', async () => {
 vi.mock('@/api', () => ({
   default: {
     parseStream: vi.fn(),
+    listSongs: vi.fn().mockResolvedValue([]),
   },
   STORAGE_KEYS: {
     DRAFT_INPUT: 'test_draft_input',
     DRAFT_INSTRUCTION: 'test_draft_instruction',
     SPLIT_PERCENT: 'test_split_pct',
     CURRENT_SONG_ID: 'test_current_song_id',
+    HAS_REWRITTEN: 'test_has_rewritten',
   },
 }));
 
@@ -193,7 +195,7 @@ describe('RewriteTab', () => {
     expect(sampleText.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('shows "Or try a sample" below textarea for returning users', () => {
+  it('shows "Or try a sample" below textarea for returning users (localStorage)', () => {
     localStorage.setItem(STORAGE_KEYS.HAS_REWRITTEN, '1');
     const props = makeProps();
     render(<RewriteTab {...props} />);
@@ -202,6 +204,22 @@ describe('RewriteTab', () => {
     const textarea = screen.getByPlaceholderText(/Paste your lyrics/);
 
     // Sample prompt should appear after the textarea in the DOM
+    expect(sampleText.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  });
+
+  it('shows "Or try a sample" when server reports existing songs (cross-browser)', async () => {
+    // No localStorage set, but the server returns songs for this profile
+    vi.mocked(api.listSongs).mockResolvedValueOnce([{ id: 1 }] as never);
+    const props = makeProps();
+    render(<RewriteTab {...props} />);
+
+    // After the async listSongs resolves, the UI should switch to returning-user mode
+    await waitFor(() => {
+      expect(screen.getByText(/Or try a sample/)).toBeInTheDocument();
+    });
+
+    const sampleText = screen.getByText(/Or try a sample/);
+    const textarea = screen.getByPlaceholderText(/Paste your lyrics/);
     expect(sampleText.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
   });
 });
