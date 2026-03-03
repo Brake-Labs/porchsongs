@@ -1,5 +1,6 @@
 """Tests for llm_service pure functions (no LLM calls)."""
 
+from typing import Any
 from types import SimpleNamespace
 
 from app.services.llm_service import (
@@ -76,17 +77,18 @@ def test_build_chat_kwargs_system_prompt() -> None:
         {"role": "user", "content": "make it sadder"},
         {"role": "assistant", "content": "ok"},
     ]
-    kwargs = _build_chat_kwargs(song, messages, "openai", "gpt-4o")
+    kwargs = _build_chat_kwargs(song, messages, "openai", "gpt-4o")  # type: ignore[arg-type]
 
-    system_msg = kwargs["messages"][0]  # type: ignore[index]
-    assert system_msg["role"] == "system"  # type: ignore[index]
-    assert "ORIGINAL SONG" in system_msg["content"]  # type: ignore[index]
-    assert song.original_content in system_msg["content"]  # type: ignore[index]
-    assert "EDITED SONG" not in system_msg["content"]  # type: ignore[index]
+    llm_messages: list[dict[str, Any]] = kwargs["messages"]
+    system_msg = llm_messages[0]
+    assert system_msg["role"] == "system"
+    assert "ORIGINAL SONG" in system_msg["content"]
+    assert song.original_content in system_msg["content"]
+    assert "EDITED SONG" not in system_msg["content"]
 
     # User/assistant messages passed through unchanged
-    assert kwargs["messages"][1] == {"role": "user", "content": "make it sadder"}  # type: ignore[index]
-    assert kwargs["messages"][2] == {"role": "assistant", "content": "ok"}  # type: ignore[index]
+    assert llm_messages[1] == {"role": "user", "content": "make it sadder"}
+    assert llm_messages[2] == {"role": "assistant", "content": "ok"}
 
 
 def test_build_chat_kwargs_reasoning_effort_off() -> None:
@@ -96,7 +98,7 @@ def test_build_chat_kwargs_reasoning_effort_off() -> None:
         rewritten_content="G  Am\nHello changed world",
     )
     messages = [{"role": "user", "content": "make it sadder"}]
-    kwargs = _build_chat_kwargs(song, messages, "openai", "gpt-4o", reasoning_effort="off")
+    kwargs = _build_chat_kwargs(song, messages, "openai", "gpt-4o", reasoning_effort="off")  # type: ignore[arg-type]
     assert kwargs["reasoning_effort"] == "off"
 
 
@@ -107,7 +109,7 @@ def test_build_chat_kwargs_reasoning_effort_high() -> None:
         rewritten_content="G  Am\nHello changed world",
     )
     messages = [{"role": "user", "content": "make it sadder"}]
-    kwargs = _build_chat_kwargs(song, messages, "openai", "gpt-4o", reasoning_effort="high")
+    kwargs = _build_chat_kwargs(song, messages, "openai", "gpt-4o", reasoning_effort="high")  # type: ignore[arg-type]
     assert kwargs["reasoning_effort"] == "high"
 
 
@@ -130,6 +132,7 @@ def test_parse_chat_with_xml_tags() -> None:
     raw = "<content>\nHello world\nSecond line\n</content>\nI changed the first word."
     result = _parse_chat_response(raw)
     assert result["content"] == "Hello world\nSecond line"
+    assert result["explanation"] is not None
     assert "changed" in result["explanation"]
 
 

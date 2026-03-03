@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 from typing import TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -70,7 +70,7 @@ def _format_llm_error(e: Exception, provider: str | None = None) -> str:
 T = TypeVar("T")
 
 
-async def _cancellable(request: Request, coro: asyncio.Future[T]) -> T:
+async def _cancellable(request: Request, coro: Awaitable[T]) -> T:
     """Run *coro* but cancel it if the client disconnects."""
     task = asyncio.ensure_future(coro)
 
