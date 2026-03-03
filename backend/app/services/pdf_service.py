@@ -21,7 +21,7 @@ def _sanitize_for_latin1(text: str) -> str:
     return text.encode("latin-1", errors="replace").decode("latin-1")
 
 
-def generate_song_pdf(title: str, artist: str | None, content: str) -> bytes:
+def generate_song_pdf(title: str | None, artist: str | None, content: str) -> bytes:
     """Generate a PDF for a song with monospace content to preserve chord alignment."""
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_auto_page_break(auto=True, margin=15)

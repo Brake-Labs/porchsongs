@@ -3,21 +3,20 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from any_llm import LLMProvider, acompletion, alist_models
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
-
     from any_llm.types.completion import ChatCompletion, ChatCompletionChunk
 
     from ..models import Song
+    from ..schemas import ProviderInfo
 
 
-def _get_content(response: ChatCompletion | Iterator[ChatCompletionChunk]) -> str:
+def _get_content(response: ChatCompletion) -> str:
     """Extract text content from a completion response, raising on empty."""
-    content = response.choices[0].message.content  # type: ignore[union-attr]
+    content = response.choices[0].message.content
     if content is None:
         raise ValueError("LLM returned empty response")
     return content
@@ -128,10 +127,12 @@ def is_platform_enabled() -> bool:
     return bool(os.getenv("ANY_LLM_KEY"))
 
 
-def get_configured_providers() -> list[dict[str, object]]:
+def get_configured_providers() -> list[ProviderInfo]:
     """Return all known providers. Actual validation happens when listing models."""
+    from ..schemas import ProviderInfo
+
     return [
-        {"name": p.value, "local": p.value in _LOCAL_PROVIDERS}
+        ProviderInfo(name=p.value, local=p.value in _LOCAL_PROVIDERS)
         for p in LLMProvider
         if p.value not in _HIDDEN_PROVIDERS
     ]
@@ -139,7 +140,7 @@ def get_configured_providers() -> list[dict[str, object]]:
 
 async def get_models(provider: str, api_base: str | None = None) -> list[str]:
     """Fetch available models for a provider using env-var credentials."""
-    kwargs: dict[str, str] = {"provider": provider}
+    kwargs: dict[str, Any] = {"provider": provider}
     if api_base:
         kwargs["api_base"] = api_base
     raw = await alist_models(**kwargs)
@@ -156,14 +157,14 @@ def _build_parse_kwargs(
     system_prompt: str | None = None,
     max_tokens: int | None = None,
     api_key: str | None = None,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Build the common kwargs dict for parse LLM calls."""
     user_text = "Clean up this pasted input. Identify the title and artist."
     if instruction:
         user_text += f"\n\nUSER INSTRUCTIONS:\n{instruction}"
     user_text += f"\n\nPASTED INPUT:\n{content}"
 
-    kwargs: dict[str, object] = {
+    kwargs: dict[str, Any] = {
         "model": model,
         "provider": provider,
         "messages": [
@@ -187,7 +188,7 @@ def _build_parse_kwargs(
 
 def _get_reasoning(response: ChatCompletion) -> str | None:
     """Extract reasoning content from a completion response, if present."""
-    msg = response.choices[0].message  # type: ignore[union-attr]
+    msg = response.choices[0].message
     reasoning = getattr(msg, "reasoning", None)
     if reasoning is not None:
         reasoning_content = getattr(reasoning, "content", None)
@@ -206,10 +207,10 @@ async def parse_content(
     system_prompt: str | None = None,
     max_tokens: int | None = None,
     api_key: str | None = None,
-) -> dict[str, str | None]:
+) -> dict[str, Any]:
     """Clean up raw pasted content and identify title/artist (non-streaming).
 
-    Returns dict with: original_content, title, artist, reasoning
+    Returns dict with: original_content, title, artist, reasoning, usage
     """
     kwargs = _build_parse_kwargs(
         content,
@@ -222,7 +223,7 @@ async def parse_content(
         max_tokens,
         api_key,
     )
-    clean_response = await acompletion(**kwargs)
+    clean_response = cast("ChatCompletion", await acompletion(**kwargs))
     clean_result = _parse_clean_response(_get_content(clean_response), content)
     reasoning = _get_reasoning(clean_response)
     usage = _get_usage(clean_response)
@@ -264,14 +265,14 @@ async def parse_content_stream(
     )
     if provider == "openai":
         kwargs["stream_options"] = {"include_usage": True}
-    response = await acompletion(stream=True, **kwargs)
+    response = cast("AsyncIterator[ChatCompletionChunk]", await acompletion(stream=True, **kwargs))
 
     import json
 
     async for chunk in response:
-        if not chunk.choices:  # type: ignore[union-attr]
+        if not chunk.choices:
             continue
-        delta = chunk.choices[0].delta  # type: ignore[union-attr]
+        delta = chunk.choices[0].delta
         if delta:
             reasoning = getattr(delta, "reasoning", None)
             if reasoning is not None:
@@ -378,12 +379,12 @@ def _build_chat_kwargs(
     system_prompt: str | None = None,
     max_tokens: int | None = None,
     api_key: str | None = None,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Build the common kwargs dict for chat LLM calls."""
     system_content = system_prompt or CHAT_SYSTEM_PROMPT
     system_content += "\n\nORIGINAL SONG:\n" + song.original_content
 
-    llm_messages: list[dict[str, object]] = [{"role": "system", "content": system_content}]
+    llm_messages: list[dict[str, Any]] = [{"role": "system", "content": system_content}]
     for msg in messages:
         content = msg["content"]
         # Skip messages with empty content - LLM providers reject them.
@@ -393,7 +394,7 @@ def _build_chat_kwargs(
             continue
         llm_messages.append({"role": msg["role"], "content": content})
 
-    kwargs: dict[str, object] = {
+    kwargs: dict[str, Any] = {
         "model": model,
         "provider": provider,
         "messages": llm_messages,
@@ -422,7 +423,7 @@ async def chat_edit_content(
     system_prompt: str | None = None,
     max_tokens: int | None = None,
     api_key: str | None = None,
-) -> dict[str, str | None]:
+) -> dict[str, Any]:
     """Process a chat-based content edit (non-streaming).
 
     Builds system context with original + current content and the conversation history,
@@ -442,7 +443,7 @@ async def chat_edit_content(
         max_tokens,
         api_key,
     )
-    response = await acompletion(**kwargs)
+    response = cast("ChatCompletion", await acompletion(**kwargs))
 
     raw_response = _get_content(response)
     parsed = _parse_chat_response(raw_response)
@@ -491,14 +492,14 @@ async def chat_edit_content_stream(
     )
     if provider == "openai":
         kwargs["stream_options"] = {"include_usage": True}
-    response = await acompletion(stream=True, **kwargs)
+    response = cast("AsyncIterator[ChatCompletionChunk]", await acompletion(stream=True, **kwargs))
 
     import json
 
     async for chunk in response:
-        if not chunk.choices:  # type: ignore[union-attr]
+        if not chunk.choices:
             continue
-        delta = chunk.choices[0].delta  # type: ignore[union-attr]
+        delta = chunk.choices[0].delta
         if delta:
             reasoning = getattr(delta, "reasoning", None)
             if reasoning is not None:

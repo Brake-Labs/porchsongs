@@ -79,7 +79,7 @@ class CacheHeadersMiddleware:
         await self.app(scope, receive, send_with_cache)
 
 
-app.add_middleware(CacheHeadersMiddleware)
+app.add_middleware(CacheHeadersMiddleware)  # type: ignore[arg-type]
 
 # Serve the React build output (frontend/dist) if it exists, otherwise serve frontend/ directly.
 frontend_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"

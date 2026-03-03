@@ -38,8 +38,9 @@ def test_song_has_uuid_on_create(client: TestClient) -> None:
     assert "uuid" in song
     assert song["uuid"] is not None
     # Validate it's a proper UUID format
-    parsed = uuid.UUID(song["uuid"])
-    assert str(parsed) == song["uuid"]
+    song_uuid = str(song["uuid"])
+    parsed = uuid.UUID(song_uuid)
+    assert str(parsed) == song_uuid
 
 
 def test_each_song_gets_unique_uuid(client: TestClient) -> None:

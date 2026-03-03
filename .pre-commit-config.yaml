@@ -20,6 +20,13 @@ repos:
 
   - repo: local
     hooks:
+      - id: ty
+        name: ty type check
+        language: system
+        entry: uv run ty check
+        pass_filenames: false
+        files: ^backend/.*\.py$
+
       - id: openapi-types
         name: openapi types freshness
         language: system
