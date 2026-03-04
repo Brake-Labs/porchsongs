@@ -16,3 +16,7 @@ export function renderPremiumSettingsTab(_key: string): ReactNode {
 export function showOssSettingsTabs(_isPremium: boolean): boolean {
   return true;
 }
+
+export function shouldShowAbcModelSelector(_isPremium: boolean, _isAdmin: boolean): boolean {
+  return true;
+}
