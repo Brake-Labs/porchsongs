@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Hover styles only on devices that support hover (prevents sticky hover on touch) */
+@custom-variant can-hover (@media (hover: hover));
+
 @theme {
   --color-background: #fafafa;
   --color-card: #ffffff;
@@ -65,6 +68,24 @@
 @layer base {
   html {
     overflow-x: hidden;
+  }
+
+  /* Prevent iOS Safari auto-zoom on input focus (requires font-size >= 16px) */
+  @media screen and (max-width: 767px) {
+    input,
+    select,
+    textarea {
+      font-size: 16px;
+    }
+  }
+
+  /* Prevent double-tap-to-zoom on interactive elements (iOS Safari) */
+  button,
+  input,
+  select,
+  textarea,
+  a {
+    touch-action: manipulation;
   }
 
   html[data-theme="dark"] {

@@ -46,7 +46,7 @@ function ChatMessageBubble({ msg, isStreaming }: { msg: ChatMessage; isStreaming
         <>
           <Button
             variant="link-inline"
-            className="block mb-1.5 text-xs opacity-80 hover:opacity-100"
+            className="block mb-1.5 text-xs opacity-80 can-hover:hover:opacity-100"
             onClick={() => setThinkingExpanded(prev => !prev)}
           >
             {thinkingExpanded ? 'Hide thinking' : 'Show thinking'}
@@ -75,7 +75,7 @@ function ChatMessageBubble({ msg, isStreaming }: { msg: ChatMessage; isStreaming
       {hasRaw && !isStreaming && (
         <Button
           variant="link-inline"
-          className="block mt-1.5 text-xs opacity-80 hover:opacity-100"
+          className="block mt-1.5 text-xs opacity-80 can-hover:hover:opacity-100"
           onClick={() => setExpanded(prev => !prev)}
         >
           {expanded ? 'Show summary' : 'Show full response'}
@@ -112,7 +112,7 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
   const [images, setImages] = useState<AttachedImage[]>([]);
   const [dragging, setDragging] = useState(false);
   const dragCounterRef = useRef(0);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const processFiles = useCallback(async (files: FileList | File[]) => {
@@ -185,8 +185,12 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
     setImages(prev => prev.filter((_, i) => i !== index));
   }, []);
 
+  // Use scrollTop instead of scrollIntoView to avoid iOS Safari viewport zoom bug
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = scrollContainerRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [messages, reasoningText]);
 
   // Abort any in-flight request on unmount
@@ -390,7 +394,7 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
           Chat history limit reached ({MAX_MESSAGES} messages). Older messages will be dropped.
         </div>
       )}
-      <div className={cn('flex-1 overflow-y-auto p-4 flex flex-col gap-2', flat && 'md:bg-panel md:shadow-[inset_0_1px_4px_rgba(0,0,0,0.04)] md:rounded-md')}>
+      <div ref={scrollContainerRef} className={cn('flex-1 overflow-y-auto p-4 flex flex-col gap-2', flat && 'md:bg-panel md:shadow-[inset_0_1px_4px_rgba(0,0,0,0.04)] md:rounded-md')}>
         {messages.map((msg, i) => (
           <div key={i} className={cn('flex flex-col', msg.role === 'user' ? 'items-end' : 'items-start')}>
             <ChatMessageBubble msg={msg} isStreaming={streaming && i === messages.length - 1} />
@@ -423,7 +427,6 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
             )}
           </div>
         )}
-        <div ref={messagesEndRef} />
       </div>
       {(tokenUsage.input_tokens > 0 || tokenUsage.output_tokens > 0) && (
         <div className="px-4 py-1.5 border-t border-border text-xs text-muted-foreground flex justify-between">
@@ -441,7 +444,7 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
             <div key={idx} className="relative group">
               <img src={img.dataUrl} alt={img.name} className="h-12 w-12 rounded object-cover border border-border" />
               <button
-                className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-danger text-white text-[10px] leading-none flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-danger text-white text-[10px] leading-none flex items-center justify-center opacity-0 can-hover:group-hover:opacity-100 transition-opacity"
                 onClick={() => removeImage(idx)}
                 aria-label={`Remove ${img.name}`}
               >

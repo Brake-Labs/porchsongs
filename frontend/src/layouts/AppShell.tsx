@@ -109,6 +109,16 @@ export default function AppShell() {
 
   const llmSettings = { provider, model, reasoning_effort: reasoningEffort };
 
+  // Prevent iOS Safari auto-zoom on input focus.
+  // Since iOS 10, maximum-scale=1 only blocks automatic zoom (not user pinch-zoom).
+  useEffect(() => {
+    if (!/iPhone|iPad|iPod/.test(navigator.userAgent)) return;
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+    if (meta && !meta.content.includes('maximum-scale')) {
+      meta.setAttribute('content', meta.content + ', maximum-scale=1');
+    }
+  }, []);
+
   // Load profile on mount; auto-create if none exist
   const loadProfile = useCallback(() => {
     setProfileError(false);

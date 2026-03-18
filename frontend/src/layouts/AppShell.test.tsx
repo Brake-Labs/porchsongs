@@ -92,4 +92,31 @@ describe('AppShell layout', () => {
     expect(link).toHaveAttribute('href');
     expect(link).toHaveAttribute('target', '_blank');
   });
+
+  it('sets maximum-scale=1 on iOS to prevent auto-zoom', () => {
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+    if (!meta) {
+      const m = document.createElement('meta');
+      m.name = 'viewport';
+      m.content = 'width=device-width, initial-scale=1.0';
+      document.head.appendChild(m);
+    }
+
+    // Simulate iOS user agent
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)',
+      configurable: true,
+    });
+
+    renderWithRouter(<AppShell />, { route: '/app/rewrite' });
+
+    const viewport = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+    expect(viewport?.content).toContain('maximum-scale=1');
+
+    // Restore user agent
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (X11; Linux x86_64)',
+      configurable: true,
+    });
+  });
 });

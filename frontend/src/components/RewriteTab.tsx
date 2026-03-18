@@ -350,7 +350,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     }
   }, [currentSongUuid, rewriteResult]);
 
-  const editableInputClass = 'bg-transparent border-0 border-b border-transparent hover:border-dashed hover:border-border focus:border-solid focus:border-primary p-0 pb-px min-w-0 w-full focus:outline-none cursor-text transition-colors';
+  const editableInputClass = 'bg-transparent border-0 border-b border-transparent can-hover:hover:border-dashed can-hover:hover:border-border focus:border-solid focus:border-primary p-0 pb-px min-w-0 w-full focus:outline-none cursor-text transition-colors';
 
   const compactTitleArtist = (withBlur?: boolean) => (
     <div className="flex flex-col gap-0.5 flex-1 min-w-0 max-w-sm">
@@ -512,7 +512,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    className="text-danger hover:!bg-danger-light"
+                    className="text-danger can-hover:hover:!bg-danger-light"
                     disabled={!currentSongUuid}
                     onClick={() => setScrapDialogOpen(true)}
                   >
@@ -560,7 +560,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                       {i > 0 && ' · '}
                       <button
                         type="button"
-                        className="text-primary font-medium underline hover:opacity-80 cursor-pointer"
+                        className="text-primary font-medium underline can-hover:hover:opacity-80 cursor-pointer"
                         onClick={() => handleLoadSample(s)}
                       >
                         {s.title}
@@ -614,7 +614,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                       {i > 0 && ' · '}
                       <button
                         type="button"
-                        className="text-primary underline hover:opacity-80 cursor-pointer"
+                        className="text-primary underline can-hover:hover:opacity-80 cursor-pointer"
                         onClick={() => handleLoadSample(s)}
                       >
                         {s.title}
@@ -689,7 +689,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                     <>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
-                        className="text-danger hover:!bg-danger-light"
+                        className="text-danger can-hover:hover:!bg-danger-light"
                         disabled={!currentSongUuid}
                         onClick={() => setScrapDialogOpen(true)}
                       >
@@ -743,7 +743,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                           <>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
-                              className="text-danger hover:!bg-danger-light"
+                              className="text-danger can-hover:hover:!bg-danger-light"
                               disabled={!currentSongUuid}
                               onClick={() => setScrapDialogOpen(true)}
                             >
@@ -765,7 +765,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                   )}
                   <div className="flex-1 min-h-[200px] bg-card shadow-[inset_0_1px_4px_rgba(0,0,0,0.04)] rounded-sm">
                     <Textarea
-                      className="h-full border-0 bg-transparent p-3 sm:p-4 font-mono text-xs sm:text-code leading-relaxed resize-none focus-visible:ring-0"
+                      className="h-full min-h-[50vh] md:min-h-0 border-0 bg-transparent p-3 sm:p-4 font-mono text-xs sm:text-code leading-relaxed resize-none focus-visible:ring-0"
                       value={parsedContent}
                       onChange={e => setParsedContent(e.target.value)}
                     />

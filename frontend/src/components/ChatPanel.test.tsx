@@ -83,6 +83,20 @@ describe('ChatPanel', () => {
     expect(imgs).toHaveLength(2);
   });
 
+  it('auto-scrolls via scrollTop instead of scrollIntoView', () => {
+    const messages: ChatMessage[] = [
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Hi there' },
+    ];
+    const { container } = render(<ChatPanel {...defaults} messages={messages} />);
+    // The scroll container should exist and not contain a messagesEnd sentinel div
+    const scrollContainer = container.querySelector('.overflow-y-auto');
+    expect(scrollContainer).toBeInTheDocument();
+    // Verify no scrollIntoView sentinel element (the old messagesEndRef div)
+    const lastChild = scrollContainer!.lastElementChild;
+    expect(lastChild).not.toBeEmptyDOMElement();
+  });
+
   it('rejects images larger than 5 MB with a toast error', async () => {
     render(<ChatPanel {...defaults} />);
     const input = screen.getByPlaceholderText(/Tell the AI/);
