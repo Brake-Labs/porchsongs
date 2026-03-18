@@ -1,9 +1,9 @@
-"""fix redundant unique index on refresh_tokens.token
+"""fix redundant unique constraint on refresh_tokens.token
 
-The initial migration created both a UNIQUE column constraint (in CREATE TABLE)
-and a UNIQUE INDEX on refresh_tokens.token. In PostgreSQL these are separate
-objects, and alembic check flags the redundancy. Drop the unique index and
-recreate as non-unique since the column constraint already enforces uniqueness.
+The initial migration created both a column-level UNIQUE constraint (in CREATE
+TABLE) and a UNIQUE INDEX (ix_refresh_tokens_token) on refresh_tokens.token.
+In PostgreSQL these produce two separate objects. The SQLAlchemy model only
+expects the unique index, so drop the redundant column-level constraint.
 
 Revision ID: 003
 Revises: 002
@@ -23,10 +23,8 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.drop_index("ix_refresh_tokens_token", table_name="refresh_tokens")
-    op.create_index("ix_refresh_tokens_token", "refresh_tokens", ["token"])
+    op.drop_constraint("refresh_tokens_token_key", "refresh_tokens", type_="unique")
 
 
 def downgrade() -> None:
-    op.drop_index("ix_refresh_tokens_token", table_name="refresh_tokens")
-    op.create_index("ix_refresh_tokens_token", "refresh_tokens", ["token"], unique=True)
+    op.create_unique_constraint("refresh_tokens_token_key", "refresh_tokens", ["token"])
