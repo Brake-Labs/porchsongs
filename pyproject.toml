@@ -11,7 +11,7 @@ dependencies = [
     "pydantic-settings==2.7.1",
     "python-dotenv==1.0.1",
     "requests==2.32.3",
-    "any-llm-sdk[all]>=1.8.6",
+    "any-llm-sdk[all]>=1.12.0",
     "fpdf2>=2.8.0",
     "psycopg2-binary>=2.9.9",
     "alembic>=1.14.0",
