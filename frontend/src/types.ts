@@ -69,4 +69,5 @@ export interface AuthConfig {
   require_invite_code?: boolean;
   magic_link_enabled?: boolean;
   github_oauth_enabled?: boolean;
+  open_signup?: boolean;
 }
