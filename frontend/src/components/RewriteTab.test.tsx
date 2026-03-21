@@ -207,6 +207,66 @@ describe('RewriteTab', () => {
     expect(sampleText.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
   });
 
+  it('shows paste-from-clipboard button when input is empty', () => {
+    const props = makeProps();
+    render(<RewriteTab {...props} />);
+
+    const pasteBtn = screen.getByRole('button', { name: 'Paste from clipboard' });
+    expect(pasteBtn).toBeInTheDocument();
+    // Should have md:hidden class for mobile-only visibility
+    expect(pasteBtn.className).toContain('md:hidden');
+  });
+
+  it('hides paste-from-clipboard button after text is entered', () => {
+    const props = makeProps();
+    render(<RewriteTab {...props} />);
+
+    expect(screen.getByRole('button', { name: 'Paste from clipboard' })).toBeInTheDocument();
+
+    const textarea = screen.getByPlaceholderText(/Paste your lyrics/);
+    fireEvent.change(textarea, { target: { value: 'Some lyrics' } });
+
+    expect(screen.queryByRole('button', { name: 'Paste from clipboard' })).not.toBeInTheDocument();
+  });
+
+  it('reads clipboard content when paste button is clicked', async () => {
+    const clipboardText = '[G]Amazing [C]Grace how [D]sweet the [G]sound';
+    Object.assign(navigator, {
+      clipboard: { readText: vi.fn().mockResolvedValue(clipboardText) },
+    });
+
+    const props = makeProps();
+    render(<RewriteTab {...props} />);
+
+    const pasteBtn = screen.getByRole('button', { name: 'Paste from clipboard' });
+    fireEvent.click(pasteBtn);
+
+    await waitFor(() => {
+      const textarea = screen.getByPlaceholderText(/Paste your lyrics/) as HTMLTextAreaElement;
+      expect(textarea.value).toBe(clipboardText);
+    });
+
+    // Button should disappear after pasting
+    expect(screen.queryByRole('button', { name: 'Paste from clipboard' })).not.toBeInTheDocument();
+  });
+
+  it('silently handles clipboard access denial', async () => {
+    Object.assign(navigator, {
+      clipboard: { readText: vi.fn().mockRejectedValue(new DOMException('Denied')) },
+    });
+
+    const props = makeProps();
+    render(<RewriteTab {...props} />);
+
+    const pasteBtn = screen.getByRole('button', { name: 'Paste from clipboard' });
+    fireEvent.click(pasteBtn);
+
+    // Should not throw; button should still be visible (input still empty)
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Paste from clipboard' })).toBeInTheDocument();
+    });
+  });
+
   it('shows "Or try a sample" when server reports existing songs (cross-browser)', async () => {
     // No localStorage set, but the server returns songs for this profile
     vi.mocked(api.listSongs).mockResolvedValueOnce([{ id: 1 }] as never);
