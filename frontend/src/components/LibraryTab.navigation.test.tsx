@@ -50,6 +50,7 @@ const stubContext: AppShellContext = {
   onNewRewrite: vi.fn(),
   onSongSaved: vi.fn(),
   onContentUpdated: vi.fn(),
+  onOriginalContentUpdated: vi.fn(),
   onChangeProvider: vi.fn(),
   onChangeModel: vi.fn(),
   reasoningEffort: 'high',

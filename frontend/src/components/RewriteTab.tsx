@@ -45,6 +45,7 @@ interface RewriteTabProps {
   onNewRewrite: (result: RewriteResult | null, meta: RewriteMeta | null) => void;
   onSongSaved: (song: Song) => void;
   onContentUpdated: (content: string) => void;
+  onOriginalContentUpdated: (content: string) => void;
   onChangeProvider: (provider: string) => void;
   onChangeModel: (model: string) => void;
   reasoningEffort: string;
@@ -69,6 +70,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     onNewRewrite,
     onSongSaved,
     onContentUpdated,
+    onOriginalContentUpdated: onOriginalContentUpdatedCtx,
     onChangeProvider,
     onChangeModel,
     reasoningEffort,
@@ -336,18 +338,17 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     if (!rewriteResult && parseResult) {
       // PARSED state: update the editable parsed content
       setParsedContent(newOriginal);
-    } else if (rewriteResult) {
-      // WORKSHOPPING state: update the original in the rewrite result
-      onNewRewrite(
-        { ...rewriteResult, original_content: newOriginal },
-        rewriteMeta,
-      );
+    } else {
+      // WORKSHOPPING state: use functional updater to avoid stale closure.
+      // Spreading rewriteResult here would clobber concurrent rewritten_content
+      // updates from onContentUpdated (issue #165).
+      onOriginalContentUpdatedCtx(newOriginal);
     }
     // Persist to DB
     if (currentSongUuid) {
       api.updateSong(currentSongUuid, { original_content: newOriginal } as Partial<Song>).catch(() => {});
     }
-  }, [rewriteResult, parseResult, rewriteMeta, currentSongUuid, onNewRewrite]);
+  }, [rewriteResult, parseResult, currentSongUuid, onOriginalContentUpdatedCtx]);
 
   const handleRewrittenChange = useCallback((newText: string) => {
     onContentUpdated(newText);

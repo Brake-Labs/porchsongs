@@ -45,6 +45,7 @@ export interface AppShellContext {
   onNewRewrite: (result: RewriteResult | null, meta: RewriteMeta | null) => void;
   onSongSaved: (song: Song) => void;
   onContentUpdated: (content: string) => void;
+  onOriginalContentUpdated: (content: string) => void;
   onChangeProvider: (provider: string) => void;
   onChangeModel: (model: string) => void;
   reasoningEffort: string;
@@ -199,6 +200,10 @@ export default function AppShell() {
     setRewriteResult(prev => prev ? { ...prev, rewritten_content: newContent } : prev);
   }, []);
 
+  const handleOriginalUpdated = useCallback((newOriginal: string) => {
+    setRewriteResult(prev => prev ? { ...prev, original_content: newOriginal } : prev);
+  }, []);
+
   const handleLoadSong = useCallback(async (song: Song) => {
     setRewriteResult({
       original_content: song.original_content,
@@ -267,6 +272,7 @@ export default function AppShell() {
     onNewRewrite: handleNewRewrite,
     onSongSaved: handleSongSaved,
     onContentUpdated: handleContentUpdated,
+    onOriginalContentUpdated: handleOriginalUpdated,
     onChangeProvider: setProvider,
     onChangeModel: setModel,
     reasoningEffort,

@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import RewriteTab from '@/components/RewriteTab';
 import type { AppShellContext } from '@/layouts/AppShell';
 import type { ChatMessage, SavedModel } from '@/types';
@@ -15,6 +15,7 @@ vi.mock('@/api', () => ({
   default: {
     parseStream: vi.fn(),
     listSongs: vi.fn().mockResolvedValue([]),
+    updateSong: vi.fn().mockResolvedValue({}),
   },
   STORAGE_KEYS: {
     DRAFT_INPUT: 'test_draft_input',
@@ -25,11 +26,13 @@ vi.mock('@/api', () => ({
   },
 }));
 
-// Mock heavy child components to isolate RewriteTab layout tests
+// Capture ChatPanel props so tests can invoke the callbacks RewriteTab passes in
+let capturedChatPanelProps: Record<string, unknown> = {};
 vi.mock('@/components/ChatPanel', () => ({
-  default: ({ headerRight }: { headerRight?: React.ReactNode }) => (
-    <div data-testid="chat-panel">{headerRight}</div>
-  ),
+  default: (props: Record<string, unknown>) => {
+    capturedChatPanelProps = props;
+    return <div data-testid="chat-panel">{props.headerRight as React.ReactNode}</div>;
+  },
 }));
 vi.mock('@/components/ComparisonView', () => ({ default: () => <div data-testid="comparison-view" /> }));
 vi.mock('@/components/ui/resizable-columns', () => ({
@@ -55,6 +58,7 @@ function makeProps(overrides: Partial<AppShellContext> = {}): AppShellContext {
     onNewRewrite: vi.fn(),
     onSongSaved: vi.fn(),
     onContentUpdated: vi.fn(),
+    onOriginalContentUpdated: vi.fn(),
     onChangeProvider: vi.fn(),
     onChangeModel: vi.fn(),
     reasoningEffort: 'high',
@@ -287,5 +291,46 @@ describe('RewriteTab', () => {
     const sampleText = screen.getByText(/Or try a sample/);
     const textarea = screen.getByPlaceholderText(/Paste your lyrics/);
     expect(sampleText.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  });
+
+  it('does not revert rewritten content when original content is updated in the same batch (issue #165)', () => {
+    // Setup: workshopping state with known content
+    const onNewRewrite = vi.fn();
+    const onContentUpdated = vi.fn();
+
+    render(<RewriteTab {...makeProps({
+      rewriteResult: {
+        original_content: 'original lyrics',
+        rewritten_content: 'old rewritten lyrics',
+        changes_summary: 'Initial',
+      },
+      rewriteMeta: { title: 'Test', artist: 'Artist' },
+      currentSongId: 42,
+      currentSongUuid: 'test-uuid-42',
+      onNewRewrite,
+      onContentUpdated,
+    })} />);
+
+    // Simulate what ChatPanel does after streaming a response that contains
+    // both <content> and <original_song> tags. ChatPanel calls onContentUpdated
+    // first, then onOriginalContentUpdated (see ChatPanel.tsx lines 354-358).
+    const chatOnContent = capturedChatPanelProps.onContentUpdated as (s: string) => void;
+    const chatOnOriginal = capturedChatPanelProps.onOriginalContentUpdated as (s: string) => void;
+
+    act(() => {
+      chatOnContent('NEW rewritten lyrics');
+      chatOnOriginal('NEW original lyrics');
+    });
+
+    // The original content update must NOT clobber the new rewritten content.
+    // Bug: handleOriginalContentUpdated spreads a stale rewriteResult closure
+    // that still has 'old rewritten lyrics', overwriting the update from
+    // onContentUpdated.
+    for (const call of onNewRewrite.mock.calls) {
+      const result = call[0] as { rewritten_content: string } | null;
+      if (result !== null) {
+        expect(result.rewritten_content).not.toBe('old rewritten lyrics');
+      }
+    }
   });
 });
