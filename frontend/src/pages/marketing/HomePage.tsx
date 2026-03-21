@@ -20,7 +20,7 @@ export default function HomePage() {
           }}
         />
         <div className="relative">
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold mb-5 text-foreground tracking-tight">
+          <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-normal mb-5 text-foreground tracking-tight">
             Make every song yours
           </h1>
           <p className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto mb-4 leading-relaxed">
@@ -48,7 +48,7 @@ export default function HomePage() {
 
       {/* Feature cards */}
       <section className="py-14 px-4 bg-panel">
-        <h2 className="text-2xl font-bold text-center mb-8">How it works</h2>
+        <h2 className="font-display text-3xl font-normal text-center mb-8">How it works</h2>
         <div className="max-w-5xl mx-auto grid sm:grid-cols-3 gap-6">
           <div className="bg-card border border-border rounded-lg p-6 text-center shadow-sm">
             <div className="w-10 h-10 mx-auto mb-4 rounded-full bg-primary-light flex items-center justify-center text-lg">
@@ -82,7 +82,7 @@ export default function HomePage() {
 
       {/* Demo video */}
       <section className="py-14 sm:py-20 px-4 text-center">
-        <h2 className="text-2xl font-bold mb-8">See it in action</h2>
+        <h2 className="font-display text-3xl font-normal mb-8">See it in action</h2>
         <div className="max-w-4xl mx-auto">
           <video
             src="/porchsongs-demo.mp4"
