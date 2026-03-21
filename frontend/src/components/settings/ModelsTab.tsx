@@ -64,6 +64,8 @@ export default function ModelsTab({
         <Label>Default Reasoning Effort</Label>
         <p className="text-sm text-muted-foreground mb-2">
           Controls how much effort the LLM spends thinking before responding.
+          Anthropic models use adaptive thinking, where the model dynamically
+          decides when and how deeply to reason.
         </p>
         <Select
           value={reasoningEffort}
@@ -74,6 +76,7 @@ export default function ModelsTab({
           <option value="low">Low</option>
           <option value="medium">Medium</option>
           <option value="high">High</option>
+          <option value="xhigh">Max (Opus only)</option>
         </Select>
       </div>
 

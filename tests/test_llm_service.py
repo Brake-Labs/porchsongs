@@ -125,6 +125,23 @@ def test_build_parse_kwargs_reasoning_effort_low() -> None:
     assert kwargs["reasoning_effort"] == "low"
 
 
+def test_build_chat_kwargs_reasoning_effort_xhigh() -> None:
+    """reasoning_effort='xhigh' should be passed through for adaptive max thinking."""
+    song = SimpleNamespace(
+        original_content="G  Am\nHello world",
+        rewritten_content="G  Am\nHello changed world",
+    )
+    messages: list[dict[str, object]] = [{"role": "user", "content": "make it sadder"}]
+    kwargs = _build_chat_kwargs(song, messages, "anthropic", "claude-opus-4-6", reasoning_effort="xhigh")  # type: ignore[arg-type]
+    assert kwargs["reasoning_effort"] == "xhigh"
+
+
+def test_build_parse_kwargs_reasoning_effort_xhigh() -> None:
+    """reasoning_effort='xhigh' should be passed through for adaptive max thinking."""
+    kwargs = _build_parse_kwargs("some content", "anthropic", "claude-opus-4-6", reasoning_effort="xhigh")
+    assert kwargs["reasoning_effort"] == "xhigh"
+
+
 # --- _parse_chat_response ---
 
 
