@@ -157,6 +157,15 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.userAgent);
   const shortcutHint = `${isMac ? '\u2318' : 'Ctrl'}+Enter to parse`;
 
+  const handlePasteFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) setInput(text);
+    } catch {
+      // Clipboard access denied: user can still tap the textarea to paste manually
+    }
+  };
+
   // State derivation
   const isInput = !loading && !parseResult && !rewriteResult;
   const isParsed = !!parseResult && !rewriteResult;
@@ -568,6 +577,16 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                     </span>
                   ))}
                 </p>
+              )}
+
+              {!input && (
+                <Button
+                  variant="secondary"
+                  className="mb-3 md:hidden"
+                  onClick={handlePasteFromClipboard}
+                >
+                  Paste from clipboard
+                </Button>
               )}
 
               <Textarea
