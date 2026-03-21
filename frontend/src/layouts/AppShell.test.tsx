@@ -40,6 +40,9 @@ vi.mock('@/components/Header', () => ({
 vi.mock('@/components/Tabs', () => ({
   default: () => <div data-testid="tabs">Tabs</div>,
 }));
+vi.mock('@/components/MobileNav', () => ({
+  default: () => <div data-testid="mobile-nav">MobileNav</div>,
+}));
 
 import AppShell from '@/layouts/AppShell';
 
@@ -50,14 +53,17 @@ describe('AppShell layout', () => {
     const header = screen.getByTestId('header');
     const tabs = screen.getByTestId('tabs');
 
-    // Header and tabs should share the same parent wrapper
-    const wrapper = header.parentElement!;
-    expect(wrapper).toBe(tabs.parentElement);
+    // Header is a direct child of the sticky wrapper
+    const stickyWrapper = header.parentElement!;
+    expect(stickyWrapper.className).toContain('sticky');
+    expect(stickyWrapper.className).toContain('top-0');
+    expect(stickyWrapper.className).toContain('z-50');
 
-    // The wrapper must be sticky and positioned at top
-    expect(wrapper.className).toContain('sticky');
-    expect(wrapper.className).toContain('top-0');
-    expect(wrapper.className).toContain('z-50');
+    // Tabs are inside a hidden-on-mobile wrapper within the same sticky container
+    const tabsDesktopWrapper = tabs.parentElement!;
+    expect(tabsDesktopWrapper.className).toContain('hidden');
+    expect(tabsDesktopWrapper.className).toContain('md:block');
+    expect(tabsDesktopWrapper.parentElement).toBe(stickyWrapper);
   });
 
   it('renders footer with GitHub link', () => {

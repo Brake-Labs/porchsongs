@@ -9,16 +9,18 @@ interface HeaderProps {
   authRequired: boolean;
   onLogout: () => void;
   isPremium?: boolean;
+  leftSlot?: React.ReactNode;
 }
 
-export default function Header({ user, authRequired, onLogout, isPremium }: HeaderProps) {
+export default function Header({ user, authRequired, onLogout, isPremium, leftSlot }: HeaderProps) {
   const wakeLock = useWakeLock();
   const { resolved: currentTheme, toggle: toggleTheme } = useTheme();
   const logoTo = isPremium ? '/' : '/app/rewrite';
 
   return (
     <header className="flex justify-between items-center px-3 sm:px-8 py-2 sm:py-2.5 bg-linear-to-r from-header-bg-from to-header-bg-to text-header-text border-b border-header-border">
-      <div className="flex items-baseline gap-0 min-w-0">
+      <div className="flex items-center gap-0 min-w-0">
+        {leftSlot}
         <Link
           className="flex items-baseline gap-0 no-underline text-inherit cursor-pointer shrink-0"
           to={logoTo}

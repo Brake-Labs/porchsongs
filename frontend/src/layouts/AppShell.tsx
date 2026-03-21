@@ -8,6 +8,7 @@ import useProviderConnections from '@/hooks/useProviderConnections';
 import useSavedModels from '@/hooks/useSavedModels';
 import Header from '@/components/Header';
 import Tabs from '@/components/Tabs';
+import MobileNav from '@/components/MobileNav';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { getFeatureRequestUrl, getReportIssueUrl } from '@/extensions';
@@ -301,8 +302,11 @@ export default function AppShell() {
           authRequired={authConfig?.required ?? false}
           onLogout={handleLogout}
           isPremium={isPremium}
+          leftSlot={<MobileNav />}
         />
-        <Tabs />
+        <div className="hidden md:block">
+          <Tabs />
+        </div>
       </div>
       <main className="flex-1 min-h-0 flex flex-col overflow-y-auto max-w-[1800px] w-full mx-auto px-2 sm:px-4 py-4">
         <Outlet context={ctx} />

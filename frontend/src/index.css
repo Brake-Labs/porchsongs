@@ -54,7 +54,12 @@
 
   --animate-spin: spin 0.8s linear infinite;
   --animate-overlay-in: overlay-in 150ms ease-out;
+  --animate-overlay-out: overlay-out 150ms ease-in;
   --animate-dialog-in: dialog-in 150ms ease-out;
+  --animate-sheet-in-left: sheet-in-left 250ms ease-out;
+  --animate-sheet-out-left: sheet-out-left 200ms ease-in;
+  --animate-sheet-in-right: sheet-in-right 250ms ease-out;
+  --animate-sheet-out-right: sheet-out-right 200ms ease-in;
 }
 
 @keyframes overlay-in {
@@ -62,9 +67,34 @@
   to { opacity: 1; }
 }
 
+@keyframes overlay-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
 @keyframes dialog-in {
   from { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
   to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+@keyframes sheet-in-left {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes sheet-out-left {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+
+@keyframes sheet-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes sheet-out-right {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
 }
 
 @layer base {

@@ -3,7 +3,7 @@ import { Tabs as TabsRoot, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { getDefaultSettingsTab } from '@/extensions';
 
-function buildTabItems(isPremium: boolean) {
+export function buildTabItems(isPremium: boolean) {
   return [
     { key: 'rewrite', path: '/app/rewrite', label: 'Rewrite' },
     { key: 'library', path: '/app/library', label: 'Library' },
@@ -13,7 +13,7 @@ function buildTabItems(isPremium: boolean) {
 
 const MATCH_PREFIXES = ['/app/rewrite', '/app/library', '/app/settings'] as const;
 
-function activeKeyFromPath(pathname: string): string {
+export function activeKeyFromPath(pathname: string): string {
   if (pathname.startsWith(MATCH_PREFIXES[1])) return 'library';
   if (pathname.startsWith(MATCH_PREFIXES[2])) return 'settings';
   return 'rewrite';
