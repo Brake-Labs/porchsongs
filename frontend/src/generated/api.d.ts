@@ -944,6 +944,10 @@ export interface components {
              * @default 0
              */
             output_tokens: number;
+            /** Cache Creation Input Tokens */
+            cache_creation_input_tokens?: number | null;
+            /** Cache Read Input Tokens */
+            cache_read_input_tokens?: number | null;
         };
         /** ValidationError */
         ValidationError: {

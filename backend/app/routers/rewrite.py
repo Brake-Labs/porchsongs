@@ -249,8 +249,12 @@ def _load_chat_messages(
     db: Session,
     song_id: int,
     req_messages: list[ChatMessage],
-) -> list[dict[str, object]]:
-    """Load persisted chat history and append new request messages."""
+) -> tuple[list[dict[str, object]], int]:
+    """Load persisted chat history and append new request messages.
+
+    Returns (all_messages, history_len) where history_len is the count of
+    messages from the database (before the new request messages).
+    """
     history_rows = (
         db.query(ChatMessageModel)
         .filter(ChatMessageModel.song_id == song_id, ChatMessageModel.is_note.is_(False))
@@ -260,7 +264,8 @@ def _load_chat_messages(
     history: list[dict[str, object]] = [
         {"role": row.role, "content": _deserialize_content(row.content)} for row in history_rows
     ]
-    return history + [{"role": m.role, "content": m.content} for m in req_messages]
+    history_len = len(history)
+    return history + [{"role": m.role, "content": m.content} for m in req_messages], history_len
 
 
 def _persist_chat_result(
@@ -324,7 +329,7 @@ async def chat(
     db: Session = Depends(get_db),
 ) -> ChatResponse:
     song = get_user_song(db, current_user, req.song_id)
-    messages = _load_chat_messages(db, song.id, req.messages)
+    messages, history_len = _load_chat_messages(db, song.id, req.messages)
     api_base = _lookup_api_base(db, song.profile_id, req.provider, req.model)
     profile = db.query(Profile).filter(Profile.id == song.profile_id).first()
 
@@ -341,6 +346,7 @@ async def chat(
                 system_prompt=profile.system_prompt_chat if profile else None,
                 max_tokens=req.max_tokens,
                 api_key=req.api_key,
+                history_len=history_len,
             ),
         )
     except HTTPException:
@@ -383,7 +389,7 @@ async def chat_stream(
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
     song = get_user_song(db, current_user, req.song_id)
-    messages = _load_chat_messages(db, song.id, req.messages)
+    messages, history_len = _load_chat_messages(db, song.id, req.messages)
     api_base = _lookup_api_base(db, song.profile_id, req.provider, req.model)
     profile = db.query(Profile).filter(Profile.id == song.profile_id).first()
 
@@ -402,6 +408,7 @@ async def chat_stream(
                 system_prompt=profile.system_prompt_chat if profile else None,
                 max_tokens=req.max_tokens,
                 api_key=req.api_key,
+                history_len=history_len,
             )
             async for kind, text in stream:
                 if await request.is_disconnected():

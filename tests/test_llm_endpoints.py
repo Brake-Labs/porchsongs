@@ -1,4 +1,4 @@
-"""Tests for endpoints that call the LLM, using mocked acompletion/list_models."""
+"""Tests for endpoints that call the LLM, using mocked amessages/list_models."""
 
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -6,14 +6,22 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 
-def _fake_completion_response(content: str) -> MagicMock:
-    """Build a mock object that looks like a ChatCompletion response."""
-    msg = MagicMock()
-    msg.content = content
-    choice = MagicMock()
-    choice.message = msg
+def _fake_message_response(text: str) -> MagicMock:
+    """Build a mock object that looks like a MessageResponse."""
+    text_block = MagicMock()
+    text_block.type = "text"
+    text_block.text = text
+    text_block.thinking = None
+
+    usage = MagicMock()
+    usage.input_tokens = 10
+    usage.output_tokens = 20
+    usage.cache_creation_input_tokens = None
+    usage.cache_read_input_tokens = None
+
     resp = MagicMock()
-    resp.choices = [choice]
+    resp.content = [text_block]
+    resp.usage = usage
     return resp
 
 
@@ -48,8 +56,8 @@ LLM_SETTINGS = {
 # --- POST /api/parse ---
 
 
-@patch("app.services.llm_service.acompletion")
-def test_parse_endpoint(mock_acompletion: MagicMock, client: TestClient) -> None:
+@patch("app.services.llm_service.amessages")
+def test_parse_endpoint(mock_amessages: MagicMock, client: TestClient) -> None:
     profile = client.post(
         "/api/profiles",
         json={
@@ -57,7 +65,7 @@ def test_parse_endpoint(mock_acompletion: MagicMock, client: TestClient) -> None
         },
     ).json()
 
-    mock_acompletion.return_value = _fake_completion_response(
+    mock_amessages.return_value = _fake_message_response(
         "<meta>\nTitle: Test Song\nArtist: Test Artist\n</meta>\n"
         "<original>\nG  Am\nHello world\nDm  G\nGoodbye moon\n</original>"
     )
@@ -77,19 +85,22 @@ def test_parse_endpoint(mock_acompletion: MagicMock, client: TestClient) -> None
     assert data["artist"] == "Test Artist"
 
     # Verify only 1 LLM call (cleanup only, no rewrite)
-    assert mock_acompletion.call_count == 1
-    # The call should NOT contain any profile description
-    call_kwargs = mock_acompletion.call_args_list[0]
-    messages = call_kwargs.kwargs.get("messages") or call_kwargs[1].get("messages")
-    assert not any("Dad in Austin" in m["content"] for m in messages)
+    assert mock_amessages.call_count == 1
+    # System prompt should be passed as a separate 'system' kwarg, not in messages
+    call_kwargs = mock_amessages.call_args.kwargs
+    assert "system" in call_kwargs
+    messages = call_kwargs.get("messages", [])
+    assert not any(
+        m.get("role") == "system" for m in messages
+    ), "system prompt should not be in messages list"
 
 
-@patch("app.services.llm_service.acompletion")
-def test_parse_unknown_title_artist(mock_acompletion: MagicMock, client: TestClient) -> None:
+@patch("app.services.llm_service.amessages")
+def test_parse_unknown_title_artist(mock_amessages: MagicMock, client: TestClient) -> None:
     """Parse with UNKNOWN title/artist should return null."""
     profile = client.post("/api/profiles", json={"name": "Test"}).json()
 
-    mock_acompletion.return_value = _fake_completion_response(
+    mock_amessages.return_value = _fake_message_response(
         "<meta>\nTitle: UNKNOWN\nArtist: UNKNOWN\n</meta>\n"
         "<original>\nOriginal line one\nOriginal line two\n</original>"
     )
@@ -121,11 +132,11 @@ def test_parse_profile_not_found(client: TestClient) -> None:
     assert resp.status_code == 404
 
 
-@patch("app.services.llm_service.acompletion")
-def test_parse_llm_error(mock_acompletion: MagicMock, client: TestClient) -> None:
+@patch("app.services.llm_service.amessages")
+def test_parse_llm_error(mock_amessages: MagicMock, client: TestClient) -> None:
     """LLM throwing an exception should return 502."""
     profile = client.post("/api/profiles", json={"name": "Test"}).json()
-    mock_acompletion.side_effect = RuntimeError("API rate limit exceeded")
+    mock_amessages.side_effect = RuntimeError("API rate limit exceeded")
 
     resp = client.post(
         "/api/parse",
@@ -144,11 +155,11 @@ def test_parse_llm_error(mock_acompletion: MagicMock, client: TestClient) -> Non
 # --- POST /api/chat ---
 
 
-@patch("app.services.llm_service.acompletion")
-def test_chat_endpoint(mock_acompletion: MagicMock, client: TestClient) -> None:
+@patch("app.services.llm_service.amessages")
+def test_chat_endpoint(mock_amessages: MagicMock, client: TestClient) -> None:
     _, song = _make_profile_and_song(client)
 
-    mock_acompletion.return_value = _fake_completion_response(
+    mock_amessages.return_value = _fake_message_response(
         "<content>\nHi there world\nCatch ya moon\n</content>\nI changed 'see ya' to 'catch ya'."
     )
 
@@ -171,12 +182,12 @@ def test_chat_endpoint(mock_acompletion: MagicMock, client: TestClient) -> None:
     assert data["version"] == 2  # bumped from 1
 
 
-@patch("app.services.llm_service.acompletion")
-def test_chat_persists_changes(mock_acompletion: MagicMock, client: TestClient) -> None:
+@patch("app.services.llm_service.amessages")
+def test_chat_persists_changes(mock_amessages: MagicMock, client: TestClient) -> None:
     """Chat edits should be persisted to the song and create a revision."""
     _, song = _make_profile_and_song(client)
 
-    mock_acompletion.return_value = _fake_completion_response(
+    mock_amessages.return_value = _fake_message_response(
         "<content>\nUpdated line one\nUpdated line two\n</content>\nChanged everything."
     )
 
@@ -199,12 +210,12 @@ def test_chat_persists_changes(mock_acompletion: MagicMock, client: TestClient) 
     assert revisions[1]["edit_type"] == "chat"
 
 
-@patch("app.services.llm_service.acompletion")
-def test_chat_persists_messages(mock_acompletion: MagicMock, client: TestClient) -> None:
+@patch("app.services.llm_service.amessages")
+def test_chat_persists_messages(mock_amessages: MagicMock, client: TestClient) -> None:
     """POST /api/chat should create ChatMessage rows for user + assistant."""
     _, song = _make_profile_and_song(client)
 
-    mock_acompletion.return_value = _fake_completion_response(
+    mock_amessages.return_value = _fake_message_response(
         "<content>\nUpdated line one\nUpdated line two\n</content>\nChanged everything."
     )
 
@@ -227,13 +238,13 @@ def test_chat_persists_messages(mock_acompletion: MagicMock, client: TestClient)
     assert msgs[1]["is_note"] is False
 
 
-@patch("app.services.llm_service.acompletion")
-def test_chat_conversational_no_content(mock_acompletion: MagicMock, client: TestClient) -> None:
+@patch("app.services.llm_service.amessages")
+def test_chat_conversational_no_content(mock_amessages: MagicMock, client: TestClient) -> None:
     """When the LLM responds without <content> tags, no version bump or revision is created."""
     _, song = _make_profile_and_song(client)
     original_version = song["current_version"]
 
-    mock_acompletion.return_value = _fake_completion_response(
+    mock_amessages.return_value = _fake_message_response(
         "Sure! The rhyme scheme in verse 2 is ABAB. Want me to change it?"
     )
 
@@ -262,15 +273,15 @@ def test_chat_conversational_no_content(mock_acompletion: MagicMock, client: Tes
     assert len(revisions) == 1  # only the initial revision
 
 
-@patch("app.services.llm_service.acompletion")
-def test_chat_stores_full_raw_response(mock_acompletion: MagicMock, client: TestClient) -> None:
+@patch("app.services.llm_service.amessages")
+def test_chat_stores_full_raw_response(mock_amessages: MagicMock, client: TestClient) -> None:
     """The assistant ChatMessage stored in DB should be the full raw LLM response."""
     _, song = _make_profile_and_song(client)
 
     raw_response = (
         "<content>\nNew line one\nNew line two\n</content>\nI rewrote both lines for clarity."
     )
-    mock_acompletion.return_value = _fake_completion_response(raw_response)
+    mock_amessages.return_value = _fake_message_response(raw_response)
 
     client.post(
         "/api/chat",
@@ -290,15 +301,15 @@ def test_chat_stores_full_raw_response(mock_acompletion: MagicMock, client: Test
     assert "I rewrote both lines" in assistant_msg["content"]
 
 
-@patch("app.services.llm_service.acompletion")
+@patch("app.services.llm_service.amessages")
 def test_chat_conversational_stores_messages(
-    mock_acompletion: MagicMock, client: TestClient
+    mock_amessages: MagicMock, client: TestClient
 ) -> None:
     """Conversational (no-content) responses should still persist chat messages."""
     _, song = _make_profile_and_song(client)
 
     conversational_response = "Great question! I think we could try an AABB scheme instead."
-    mock_acompletion.return_value = _fake_completion_response(conversational_response)
+    mock_amessages.return_value = _fake_message_response(conversational_response)
 
     client.post(
         "/api/chat",
@@ -355,9 +366,9 @@ def test_list_provider_models_failure(mock_list_models: MagicMock, client: TestC
 # --- api_base passthrough tests ---
 
 
-@patch("app.services.llm_service.acompletion")
-def test_parse_passes_api_base(mock_acompletion: MagicMock, client: TestClient) -> None:
-    """When a ProfileModel has api_base set, the parse call should pass it to acompletion."""
+@patch("app.services.llm_service.amessages")
+def test_parse_passes_api_base(mock_amessages: MagicMock, client: TestClient) -> None:
+    """When a ProfileModel has api_base set, the parse call should pass it to amessages."""
     profile = client.post(
         "/api/profiles",
         json={
@@ -375,7 +386,7 @@ def test_parse_passes_api_base(mock_acompletion: MagicMock, client: TestClient) 
         },
     )
 
-    mock_acompletion.return_value = _fake_completion_response(
+    mock_amessages.return_value = _fake_message_response(
         "<meta>\nTitle: UNKNOWN\nArtist: UNKNOWN\n</meta>\n<original>\nHello world\n</original>"
     )
 
@@ -390,13 +401,13 @@ def test_parse_passes_api_base(mock_acompletion: MagicMock, client: TestClient) 
     )
     assert resp.status_code == 200
 
-    assert mock_acompletion.call_count == 1
-    assert mock_acompletion.call_args.kwargs.get("api_base") == "http://localhost:11434"
+    assert mock_amessages.call_count == 1
+    assert mock_amessages.call_args.kwargs.get("api_base") == "http://localhost:11434"
 
 
-@patch("app.services.llm_service.acompletion")
+@patch("app.services.llm_service.amessages")
 def test_parse_no_api_base_when_no_profile_model(
-    mock_acompletion: MagicMock, client: TestClient
+    mock_amessages: MagicMock, client: TestClient
 ) -> None:
     """When no ProfileModel exists, api_base should not be passed."""
     profile = client.post(
@@ -406,7 +417,7 @@ def test_parse_no_api_base_when_no_profile_model(
         },
     ).json()
 
-    mock_acompletion.return_value = _fake_completion_response(
+    mock_amessages.return_value = _fake_message_response(
         "<meta>\nTitle: UNKNOWN\nArtist: UNKNOWN\n</meta>\n<original>\nHello world\n</original>"
     )
 
@@ -420,8 +431,8 @@ def test_parse_no_api_base_when_no_profile_model(
     )
     assert resp.status_code == 200
 
-    assert mock_acompletion.call_count == 1
-    assert "api_base" not in mock_acompletion.call_args.kwargs
+    assert mock_amessages.call_count == 1
+    assert "api_base" not in mock_amessages.call_args.kwargs
 
 
 @patch("app.services.llm_service.alist_models")
@@ -482,8 +493,8 @@ def test_profile_system_prompt_fields_roundtrip(client: TestClient) -> None:
     assert updated["system_prompt_chat"] == "Custom chat prompt"
 
 
-@patch("app.services.llm_service.acompletion")
-def test_parse_uses_custom_system_prompt(mock_acompletion: MagicMock, client: TestClient) -> None:
+@patch("app.services.llm_service.amessages")
+def test_parse_uses_custom_system_prompt(mock_amessages: MagicMock, client: TestClient) -> None:
     """When a profile has a custom parse prompt, it should be used in the LLM call."""
     custom_prompt = "You are a CUSTOM parse assistant."
     profile = client.post(
@@ -494,7 +505,7 @@ def test_parse_uses_custom_system_prompt(mock_acompletion: MagicMock, client: Te
         },
     ).json()
 
-    mock_acompletion.return_value = _fake_completion_response(
+    mock_amessages.return_value = _fake_message_response(
         "<meta>\nTitle: Test\nArtist: Test\n</meta>\n<original>\nHello world\n</original>"
     )
 
@@ -507,14 +518,12 @@ def test_parse_uses_custom_system_prompt(mock_acompletion: MagicMock, client: Te
         },
     )
 
-    messages = mock_acompletion.call_args.kwargs.get("messages") or mock_acompletion.call_args[
-        1
-    ].get("messages")
-    assert messages[0]["content"] == custom_prompt
+    # System prompt is now a separate kwarg, not in messages
+    assert mock_amessages.call_args.kwargs["system"] == custom_prompt
 
 
-@patch("app.services.llm_service.acompletion")
-def test_chat_uses_custom_system_prompt(mock_acompletion: MagicMock, client: TestClient) -> None:
+@patch("app.services.llm_service.amessages")
+def test_chat_uses_custom_system_prompt(mock_amessages: MagicMock, client: TestClient) -> None:
     """When a profile has a custom chat prompt, it should be used in the LLM call."""
     custom_prompt = "You are a CUSTOM chat assistant."
     profile = client.post(
@@ -533,7 +542,7 @@ def test_chat_uses_custom_system_prompt(mock_acompletion: MagicMock, client: Tes
         },
     ).json()
 
-    mock_acompletion.return_value = _fake_completion_response("Just a conversational response.")
+    mock_amessages.return_value = _fake_message_response("Just a conversational response.")
 
     client.post(
         "/api/chat",
@@ -544,24 +553,22 @@ def test_chat_uses_custom_system_prompt(mock_acompletion: MagicMock, client: Tes
         },
     )
 
-    messages = mock_acompletion.call_args.kwargs.get("messages") or mock_acompletion.call_args[
-        1
-    ].get("messages")
-    # The system message should start with the custom prompt (song content is appended)
-    assert messages[0]["content"].startswith(custom_prompt)
+    # The system kwarg should start with the custom prompt (song content is appended)
+    system_arg = mock_amessages.call_args.kwargs["system"]
+    assert system_arg.startswith(custom_prompt)
 
 
 # --- Multimodal (image) content tests ---
 
 
-@patch("app.services.llm_service.acompletion")
+@patch("app.services.llm_service.amessages")
 def test_chat_multimodal_content_passthrough(
-    mock_acompletion: MagicMock, client: TestClient
+    mock_amessages: MagicMock, client: TestClient
 ) -> None:
     """Multimodal content (image + text) should be passed through to the LLM."""
     _, song = _make_profile_and_song(client)
 
-    mock_acompletion.return_value = _fake_completion_response(
+    mock_amessages.return_value = _fake_message_response(
         "I can see the chord chart. Looks like it's in the key of G."
     )
 
@@ -581,9 +588,7 @@ def test_chat_multimodal_content_passthrough(
     assert resp.status_code == 200
 
     # Verify the multimodal content was passed through to the LLM
-    call_messages = mock_acompletion.call_args.kwargs.get("messages") or mock_acompletion.call_args[
-        1
-    ].get("messages")
+    call_messages = mock_amessages.call_args.kwargs.get("messages", [])
     # Last message should have the multimodal content array
     user_msg = call_messages[-1]
     assert user_msg["role"] == "user"
@@ -592,14 +597,14 @@ def test_chat_multimodal_content_passthrough(
     assert user_msg["content"][1]["type"] == "image_url"
 
 
-@patch("app.services.llm_service.acompletion")
+@patch("app.services.llm_service.amessages")
 def test_chat_multimodal_display_text_only(
-    mock_acompletion: MagicMock, client: TestClient
+    mock_amessages: MagicMock, client: TestClient
 ) -> None:
     """Messages endpoint returns text-only display content for multimodal messages."""
     _, song = _make_profile_and_song(client)
 
-    mock_acompletion.return_value = _fake_completion_response("I can see the chord chart.")
+    mock_amessages.return_value = _fake_message_response("I can see the chord chart.")
 
     multimodal_content = [
         {"type": "text", "text": "Describe this chord chart"},
@@ -623,12 +628,12 @@ def test_chat_multimodal_display_text_only(
     assert "base64" not in msgs[0]["content"]
 
 
-@patch("app.services.llm_service.acompletion")
-def test_chat_plain_string_still_works(mock_acompletion: MagicMock, client: TestClient) -> None:
+@patch("app.services.llm_service.amessages")
+def test_chat_plain_string_still_works(mock_amessages: MagicMock, client: TestClient) -> None:
     """Plain string content should still work after the multimodal change."""
     _, song = _make_profile_and_song(client)
 
-    mock_acompletion.return_value = _fake_completion_response("Sure, here's some feedback.")
+    mock_amessages.return_value = _fake_message_response("Sure, here's some feedback.")
 
     resp = client.post(
         "/api/chat",
@@ -644,14 +649,14 @@ def test_chat_plain_string_still_works(mock_acompletion: MagicMock, client: Test
     assert msgs[0]["content"] == "Give me feedback"
 
 
-@patch("app.services.llm_service.acompletion")
+@patch("app.services.llm_service.amessages")
 def test_chat_image_only_displays_placeholder(
-    mock_acompletion: MagicMock, client: TestClient
+    mock_amessages: MagicMock, client: TestClient
 ) -> None:
     """Image-only messages display as '[Image]' but full content is preserved for LLM."""
     _, song = _make_profile_and_song(client)
 
-    mock_acompletion.return_value = _fake_completion_response("I can see the image.")
+    mock_amessages.return_value = _fake_message_response("I can see the image.")
 
     image_only_content = [
         {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}},
@@ -674,14 +679,14 @@ def test_chat_image_only_displays_placeholder(
     assert msgs[0]["content"] == "[Image]"
 
 
-@patch("app.services.llm_service.acompletion")
+@patch("app.services.llm_service.amessages")
 def test_chat_after_image_preserves_multimodal_for_llm(
-    mock_acompletion: MagicMock, client: TestClient
+    mock_amessages: MagicMock, client: TestClient
 ) -> None:
     """Follow-up chat loads the full multimodal content (including image) for the LLM."""
     _, song = _make_profile_and_song(client)
 
-    mock_acompletion.return_value = _fake_completion_response("I can see the image.")
+    mock_amessages.return_value = _fake_message_response("I can see the image.")
 
     image_content = [
         {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}},
@@ -698,7 +703,7 @@ def test_chat_after_image_preserves_multimodal_for_llm(
     )
 
     # Second chat: text follow-up
-    mock_acompletion.return_value = _fake_completion_response("Here are some suggestions.")
+    mock_amessages.return_value = _fake_message_response("Here are some suggestions.")
 
     resp = client.post(
         "/api/chat",
@@ -711,13 +716,182 @@ def test_chat_after_image_preserves_multimodal_for_llm(
     assert resp.status_code == 200
 
     # Verify the LLM received the full multimodal content from history, not a placeholder
-    call_messages = (
-        mock_acompletion.call_args.kwargs.get("messages")
-        or mock_acompletion.call_args[1].get("messages")
-    )
+    call_messages = mock_amessages.call_args.kwargs.get("messages", [])
     user_msgs = [m for m in call_messages if m["role"] == "user"]
     # First user message should be the deserialized multimodal content
     assert isinstance(user_msgs[0]["content"], list)
     assert user_msgs[0]["content"][0]["type"] == "image_url"
     # Second user message is plain text
     assert user_msgs[1]["content"] == "Now improve the chorus"
+
+
+# --- Prompt caching tests ---
+
+
+@patch("app.services.llm_service.amessages")
+def test_chat_anthropic_adds_cache_breakpoint(
+    mock_amessages: MagicMock, client: TestClient
+) -> None:
+    """For anthropic provider, history messages should get cache breakpoints."""
+    _, song = _make_profile_and_song(client)
+
+    # First chat: builds history
+    mock_amessages.return_value = _fake_message_response("First response.")
+    client.post(
+        "/api/chat",
+        json={
+            "song_id": song["id"],
+            "messages": [{"role": "user", "content": "First question"}],
+            "provider": "anthropic",
+            "model": "claude-sonnet-4-20250514",
+        },
+    )
+
+    # Second chat: should add cache breakpoint to last history message
+    mock_amessages.return_value = _fake_message_response("Second response.")
+    client.post(
+        "/api/chat",
+        json={
+            "song_id": song["id"],
+            "messages": [{"role": "user", "content": "Second question"}],
+            "provider": "anthropic",
+            "model": "claude-sonnet-4-20250514",
+        },
+    )
+
+    call_messages = mock_amessages.call_args.kwargs.get("messages", [])
+    # The last history message (assistant's first response) should have cache_control
+    # History is [user1, assistant1], new is [user2]
+    # assistant1 is at index 1, and should have cache breakpoint
+    history_assistant_msg = call_messages[1]
+    assert history_assistant_msg["role"] == "assistant"
+    content = history_assistant_msg["content"]
+    # Content should be converted to block format with cache_control
+    assert isinstance(content, list)
+    assert content[0].get("cache_control") == {"type": "ephemeral"}
+
+
+@patch("app.services.llm_service.amessages")
+def test_chat_non_anthropic_no_cache_breakpoint(
+    mock_amessages: MagicMock, client: TestClient
+) -> None:
+    """For non-anthropic providers, no cache breakpoints should be added."""
+    _, song = _make_profile_and_song(client)
+
+    # First chat: builds history
+    mock_amessages.return_value = _fake_message_response("First response.")
+    client.post(
+        "/api/chat",
+        json={
+            "song_id": song["id"],
+            "messages": [{"role": "user", "content": "First question"}],
+            **LLM_SETTINGS,
+        },
+    )
+
+    # Second chat: no cache breakpoints for openai
+    mock_amessages.return_value = _fake_message_response("Second response.")
+    client.post(
+        "/api/chat",
+        json={
+            "song_id": song["id"],
+            "messages": [{"role": "user", "content": "Second question"}],
+            **LLM_SETTINGS,
+        },
+    )
+
+    call_messages = mock_amessages.call_args.kwargs.get("messages", [])
+    # No message should have cache_control
+    for msg in call_messages:
+        content = msg["content"]
+        if isinstance(content, str):
+            continue  # plain string, no cache_control possible
+        if isinstance(content, list):
+            for block in content:
+                assert "cache_control" not in block
+
+
+# --- Usage with cache metrics ---
+
+
+@patch("app.services.llm_service.amessages")
+def test_parse_returns_cache_usage(mock_amessages: MagicMock, client: TestClient) -> None:
+    """Parse endpoint should return cache token metrics when present."""
+    profile = client.post("/api/profiles", json={"name": "Test"}).json()
+
+    resp_mock = _fake_message_response(
+        "<meta>\nTitle: Test\nArtist: Test\n</meta>\n<original>\nHello\n</original>"
+    )
+    resp_mock.usage.cache_creation_input_tokens = 100
+    resp_mock.usage.cache_read_input_tokens = 50
+    mock_amessages.return_value = resp_mock
+
+    resp = client.post(
+        "/api/parse",
+        json={
+            "profile_id": profile["id"],
+            "content": "Hello",
+            **LLM_SETTINGS,
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["usage"]["cache_creation_input_tokens"] == 100
+    assert data["usage"]["cache_read_input_tokens"] == 50
+
+
+# --- Messages API format tests ---
+
+
+@patch("app.services.llm_service.amessages")
+def test_parse_uses_system_parameter(mock_amessages: MagicMock, client: TestClient) -> None:
+    """Parse should use the 'system' parameter instead of a system message."""
+    profile = client.post("/api/profiles", json={"name": "Test"}).json()
+
+    mock_amessages.return_value = _fake_message_response(
+        "<meta>\nTitle: T\nArtist: A\n</meta>\n<original>\nHello\n</original>"
+    )
+
+    client.post(
+        "/api/parse",
+        json={
+            "profile_id": profile["id"],
+            "content": "Hello",
+            **LLM_SETTINGS,
+        },
+    )
+
+    call_kwargs = mock_amessages.call_args.kwargs
+    # System prompt should be a separate parameter
+    assert "system" in call_kwargs
+    assert "PorchSongs" in call_kwargs["system"]
+    # Messages should only contain user messages, no system role
+    messages = call_kwargs["messages"]
+    assert all(m["role"] != "system" for m in messages)
+    assert messages[0]["role"] == "user"
+
+
+@patch("app.services.llm_service.amessages")
+def test_chat_uses_system_parameter(mock_amessages: MagicMock, client: TestClient) -> None:
+    """Chat should use the 'system' parameter with song content appended."""
+    _, song = _make_profile_and_song(client)
+
+    mock_amessages.return_value = _fake_message_response("Got it.")
+
+    client.post(
+        "/api/chat",
+        json={
+            "song_id": song["id"],
+            "messages": [{"role": "user", "content": "Hello"}],
+            **LLM_SETTINGS,
+        },
+    )
+
+    call_kwargs = mock_amessages.call_args.kwargs
+    # System prompt should include PorchSongs prompt + original song
+    assert "system" in call_kwargs
+    assert "PorchSongs" in call_kwargs["system"]
+    assert "Hello world" in call_kwargs["system"]  # original song content
+    # Messages should not contain system role
+    messages = call_kwargs["messages"]
+    assert all(m["role"] != "system" for m in messages)

@@ -5,32 +5,42 @@ import re
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, cast
 
-from any_llm import LLMProvider, acompletion, alist_models
+from any_llm import LLMProvider, alist_models, amessages
+from any_llm.types.messages import MessageResponse, MessageStreamEvent
 
 if TYPE_CHECKING:
-    from any_llm.types.completion import ChatCompletion, ChatCompletionChunk
-
     from ..models import Song
     from ..schemas import ProviderInfo
 
 
-def _get_content(response: ChatCompletion) -> str:
-    """Extract text content from a completion response, raising on empty."""
-    content = response.choices[0].message.content
-    if content is None:
-        raise ValueError("LLM returned empty response")
-    return content
+def _get_content(response: MessageResponse) -> str:
+    """Extract text content from a message response, raising on empty."""
+    for block in response.content:
+        if block.type == "text" and block.text:
+            return block.text
+    raise ValueError("LLM returned empty response")
 
 
-def _get_usage(response: ChatCompletion) -> dict[str, int] | None:
-    """Extract token usage from a completion response, if present."""
-    usage = getattr(response, "usage", None)
-    if usage is None:
-        return None
-    return {
-        "input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
-        "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
+def _get_usage(response: MessageResponse) -> dict[str, int | None]:
+    """Extract token usage from a message response."""
+    usage = response.usage
+    result: dict[str, int | None] = {
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
     }
+    if usage.cache_creation_input_tokens is not None:
+        result["cache_creation_input_tokens"] = usage.cache_creation_input_tokens
+    if usage.cache_read_input_tokens is not None:
+        result["cache_read_input_tokens"] = usage.cache_read_input_tokens
+    return result
+
+
+def _get_reasoning(response: MessageResponse) -> str | None:
+    """Extract reasoning/thinking content from a message response."""
+    for block in response.content:
+        if block.type == "thinking" and block.thinking:
+            return block.thinking
+    return None
 
 
 CLEAN_SYSTEM_PROMPT = """You are PorchSongs, a song lyric editing assistant. You are part of the \
@@ -121,6 +131,9 @@ _LOCAL_PROVIDERS = {"ollama", "llamafile", "llamacpp", "lmstudio", "vllm"}
 # Meta-providers that proxy to other providers and should not be directly selectable.
 _HIDDEN_PROVIDERS = {"platform"}
 
+# Providers that support Anthropic-style prompt caching via cache_control.
+_CACHEABLE_PROVIDERS = {"anthropic"}
+
 
 def is_platform_enabled() -> bool:
     """Return True when the Any LLM Platform key is configured."""
@@ -147,6 +160,26 @@ async def get_models(provider: str, api_base: str | None = None) -> list[str]:
     return [m.id if hasattr(m, "id") else str(m) for m in raw]
 
 
+def _add_cache_breakpoint(message: dict[str, Any]) -> dict[str, Any]:
+    """Add an ephemeral cache_control breakpoint to a message's content.
+
+    Converts plain-string content to a content-block list so Anthropic
+    can attach a cache breakpoint. Messages that are already block-lists
+    get the breakpoint appended to the last block.
+    """
+    content = message["content"]
+    if isinstance(content, str):
+        message["content"] = [
+            {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
+        ]
+    elif isinstance(content, list) and content:
+        # Add cache_control to the last content block
+        last_block = content[-1]
+        if isinstance(last_block, dict):
+            last_block["cache_control"] = {"type": "ephemeral"}
+    return message
+
+
 def _build_parse_kwargs(
     content: str,
     provider: str,
@@ -164,34 +197,24 @@ def _build_parse_kwargs(
         user_text += f"\n\nUSER INSTRUCTIONS:\n{instruction}"
     user_text += f"\n\nPASTED INPUT:\n{content}"
 
+    from ..config import settings
+
     kwargs: dict[str, Any] = {
         "model": model,
         "provider": provider,
         "messages": [
-            {"role": "system", "content": system_prompt or CLEAN_SYSTEM_PROMPT},
             {"role": "user", "content": user_text},
         ],
+        "system": system_prompt or CLEAN_SYSTEM_PROMPT,
+        "max_tokens": max_tokens if max_tokens is not None else settings.default_max_tokens,
     }
     if api_base:
         kwargs["api_base"] = api_base
     if api_key:
         kwargs["api_key"] = api_key
-    kwargs["reasoning_effort"] = reasoning_effort
-    from ..config import settings
-
-    kwargs["max_tokens"] = max_tokens if max_tokens is not None else settings.default_max_tokens
+    if reasoning_effort:
+        kwargs["reasoning_effort"] = reasoning_effort
     return kwargs
-
-
-def _get_reasoning(response: ChatCompletion) -> str | None:
-    """Extract reasoning content from a completion response, if present."""
-    msg = response.choices[0].message
-    reasoning = getattr(msg, "reasoning", None)
-    if reasoning is not None:
-        reasoning_content = getattr(reasoning, "content", None)
-        if reasoning_content:
-            return str(reasoning_content)
-    return None
 
 
 async def parse_content(
@@ -220,7 +243,7 @@ async def parse_content(
         max_tokens,
         api_key,
     )
-    clean_response = cast("ChatCompletion", await acompletion(**kwargs))
+    clean_response = cast("MessageResponse", await amessages(**kwargs))
     clean_result = _parse_clean_response(_get_content(clean_response), content)
     reasoning = _get_reasoning(clean_response)
     usage = _get_usage(clean_response)
@@ -247,7 +270,8 @@ async def parse_content_stream(
 ) -> AsyncIterator[tuple[str, str]]:
     """Stream parse tokens as ``(type, text)`` tuples.
 
-    Types: ``"token"`` for content, ``"reasoning"`` for reasoning/thinking.
+    Types: ``"token"`` for content, ``"reasoning"`` for reasoning/thinking,
+    ``"usage"`` for final token usage JSON.
     """
     kwargs = _build_parse_kwargs(
         content,
@@ -260,32 +284,40 @@ async def parse_content_stream(
         max_tokens,
         api_key,
     )
-    if provider == "openai":
-        kwargs["stream_options"] = {"include_usage": True}
-    response = cast("AsyncIterator[ChatCompletionChunk]", await acompletion(stream=True, **kwargs))
+    response = cast(
+        "AsyncIterator[MessageStreamEvent]",
+        await amessages(stream=True, **kwargs),
+    )
 
     import json
 
-    async for chunk in response:
-        if not chunk.choices:
-            continue
-        delta = chunk.choices[0].delta
-        if delta:
-            reasoning = getattr(delta, "reasoning", None)
-            if reasoning is not None:
-                reasoning_content = getattr(reasoning, "content", None)
-                if reasoning_content:
-                    yield ("reasoning", str(reasoning_content))
-            if delta.content:
-                yield ("token", delta.content)
+    input_usage: dict[str, int | None] = {}
 
-        # Check for usage in the chunk (sent in the final chunk by most providers)
-        chunk_usage = getattr(chunk, "usage", None)
-        if chunk_usage is not None:
-            usage_data = {
-                "input_tokens": getattr(chunk_usage, "prompt_tokens", 0) or 0,
-                "output_tokens": getattr(chunk_usage, "completion_tokens", 0) or 0,
+    async for event in response:
+        if event.type == "message_start" and event.message:
+            u = event.message.usage
+            input_usage = {
+                "input_tokens": u.input_tokens,
+                "cache_creation_input_tokens": u.cache_creation_input_tokens,
+                "cache_read_input_tokens": u.cache_read_input_tokens,
             }
+        elif event.type == "content_block_delta" and event.delta:
+            delta_type = event.delta.get("type")
+            if delta_type == "text_delta":
+                yield ("token", event.delta["text"])
+            elif delta_type == "thinking_delta":
+                yield ("reasoning", event.delta["thinking"])
+        elif event.type == "message_delta" and event.usage:
+            usage_data: dict[str, int | None] = {
+                "input_tokens": input_usage.get("input_tokens", 0),
+                "output_tokens": event.usage.output_tokens,
+            }
+            cache_create = input_usage.get("cache_creation_input_tokens")
+            cache_read = input_usage.get("cache_read_input_tokens")
+            if cache_create is not None:
+                usage_data["cache_creation_input_tokens"] = cache_create
+            if cache_read is not None:
+                usage_data["cache_read_input_tokens"] = cache_read
             yield ("usage", json.dumps(usage_data))
 
 
@@ -376,12 +408,13 @@ def _build_chat_kwargs(
     system_prompt: str | None = None,
     max_tokens: int | None = None,
     api_key: str | None = None,
+    history_len: int = 0,
 ) -> dict[str, Any]:
     """Build the common kwargs dict for chat LLM calls."""
     system_content = system_prompt or CHAT_SYSTEM_PROMPT
     system_content += "\n\nORIGINAL SONG:\n" + song.original_content
 
-    llm_messages: list[dict[str, Any]] = [{"role": "system", "content": system_content}]
+    llm_messages: list[dict[str, Any]] = []
     for msg in messages:
         content = msg["content"]
         # Skip messages with empty content - LLM providers reject them.
@@ -391,19 +424,30 @@ def _build_chat_kwargs(
             continue
         llm_messages.append({"role": msg["role"], "content": content})
 
+    # Add prompt caching breakpoints for providers that support it.
+    # Mark the last history message so the provider caches everything up to it.
+    if provider in _CACHEABLE_PROVIDERS and history_len > 0 and len(llm_messages) > 1:
+        # history_len is the count of history messages; the last one is at index history_len - 1
+        # (but some may have been skipped due to empty content, so clamp to actual length)
+        cache_idx = min(history_len - 1, len(llm_messages) - 2)
+        if cache_idx >= 0:
+            _add_cache_breakpoint(llm_messages[cache_idx])
+
+    from ..config import settings
+
     kwargs: dict[str, Any] = {
         "model": model,
         "provider": provider,
         "messages": llm_messages,
+        "system": system_content,
+        "max_tokens": max_tokens if max_tokens is not None else settings.default_max_tokens,
     }
     if api_base:
         kwargs["api_base"] = api_base
     if api_key:
         kwargs["api_key"] = api_key
-    kwargs["reasoning_effort"] = reasoning_effort
-    from ..config import settings
-
-    kwargs["max_tokens"] = max_tokens if max_tokens is not None else settings.default_max_tokens
+    if reasoning_effort:
+        kwargs["reasoning_effort"] = reasoning_effort
     return kwargs
 
 
@@ -417,6 +461,7 @@ async def chat_edit_content(
     system_prompt: str | None = None,
     max_tokens: int | None = None,
     api_key: str | None = None,
+    history_len: int = 0,
 ) -> dict[str, Any]:
     """Process a chat-based content edit (non-streaming).
 
@@ -436,8 +481,9 @@ async def chat_edit_content(
         system_prompt,
         max_tokens,
         api_key,
+        history_len=history_len,
     )
-    response = cast("ChatCompletion", await acompletion(**kwargs))
+    response = cast("MessageResponse", await amessages(**kwargs))
 
     raw_response = _get_content(response)
     parsed = _parse_chat_response(raw_response)
@@ -467,6 +513,7 @@ async def chat_edit_content_stream(
     system_prompt: str | None = None,
     max_tokens: int | None = None,
     api_key: str | None = None,
+    history_len: int = 0,
 ) -> AsyncIterator[tuple[str, str]]:
     """Stream a chat-based content edit token by token as ``(type, text)`` tuples.
 
@@ -483,31 +530,40 @@ async def chat_edit_content_stream(
         system_prompt,
         max_tokens,
         api_key,
+        history_len=history_len,
     )
-    if provider == "openai":
-        kwargs["stream_options"] = {"include_usage": True}
-    response = cast("AsyncIterator[ChatCompletionChunk]", await acompletion(stream=True, **kwargs))
+    response = cast(
+        "AsyncIterator[MessageStreamEvent]",
+        await amessages(stream=True, **kwargs),
+    )
 
     import json
 
-    async for chunk in response:
-        if not chunk.choices:
-            continue
-        delta = chunk.choices[0].delta
-        if delta:
-            reasoning = getattr(delta, "reasoning", None)
-            if reasoning is not None:
-                reasoning_content = getattr(reasoning, "content", None)
-                if reasoning_content:
-                    yield ("reasoning", str(reasoning_content))
-            if delta.content:
-                yield ("token", delta.content)
+    input_usage: dict[str, int | None] = {}
 
-        # Check for usage in the chunk (sent in the final chunk by most providers)
-        chunk_usage = getattr(chunk, "usage", None)
-        if chunk_usage is not None:
-            usage_data = {
-                "input_tokens": getattr(chunk_usage, "prompt_tokens", 0) or 0,
-                "output_tokens": getattr(chunk_usage, "completion_tokens", 0) or 0,
+    async for event in response:
+        if event.type == "message_start" and event.message:
+            u = event.message.usage
+            input_usage = {
+                "input_tokens": u.input_tokens,
+                "cache_creation_input_tokens": u.cache_creation_input_tokens,
+                "cache_read_input_tokens": u.cache_read_input_tokens,
             }
+        elif event.type == "content_block_delta" and event.delta:
+            delta_type = event.delta.get("type")
+            if delta_type == "text_delta":
+                yield ("token", event.delta["text"])
+            elif delta_type == "thinking_delta":
+                yield ("reasoning", event.delta["thinking"])
+        elif event.type == "message_delta" and event.usage:
+            usage_data: dict[str, int | None] = {
+                "input_tokens": input_usage.get("input_tokens", 0),
+                "output_tokens": event.usage.output_tokens,
+            }
+            cache_create = input_usage.get("cache_creation_input_tokens")
+            cache_read = input_usage.get("cache_read_input_tokens")
+            if cache_create is not None:
+                usage_data["cache_creation_input_tokens"] = cache_create
+            if cache_read is not None:
+                usage_data["cache_read_input_tokens"] = cache_read
             yield ("usage", json.dumps(usage_data))

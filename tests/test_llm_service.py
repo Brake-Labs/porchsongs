@@ -79,16 +79,17 @@ def test_build_chat_kwargs_system_prompt() -> None:
     ]
     kwargs = _build_chat_kwargs(song, messages, "openai", "gpt-4o")  # type: ignore[arg-type]
 
-    llm_messages: list[dict[str, Any]] = kwargs["messages"]
-    system_msg = llm_messages[0]
-    assert system_msg["role"] == "system"
-    assert "ORIGINAL SONG" in system_msg["content"]
-    assert song.original_content in system_msg["content"]
-    assert "EDITED SONG" not in system_msg["content"]
+    # System prompt is now a separate 'system' parameter, not in messages list
+    system_content = kwargs["system"]
+    assert "ORIGINAL SONG" in system_content
+    assert song.original_content in system_content
+    assert "EDITED SONG" not in system_content
 
-    # User/assistant messages passed through unchanged
-    assert llm_messages[1] == {"role": "user", "content": "make it sadder"}
-    assert llm_messages[2] == {"role": "assistant", "content": "ok"}
+    # Messages should only contain user/assistant messages, no system role
+    llm_messages: list[dict[str, Any]] = kwargs["messages"]
+    assert all(m["role"] != "system" for m in llm_messages)
+    assert llm_messages[0] == {"role": "user", "content": "make it sadder"}
+    assert llm_messages[1] == {"role": "assistant", "content": "ok"}
 
 
 def test_build_chat_kwargs_reasoning_effort_off() -> None:

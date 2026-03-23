@@ -501,18 +501,31 @@ def test_list_profile_models_multiple(client: TestClient) -> None:
     assert len(models) == 2
 
 
+def _make_message_resp(content: str) -> MagicMock:
+    """Build a mock object shaped like a MessageResponse."""
+    text_block = MagicMock()
+    text_block.type = "text"
+    text_block.text = content
+    text_block.thinking = None
+
+    usage = MagicMock()
+    usage.input_tokens = 10
+    usage.output_tokens = 20
+    usage.cache_creation_input_tokens = None
+    usage.cache_read_input_tokens = None
+
+    r = MagicMock()
+    r.content = [text_block]
+    r.usage = usage
+    return r
+
+
 def test_parse_uses_env_credentials(client: TestClient) -> None:
-    """POST /parse should call acompletion without api_key (uses env vars)."""
+    """POST /parse should call amessages without api_key (uses env vars)."""
     profile = client.post("/api/profiles", json={}).json()
 
-    def _make_resp(content: str) -> MagicMock:
-        r = MagicMock()
-        r.choices = [MagicMock()]
-        r.choices[0].message.content = content
-        return r
-
-    with patch("app.services.llm_service.acompletion", new_callable=AsyncMock) as mock_ac:
-        mock_ac.return_value = _make_resp(
+    with patch("app.services.llm_service.amessages", new_callable=AsyncMock) as mock_ac:
+        mock_ac.return_value = _make_message_resp(
             "<meta>\nTitle: Hello Song\nArtist: Test Artist\n</meta>\n"
             "<original>\nHello world\n</original>"
         )
@@ -526,7 +539,7 @@ def test_parse_uses_env_credentials(client: TestClient) -> None:
             },
         )
         assert resp.status_code == 200
-        # Verify acompletion was called without api_key
+        # Verify amessages was called without api_key
         assert mock_ac.call_count == 1
         assert "api_key" not in mock_ac.call_args.kwargs
 
@@ -535,14 +548,8 @@ def test_parse_returns_title_artist(client: TestClient) -> None:
     """POST /parse with META section should return title and artist."""
     profile = client.post("/api/profiles", json={}).json()
 
-    def _make_resp(content: str) -> MagicMock:
-        r = MagicMock()
-        r.choices = [MagicMock()]
-        r.choices[0].message.content = content
-        return r
-
-    with patch("app.services.llm_service.acompletion", new_callable=AsyncMock) as mock_ac:
-        mock_ac.return_value = _make_resp(
+    with patch("app.services.llm_service.amessages", new_callable=AsyncMock) as mock_ac:
+        mock_ac.return_value = _make_message_resp(
             "<meta>\nTitle: Wagon Wheel\nArtist: Old Crow Medicine Show\n</meta>\n"
             "<original>\nRock me mama\n</original>"
         )
@@ -566,14 +573,8 @@ def test_parse_unknown_title_artist(client: TestClient) -> None:
     """POST /parse with UNKNOWN in META should return null title/artist."""
     profile = client.post("/api/profiles", json={}).json()
 
-    def _make_resp(content: str) -> MagicMock:
-        r = MagicMock()
-        r.choices = [MagicMock()]
-        r.choices[0].message.content = content
-        return r
-
-    with patch("app.services.llm_service.acompletion", new_callable=AsyncMock) as mock_ac:
-        mock_ac.return_value = _make_resp(
+    with patch("app.services.llm_service.amessages", new_callable=AsyncMock) as mock_ac:
+        mock_ac.return_value = _make_message_resp(
             "<meta>\nTitle: UNKNOWN\nArtist: UNKNOWN\n</meta>\n<original>\nSome lyrics\n</original>"
         )
         resp = client.post(
@@ -630,14 +631,8 @@ def test_parse_missing_tags_fallback(client: TestClient) -> None:
     """When LLM returns no XML tags, original_content should fall back to raw input."""
     profile = client.post("/api/profiles", json={}).json()
 
-    def _make_resp(content: str) -> MagicMock:
-        r = MagicMock()
-        r.choices = [MagicMock()]
-        r.choices[0].message.content = content
-        return r
-
-    with patch("app.services.llm_service.acompletion", new_callable=AsyncMock) as mock_ac:
-        mock_ac.return_value = _make_resp("Just some text without XML tags")
+    with patch("app.services.llm_service.amessages", new_callable=AsyncMock) as mock_ac:
+        mock_ac.return_value = _make_message_resp("Just some text without XML tags")
         resp = client.post(
             "/api/parse",
             json={
@@ -817,14 +812,12 @@ def test_lookup_api_base_prefers_connection(client: TestClient) -> None:
         },
     )
 
-    mock_response = MagicMock()
-    mock_response.choices = [MagicMock()]
-    mock_response.choices[
-        0
-    ].message.content = "<meta>\nTitle: T\nArtist: A\n</meta>\n<original>\nHello\n</original>"
+    mock_response = _make_message_resp(
+        "<meta>\nTitle: T\nArtist: A\n</meta>\n<original>\nHello\n</original>"
+    )
 
     with patch(
-        "app.services.llm_service.acompletion", new_callable=AsyncMock, return_value=mock_response
+        "app.services.llm_service.amessages", new_callable=AsyncMock, return_value=mock_response
     ) as mock_ac:
         resp = client.post(
             "/api/parse",
