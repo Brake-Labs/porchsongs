@@ -26,4 +26,4 @@ export type {
   CheckoutResponse,
   PortalResponse,
 } from './types';
-export { QuotaBanner, OnboardingBanner, isQuotaError } from './quota';
+export { QuotaBanner, OnboardingBanner, isQuotaError, UsageFooter } from './quota';

@@ -3,7 +3,7 @@ import Markdown from 'react-markdown';
 import { toast } from 'sonner';
 import { cn, stripXmlTags } from '@/lib/utils';
 import api from '@/api';
-import { isQuotaError, QuotaUpgradeLink } from '@/extensions/quota';
+import { isQuotaError, QuotaUpgradeLink, UsageFooter } from '@/extensions/quota';
 import { Card, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -428,16 +428,7 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
           </div>
         )}
       </div>
-      {(tokenUsage.input_tokens > 0 || tokenUsage.output_tokens > 0) && (
-        <div className="px-4 py-1.5 border-t border-border text-xs text-muted-foreground flex justify-between">
-          <span>
-            Tokens used: {(tokenUsage.input_tokens + tokenUsage.output_tokens).toLocaleString()}
-          </span>
-          <span>
-            {tokenUsage.input_tokens.toLocaleString()} in / {tokenUsage.output_tokens.toLocaleString()} out
-          </span>
-        </div>
-      )}
+      <UsageFooter tokenUsage={tokenUsage} />
       {images.length > 0 && (
         <div className="flex flex-wrap gap-2 px-4 py-2 border-t border-border">
           {images.map((img, idx) => (
