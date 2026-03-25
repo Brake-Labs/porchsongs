@@ -293,6 +293,125 @@ describe('RewriteTab', () => {
     expect(sampleText.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
   });
 
+  describe('New Song button', () => {
+    it('renders in PARSED state', () => {
+      // Load a sample to get into parsed state
+      const props = makeProps();
+      render(<RewriteTab {...props} />);
+
+      fireEvent.click(screen.getByText('When the Saints Go Marching In'));
+
+      // Should show "+ New Song" (desktop) and "+ New" (mobile)
+      expect(screen.getByRole('button', { name: '+ New Song' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '+ New' })).toBeInTheDocument();
+    });
+
+    it('renders in WORKSHOPPING state', () => {
+      const props = makeProps({
+        rewriteResult: {
+          original_content: '[C]Hello [G]World',
+          rewritten_content: '[C]Hello [G]World',
+          changes_summary: 'No changes',
+        },
+        rewriteMeta: { title: 'Test', artist: 'Test' },
+        currentSongId: 1,
+      });
+      render(<RewriteTab {...props} />);
+
+      expect(screen.getByRole('button', { name: '+ New Song' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '+ New' })).toBeInTheDocument();
+    });
+
+    it('does not render in INPUT state', () => {
+      const props = makeProps();
+      render(<RewriteTab {...props} />);
+
+      expect(screen.queryByRole('button', { name: '+ New Song' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '+ New' })).not.toBeInTheDocument();
+    });
+
+    it('shows confirmation dialog when clicked in WORKSHOPPING state', () => {
+      const props = makeProps({
+        rewriteResult: {
+          original_content: '[C]Hello [G]World',
+          rewritten_content: '[C]Hello [G]World',
+          changes_summary: 'No changes',
+        },
+        rewriteMeta: { title: 'Test', artist: 'Test' },
+        currentSongId: 1,
+      });
+      render(<RewriteTab {...props} />);
+
+      fireEvent.click(screen.getByRole('button', { name: '+ New Song' }));
+
+      expect(screen.getByText('Start New Song')).toBeInTheDocument();
+      expect(screen.getByText(/Starting a new song will discard your current work/)).toBeInTheDocument();
+    });
+
+    it('calls onNewRewrite(null, null) when confirmation dialog is confirmed', () => {
+      const onNewRewrite = vi.fn();
+      const props = makeProps({
+        rewriteResult: {
+          original_content: '[C]Hello [G]World',
+          rewritten_content: '[C]Hello [G]World',
+          changes_summary: 'No changes',
+        },
+        rewriteMeta: { title: 'Test', artist: 'Test' },
+        currentSongId: 1,
+        onNewRewrite,
+      });
+      render(<RewriteTab {...props} />);
+
+      fireEvent.click(screen.getByRole('button', { name: '+ New Song' }));
+      fireEvent.click(screen.getByRole('button', { name: 'New Song' }));
+
+      expect(onNewRewrite).toHaveBeenCalledWith(null, null);
+    });
+
+    it('does not clear state when confirmation dialog is cancelled', () => {
+      const onNewRewrite = vi.fn();
+      const props = makeProps({
+        rewriteResult: {
+          original_content: '[C]Hello [G]World',
+          rewritten_content: '[C]Hello [G]World',
+          changes_summary: 'No changes',
+        },
+        rewriteMeta: { title: 'Test', artist: 'Test' },
+        currentSongId: 1,
+        onNewRewrite,
+      });
+      render(<RewriteTab {...props} />);
+
+      fireEvent.click(screen.getByRole('button', { name: '+ New Song' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      // onNewRewrite should not have been called (except initial render effects)
+      expect(onNewRewrite).not.toHaveBeenCalledWith(null, null);
+    });
+
+    it('clears directly without dialog in PARSED state with no chat messages', () => {
+      const onNewRewrite = vi.fn();
+      const setChatMessages = vi.fn();
+      const props = makeProps({
+        chatMessages: [],
+        onNewRewrite,
+        setChatMessages,
+      });
+      render(<RewriteTab {...props} />);
+
+      // Load sample to get into parsed state
+      fireEvent.click(screen.getByText('When the Saints Go Marching In'));
+
+      fireEvent.click(screen.getByRole('button', { name: '+ New Song' }));
+
+      // Should not show dialog
+      expect(screen.queryByText('Start New Song')).not.toBeInTheDocument();
+
+      // Should have called onNewRewrite to clear
+      expect(onNewRewrite).toHaveBeenCalledWith(null, null);
+    });
+  });
+
   it('does not revert rewritten content when original content is updated in the same batch (issue #165)', () => {
     // Setup: workshopping state with known content
     const onNewRewrite = vi.fn();

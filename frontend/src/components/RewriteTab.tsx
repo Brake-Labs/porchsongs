@@ -103,6 +103,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const [songTitle, setSongTitle] = useState('');
   const [songArtist, setSongArtist] = useState('');
   const [scrapDialogOpen, setScrapDialogOpen] = useState(false);
+  const [newSongDialogOpen, setNewSongDialogOpen] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
   const [hasSongs, setHasSongs] = useState(
     () => !!localStorage.getItem(STORAGE_KEYS.HAS_REWRITTEN),
@@ -278,6 +279,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   }, [rewriteResult, parseResult, parsedContent, profile, songTitle, songArtist, llmSettings, onNewRewrite, onContentUpdated]);
 
   const handleNewSong = () => {
+    parseAbortRef.current?.abort();
     onNewRewrite(null, null);
     setInput('');
     setParseResult(null);
@@ -290,6 +292,14 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     setSongTitle('');
     setSongArtist('');
     setChatMessages([]);
+  };
+
+  const handleNewSongClick = () => {
+    if (isWorkshopping || (isParsed && chatMessages.length > 0)) {
+      setNewSongDialogOpen(true);
+    } else {
+      handleNewSong();
+    }
   };
 
   const handleScrap = async () => {
@@ -505,33 +515,41 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
               </Button>
             </>
           )}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" aria-label="More actions">
-                &hellip;
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {isParsed && parseResult?.reasoning && (
-                <DropdownMenuItem onClick={() => setParseReasoningExpanded(prev => !prev)}>
-                  {parseReasoningExpanded ? 'Hide thinking' : 'Show thinking'}
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem onClick={handleNewSong}>New Song</DropdownMenuItem>
-              {isWorkshopping && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="text-danger can-hover:hover:!bg-danger-light"
-                    disabled={!currentSongUuid}
-                    onClick={() => setScrapDialogOpen(true)}
-                  >
-                    Scrap This
+          <Button
+            variant="secondary"
+            className="h-7 px-2.5 text-xs"
+            onClick={handleNewSongClick}
+          >
+            + New
+          </Button>
+          {((isParsed && parseResult?.reasoning) || isWorkshopping) && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" aria-label="More actions">
+                  &hellip;
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {isParsed && parseResult?.reasoning && (
+                  <DropdownMenuItem onClick={() => setParseReasoningExpanded(prev => !prev)}>
+                    {parseReasoningExpanded ? 'Hide thinking' : 'Show thinking'}
                   </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                )}
+                {isWorkshopping && (
+                  <>
+                    {isParsed && parseResult?.reasoning && <DropdownMenuSeparator />}
+                    <DropdownMenuItem
+                      className="text-danger can-hover:hover:!bg-danger-light"
+                      disabled={!currentSongUuid}
+                      onClick={() => setScrapDialogOpen(true)}
+                    >
+                      Scrap This
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
     </div>
@@ -692,33 +710,41 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                   </Button>
                 </>
               )}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" aria-label="More actions">
-                    &hellip;
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {isParsed && parseResult?.reasoning && (
-                    <DropdownMenuItem onClick={() => setParseReasoningExpanded(prev => !prev)}>
-                      {parseReasoningExpanded ? 'Hide thinking' : 'Show thinking'}
-                    </DropdownMenuItem>
-                  )}
-                  <DropdownMenuItem onClick={handleNewSong}>New Song</DropdownMenuItem>
-                  {isWorkshopping && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        className="text-danger can-hover:hover:!bg-danger-light"
-                        disabled={!currentSongUuid}
-                        onClick={() => setScrapDialogOpen(true)}
-                      >
-                        Scrap This
+              <Button
+                variant="secondary"
+                className="h-7 px-2.5 text-xs"
+                onClick={handleNewSongClick}
+              >
+                + New Song
+              </Button>
+              {((isParsed && parseResult?.reasoning) || isWorkshopping) && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" aria-label="More actions">
+                      &hellip;
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {isParsed && parseResult?.reasoning && (
+                      <DropdownMenuItem onClick={() => setParseReasoningExpanded(prev => !prev)}>
+                        {parseReasoningExpanded ? 'Hide thinking' : 'Show thinking'}
                       </DropdownMenuItem>
-                    </>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                    )}
+                    {isWorkshopping && (
+                      <>
+                        {isParsed && parseResult?.reasoning && <DropdownMenuSeparator />}
+                        <DropdownMenuItem
+                          className="text-danger can-hover:hover:!bg-danger-light"
+                          disabled={!currentSongUuid}
+                          onClick={() => setScrapDialogOpen(true)}
+                        >
+                          Scrap This
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
           </div>
 
@@ -751,28 +777,24 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                          saveStatus === 'saving' ? 'Saving...' : 'Save'}
                       </Button>
                     )}
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" aria-label="More actions">
-                          &hellip;
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={handleNewSong}>New Song</DropdownMenuItem>
-                        {isWorkshopping && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              className="text-danger can-hover:hover:!bg-danger-light"
-                              disabled={!currentSongUuid}
-                              onClick={() => setScrapDialogOpen(true)}
-                            >
-                              Scrap This
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    {isWorkshopping && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" aria-label="More actions">
+                            &hellip;
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            className="text-danger can-hover:hover:!bg-danger-light"
+                            disabled={!currentSongUuid}
+                            onClick={() => setScrapDialogOpen(true)}
+                          >
+                            Scrap This
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                   </>
                 }
               />
@@ -826,6 +848,15 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
         confirmLabel="Scrap"
         variant="destructive"
         onConfirm={handleScrap}
+      />
+
+      <ConfirmDialog
+        open={newSongDialogOpen}
+        onOpenChange={setNewSongDialogOpen}
+        title="Start New Song"
+        description="Starting a new song will discard your current work. Any unsaved changes will be lost."
+        confirmLabel="New Song"
+        onConfirm={handleNewSong}
       />
     </div>
   );
