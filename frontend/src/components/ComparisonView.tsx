@@ -17,7 +17,6 @@ function CopyIcon({ size = 14 }: { size?: number }) {
 interface ComparisonViewProps {
   rewritten: string;
   onRewrittenChange: (value: string) => void;
-  onRewrittenBlur: () => void;
   headerLeft?: ReactNode;
   flat?: boolean;
   onShowOriginal?: () => void;
@@ -26,7 +25,6 @@ interface ComparisonViewProps {
 export default function ComparisonView({
   rewritten,
   onRewrittenChange,
-  onRewrittenBlur,
   headerLeft,
   flat,
   onShowOriginal,
@@ -60,7 +58,6 @@ export default function ComparisonView({
           className="h-full border-0 rounded-none p-3 sm:p-4 text-xs sm:text-code bg-transparent resize-none overflow-y-auto cursor-text focus-visible:ring-0"
           value={rewritten}
           onChange={e => onRewrittenChange(e.target.value)}
-          onBlur={onRewrittenBlur}
           aria-label="Rewritten content editor"
         />
         <button
