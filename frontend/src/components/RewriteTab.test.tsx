@@ -148,7 +148,7 @@ describe('RewriteTab', () => {
     expect(resizable.className).toContain('flex-1');
   });
 
-  it('renders Save and overflow menu in workshopping state', () => {
+  it('renders Save button as "Saved" (disabled) in workshopping state with no dirty edits', () => {
     const props = makeProps({
       rewriteResult: {
         original_content: '[C]Hello [G]World',
@@ -157,16 +157,183 @@ describe('RewriteTab', () => {
       },
       rewriteMeta: { title: 'Test', artist: 'Test' },
       currentSongId: 1,
+      currentSongUuid: 'uuid-1',
     });
     render(<RewriteTab {...props} />);
 
-    // Save buttons render (toolbar + mobile header both present in JSDOM)
-    const saveBtns = screen.getAllByRole('button', { name: 'Save' });
+    // Save buttons render as "Saved" when not dirty
+    const saveBtns = screen.getAllByRole('button', { name: 'Saved' });
     expect(saveBtns.length).toBeGreaterThanOrEqual(1);
+    expect(saveBtns[0]).toBeDisabled();
 
     // Overflow triggers exist
     const overflowTriggers = screen.getAllByRole('button', { name: 'More actions' });
     expect(overflowTriggers.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('shows "Save" (enabled) after editing title in workshopping state', () => {
+    const props = makeProps({
+      rewriteResult: {
+        original_content: '[C]Hello [G]World',
+        rewritten_content: '[C]Hello [G]World',
+        changes_summary: 'No changes',
+      },
+      rewriteMeta: { title: 'Test', artist: 'Test' },
+      currentSongId: 1,
+      currentSongUuid: 'uuid-1',
+    });
+    render(<RewriteTab {...props} />);
+
+    // Edit title to set dirty
+    const titleInput = screen.getAllByLabelText('Song title')[0]!;
+    fireEvent.change(titleInput, { target: { value: 'New Title' } });
+
+    // Save buttons should now say "Save" and be enabled
+    const saveBtns = screen.getAllByRole('button', { name: 'Save' });
+    expect(saveBtns.length).toBeGreaterThanOrEqual(1);
+    expect(saveBtns[0]).not.toBeDisabled();
+  });
+
+  it('clears dirty state and shows "Saved" after successful save', async () => {
+    vi.mocked(api.updateSong).mockResolvedValue({} as never);
+    const props = makeProps({
+      rewriteResult: {
+        original_content: '[C]Hello [G]World',
+        rewritten_content: '[C]Hello [G]World',
+        changes_summary: 'No changes',
+      },
+      rewriteMeta: { title: 'Test', artist: 'Test' },
+      currentSongId: 1,
+      currentSongUuid: 'uuid-1',
+    });
+    render(<RewriteTab {...props} />);
+
+    // Edit artist to set dirty
+    const artistInput = screen.getAllByLabelText('Artist')[0]!;
+    fireEvent.change(artistInput, { target: { value: 'New Artist' } });
+
+    // Click save
+    const saveBtn = screen.getAllByRole('button', { name: 'Save' })[0]!;
+    fireEvent.click(saveBtn);
+
+    // After save resolves, button should show "Saved" and be disabled
+    await waitFor(() => {
+      const savedBtns = screen.getAllByRole('button', { name: 'Saved' });
+      expect(savedBtns.length).toBeGreaterThanOrEqual(1);
+      expect(savedBtns[0]).toBeDisabled();
+    });
+  });
+
+  it('clears dirty state after chat update (server already persisted)', () => {
+    render(<RewriteTab {...makeProps({
+      rewriteResult: {
+        original_content: 'original lyrics',
+        rewritten_content: 'old rewritten lyrics',
+        changes_summary: 'Initial',
+      },
+      rewriteMeta: { title: 'Test', artist: 'Artist' },
+      currentSongId: 42,
+      currentSongUuid: 'test-uuid-42',
+    })} />);
+
+    // Edit title to make dirty
+    const titleInput = screen.getAllByLabelText('Song title')[0]!;
+    fireEvent.change(titleInput, { target: { value: 'Dirty Title' } });
+
+    // Buttons should say "Save"
+    expect(screen.getAllByRole('button', { name: 'Save' }).length).toBeGreaterThanOrEqual(1);
+
+    // Simulate chat update (server already persisted)
+    const chatOnContent = capturedChatPanelProps.onContentUpdated as (s: string) => void;
+    act(() => chatOnContent('NEW content from chat'));
+
+    // After chat update, dirty should be cleared -> buttons say "Saved"
+    const savedBtns = screen.getAllByRole('button', { name: 'Saved' });
+    expect(savedBtns.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('Cmd+S triggers save', async () => {
+    vi.mocked(api.updateSong).mockResolvedValue({} as never);
+    render(<RewriteTab {...makeProps({
+      rewriteResult: {
+        original_content: 'orig',
+        rewritten_content: 'rewritten',
+        changes_summary: 'No changes',
+      },
+      rewriteMeta: { title: 'Song', artist: 'Artist' },
+      currentSongId: 1,
+      currentSongUuid: 'uuid-cmd-s',
+    })} />);
+
+    // Make dirty first
+    const titleInput = screen.getAllByLabelText('Song title')[0]!;
+    fireEvent.change(titleInput, { target: { value: 'Changed' } });
+
+    // Fire Cmd+S
+    fireEvent.keyDown(window, { key: 's', metaKey: true });
+
+    await waitFor(() => {
+      expect(api.updateSong).toHaveBeenCalledWith('uuid-cmd-s', expect.objectContaining({
+        title: 'Changed',
+      }));
+    });
+  });
+
+  it('attaches beforeunload listener when dirty', () => {
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    const removeSpy = vi.spyOn(window, 'removeEventListener');
+
+    const { unmount } = render(<RewriteTab {...makeProps({
+      rewriteResult: {
+        original_content: 'orig',
+        rewritten_content: 'rewritten',
+        changes_summary: 'x',
+      },
+      rewriteMeta: { title: 'T', artist: 'A' },
+      currentSongId: 1,
+      currentSongUuid: 'uuid-bl',
+    })} />);
+
+    // Initially not dirty, beforeunload not attached (beyond the initial render cycle)
+    const beforeUnloadCalls = addSpy.mock.calls.filter(c => c[0] === 'beforeunload');
+    expect(beforeUnloadCalls.length).toBe(0);
+
+    // Edit title to set dirty
+    const titleInput = screen.getAllByLabelText('Song title')[0]!;
+    fireEvent.change(titleInput, { target: { value: 'Dirty' } });
+
+    // beforeunload should now be attached
+    const afterEditCalls = addSpy.mock.calls.filter(c => c[0] === 'beforeunload');
+    expect(afterEditCalls.length).toBe(1);
+
+    unmount();
+
+    // Cleanup: beforeunload removed
+    const removedCalls = removeSpy.mock.calls.filter(c => c[0] === 'beforeunload');
+    expect(removedCalls.length).toBeGreaterThanOrEqual(1);
+
+    addSpy.mockRestore();
+    removeSpy.mockRestore();
+  });
+
+  it('does not auto-save on title blur', () => {
+    render(<RewriteTab {...makeProps({
+      rewriteResult: {
+        original_content: 'orig',
+        rewritten_content: 'rewritten',
+        changes_summary: 'x',
+      },
+      rewriteMeta: { title: 'T', artist: 'A' },
+      currentSongId: 1,
+      currentSongUuid: 'uuid-no-blur',
+    })} />);
+
+    const titleInput = screen.getAllByLabelText('Song title')[0]!;
+    fireEvent.change(titleInput, { target: { value: 'New Title' } });
+    fireEvent.blur(titleInput);
+
+    // updateSong should NOT have been called on blur
+    expect(api.updateSong).not.toHaveBeenCalled();
   });
 
   it('shows sample song link and loads sample into parsed state on click', async () => {

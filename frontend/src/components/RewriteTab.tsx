@@ -99,7 +99,8 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const parseAbortRef = useRef<AbortController | null>(null);
   const [mobilePane, setMobilePane] = useState<'chat' | 'content'>('chat');
   const [error, setError] = useState<string | null>(null);
-  const [saveStatus, setSaveStatus] = useState<'saving' | 'saved' | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'saving' | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
   const [songTitle, setSongTitle] = useState('');
   const [songArtist, setSongArtist] = useState('');
   const [scrapDialogOpen, setScrapDialogOpen] = useState(false);
@@ -145,7 +146,19 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
 
   useEffect(() => {
     setSaveStatus(null);
+    setIsDirty(false);
   }, [currentSongUuid]);
+
+  // Warn before navigating away with unsaved changes
+  useEffect(() => {
+    if (!isDirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [isDirty]);
 
   const hasProfile = !!profile?.id;
   const hasModel = isPremium || (llmSettings.provider && llmSettings.model);
@@ -276,6 +289,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     } else {
       onContentUpdated(newContent);
     }
+    setIsDirty(false);
   }, [rewriteResult, parseResult, parsedContent, profile, songTitle, songArtist, llmSettings, onNewRewrite, onContentUpdated]);
 
   const handleNewSong = () => {
@@ -288,6 +302,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     setParseReasoningText('');
     setParseReasoningExpanded(false);
     setSaveStatus(null);
+    setIsDirty(false);
     setError(null);
     setSongTitle('');
     setSongArtist('');
@@ -313,7 +328,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   };
 
   const handleSave = async () => {
-    if (!currentSongUuid || !rewriteResult) return;
+    if (!currentSongUuid || !rewriteResult || !isDirty) return;
     setSaveStatus('saving');
     try {
       await api.updateSong(currentSongUuid, {
@@ -322,27 +337,37 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
         rewritten_content: rewriteResult.rewritten_content,
         original_content: rewriteResult.original_content,
       } as Partial<Song>);
-      setSaveStatus('saved');
-      setTimeout(() => setSaveStatus(null), 2000);
+      setSaveStatus(null);
+      setIsDirty(false);
     } catch (err) {
       setError('Failed to save: ' + (err as Error).message);
       setSaveStatus(null);
     }
   };
 
+  // Cmd/Ctrl+S keyboard shortcut
+  const handleSaveRef = useRef(handleSave);
+  handleSaveRef.current = handleSave;
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault();
+        handleSaveRef.current();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   const handleTitleChange = useCallback((val: string) => {
     setSongTitle(val);
+    setIsDirty(true);
   }, []);
 
   const handleArtistChange = useCallback((val: string) => {
     setSongArtist(val);
+    setIsDirty(true);
   }, []);
-
-  const handleMetaBlur = useCallback(() => {
-    if (currentSongUuid) {
-      api.updateSong(currentSongUuid, { title: songTitle || null, artist: songArtist || null } as Partial<Song>).catch(() => {});
-    }
-  }, [currentSongUuid, songTitle, songArtist]);
 
   const handleOriginalContentUpdated = useCallback((newOriginal: string) => {
     if (!rewriteResult && parseResult) {
@@ -353,33 +378,24 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
       // Spreading rewriteResult here would clobber concurrent rewritten_content
       // updates from onContentUpdated (issue #165).
       onOriginalContentUpdatedCtx(newOriginal);
+      setIsDirty(true);
     }
-    // Persist to DB
-    if (currentSongUuid) {
-      api.updateSong(currentSongUuid, { original_content: newOriginal } as Partial<Song>).catch(() => {});
-    }
-  }, [rewriteResult, parseResult, currentSongUuid, onOriginalContentUpdatedCtx]);
+  }, [rewriteResult, parseResult, onOriginalContentUpdatedCtx]);
 
   const handleRewrittenChange = useCallback((newText: string) => {
     onContentUpdated(newText);
+    setIsDirty(true);
   }, [onContentUpdated]);
-
-  const handleRewrittenBlur = useCallback(() => {
-    if (currentSongUuid && rewriteResult) {
-      api.updateSong(currentSongUuid, { rewritten_content: rewriteResult.rewritten_content } as Partial<Song>).catch(() => {});
-    }
-  }, [currentSongUuid, rewriteResult]);
 
   const editableInputClass = 'bg-transparent border-0 border-b border-transparent can-hover:hover:border-dashed can-hover:hover:border-border focus:border-solid focus:border-primary p-0 pb-px min-w-0 w-full focus:outline-none cursor-text transition-colors';
 
-  const compactTitleArtist = (withBlur?: boolean) => (
+  const compactTitleArtist = () => (
     <div className="flex flex-col gap-0.5 flex-1 min-w-0 max-w-sm">
       <input
         className={cn(editableInputClass, 'text-sm font-semibold text-foreground placeholder:text-muted-foreground placeholder:font-normal')}
         type="text"
         value={songTitle || ''}
         onChange={e => handleTitleChange(e.target.value)}
-        onBlur={withBlur ? handleMetaBlur : undefined}
         placeholder="Untitled song"
         aria-label="Song title"
       />
@@ -388,7 +404,6 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
         type="text"
         value={songArtist || ''}
         onChange={e => handleArtistChange(e.target.value)}
-        onBlur={withBlur ? handleMetaBlur : undefined}
         placeholder="Artist"
         aria-label="Artist"
       />
@@ -497,7 +512,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
         </button>
       </div>
       <div className="flex items-center gap-2 px-1">
-        {compactTitleArtist(isWorkshopping)}
+        {compactTitleArtist()}
         <div className="flex items-center gap-1.5 shrink-0">
           {isWorkshopping && (
             <>
@@ -505,13 +520,13 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 Original
               </Button>
               <Button
-                variant="secondary"
+                variant={isDirty ? 'default' : 'secondary'}
                 className="h-7 px-2.5 text-xs"
                 onClick={handleSave}
-                disabled={saveStatus === 'saving' || !currentSongUuid}
+                disabled={saveStatus === 'saving' || !currentSongUuid || !isDirty}
               >
-                {saveStatus === 'saved' ? 'Saved!' :
-                 saveStatus === 'saving' ? 'Saving...' : 'Save'}
+                {saveStatus === 'saving' ? 'Saving...' :
+                 isDirty ? 'Save' : 'Saved'}
               </Button>
             </>
           )}
@@ -690,7 +705,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
 
           {/* Unified toolbar (desktop only) */}
           <div data-testid="song-toolbar" className="hidden md:flex items-center gap-4 px-4 py-2.5 border-b border-border">
-            {compactTitleArtist(isWorkshopping)}
+            {compactTitleArtist()}
             <div className="flex items-center gap-1.5 ml-auto shrink-0">
               {!isPremium && compactModelControls()}
               {isWorkshopping && (
@@ -700,13 +715,13 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                     Original
                   </Button>
                   <Button
-                    variant="secondary"
+                    variant={isDirty ? 'default' : 'secondary'}
                     className="h-7 px-2.5 text-xs"
                     onClick={handleSave}
-                    disabled={saveStatus === 'saving' || !currentSongUuid}
+                    disabled={saveStatus === 'saving' || !currentSongUuid || !isDirty}
                   >
-                    {saveStatus === 'saved' ? 'Saved!' :
-                     saveStatus === 'saving' ? 'Saving...' : 'Save'}
+                    {saveStatus === 'saving' ? 'Saving...' :
+                     isDirty ? 'Save' : 'Saved'}
                   </Button>
                 </>
               )}
@@ -768,13 +783,13 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                     {!isPremium && compactModelControls()}
                     {isWorkshopping && (
                       <Button
-                        variant="secondary"
+                        variant={isDirty ? 'default' : 'secondary'}
                         className="h-7 px-2.5 text-xs"
                         onClick={handleSave}
-                        disabled={saveStatus === 'saving' || !currentSongUuid}
+                        disabled={saveStatus === 'saving' || !currentSongUuid || !isDirty}
                       >
-                        {saveStatus === 'saved' ? 'Saved!' :
-                         saveStatus === 'saving' ? 'Saving...' : 'Save'}
+                        {saveStatus === 'saving' ? 'Saving...' :
+                         isDirty ? 'Save' : 'Saved'}
                       </Button>
                     )}
                     {isWorkshopping && (
@@ -817,8 +832,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 <ComparisonView
                   rewritten={rewriteResult!.rewritten_content}
                   onRewrittenChange={handleRewrittenChange}
-                  onRewrittenBlur={handleRewrittenBlur}
-                  headerLeft={compactTitleArtist(true)}
+                  headerLeft={compactTitleArtist()}
                   flat
                   onShowOriginal={() => setShowOriginal(true)}
                 />

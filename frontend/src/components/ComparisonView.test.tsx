@@ -6,7 +6,6 @@ describe('ComparisonView', () => {
   const defaults = {
     rewritten: 'Rewritten content here',
     onRewrittenChange: vi.fn(),
-    onRewrittenBlur: vi.fn(),
   };
 
   beforeEach(() => {
