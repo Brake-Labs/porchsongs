@@ -111,6 +111,7 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
   const [tokenUsage, setTokenUsage] = useState<TokenUsage>({ input_tokens: 0, output_tokens: 0 });
   const [images, setImages] = useState<AttachedImage[]>([]);
   const [dragging, setDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -259,6 +260,7 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
     if (!effectiveSongId && onBeforeSend) {
       setInput('');
       setImages([]);
+      inputRef.current?.focus();
       const userMsg: ChatMessage = { role: 'user', content: displayText, images: attachedDataUrls.length > 0 ? attachedDataUrls : undefined };
       setMessages(prev => [...prev, userMsg].slice(-MAX_MESSAGES));
       setSending(true);
@@ -273,6 +275,7 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
     } else {
       setInput('');
       setImages([]);
+      inputRef.current?.focus();
       const userMsg: ChatMessage = { role: 'user', content: displayText, images: attachedDataUrls.length > 0 ? attachedDataUrls : undefined };
       setMessages(prev => [...prev, userMsg].slice(-MAX_MESSAGES));
     }
@@ -453,6 +456,7 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
         onDrop={handleDrop}
       >
         <Input
+          ref={inputRef}
           value={input}
           onChange={e => setInput(e.target.value)}
           placeholder={dragging ? 'Drop image here...' : 'Tell the AI how to change the song...'}

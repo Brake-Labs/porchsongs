@@ -97,6 +97,24 @@ describe('ChatPanel', () => {
     expect(scrollContainer!.scrollTo).toHaveBeenCalledWith({ top: expect.any(Number), behavior: 'smooth' });
   });
 
+  it('keeps focus on chat input after sending a message', async () => {
+    render(<ChatPanel {...defaults} />);
+    const input = screen.getByPlaceholderText(/Tell the AI/) as HTMLInputElement;
+
+    // Focus the input and type a message
+    input.focus();
+    fireEvent.change(input, { target: { value: 'Make it jazzy' } });
+
+    // Send via Enter key
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+    });
+
+    // Input should be cleared and still focused
+    expect(input.value).toBe('');
+    expect(document.activeElement).toBe(input);
+  });
+
   it('rejects images larger than 5 MB with a toast error', async () => {
     render(<ChatPanel {...defaults} />);
     const input = screen.getByPlaceholderText(/Tell the AI/);
