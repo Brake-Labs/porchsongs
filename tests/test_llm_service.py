@@ -1,7 +1,6 @@
 """Tests for llm_service pure functions (no LLM calls)."""
 
 from types import SimpleNamespace
-from typing import Any
 
 from app.services.llm_service import (
     CHAT_SYSTEM_PROMPT,
@@ -232,14 +231,18 @@ def test_build_chat_params_reasoning_effort_xhigh() -> None:
         rewritten_content="G  Am\nHello changed world",
     )
     messages: list[dict[str, object]] = [{"role": "user", "content": "make it sadder"}]
-    params = _build_chat_params(song, messages, "anthropic", "claude-opus-4-6", reasoning_effort="xhigh")  # type: ignore[arg-type]
+    params = _build_chat_params(
+        song, messages, "anthropic", "claude-opus-4-6", reasoning_effort="xhigh"
+    )  # type: ignore[arg-type]
     assert params.thinking == {"type": "adaptive"}
     assert params.output_config == {"effort": "max"}
 
 
 def test_build_parse_params_reasoning_effort_xhigh() -> None:
     """reasoning_effort='xhigh' should convert to adaptive thinking with max effort."""
-    params = _build_parse_params("some content", "anthropic", "claude-opus-4-6", reasoning_effort="xhigh")
+    params = _build_parse_params(
+        "some content", "anthropic", "claude-opus-4-6", reasoning_effort="xhigh"
+    )
     assert params.thinking == {"type": "adaptive"}
     assert params.output_config == {"effort": "max"}
 
@@ -251,7 +254,9 @@ def test_build_chat_params_reasoning_effort_auto_no_thinking() -> None:
         rewritten_content="G  Am\nHello changed world",
     )
     messages: list[dict[str, object]] = [{"role": "user", "content": "test"}]
-    params = _build_chat_params(song, messages, "anthropic", "claude-opus-4-6", reasoning_effort="auto")  # type: ignore[arg-type]
+    params = _build_chat_params(
+        song, messages, "anthropic", "claude-opus-4-6", reasoning_effort="auto"
+    )  # type: ignore[arg-type]
     assert params.thinking is None
     assert params.output_config is None
 

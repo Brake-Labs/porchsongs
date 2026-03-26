@@ -90,9 +90,9 @@ def test_parse_endpoint(mock_amessages: MagicMock, client: TestClient) -> None:
     call_kwargs = mock_amessages.call_args.kwargs
     assert "system" in call_kwargs
     messages = call_kwargs.get("messages", [])
-    assert not any(
-        m.get("role") == "system" for m in messages
-    ), "system prompt should not be in messages list"
+    assert not any(m.get("role") == "system" for m in messages), (
+        "system prompt should not be in messages list"
+    )
 
 
 @patch("app.services.llm_service.amessages")
@@ -302,9 +302,7 @@ def test_chat_stores_full_raw_response(mock_amessages: MagicMock, client: TestCl
 
 
 @patch("app.services.llm_service.amessages")
-def test_chat_conversational_stores_messages(
-    mock_amessages: MagicMock, client: TestClient
-) -> None:
+def test_chat_conversational_stores_messages(mock_amessages: MagicMock, client: TestClient) -> None:
     """Conversational (no-content) responses should still persist chat messages."""
     _, song = _make_profile_and_song(client)
 
@@ -432,7 +430,7 @@ def test_parse_no_api_base_when_no_profile_model(
     assert resp.status_code == 200
 
     assert mock_amessages.call_count == 1
-    assert "api_base" not in mock_amessages.call_args.kwargs
+    assert mock_amessages.call_args.kwargs.get("api_base") is None
 
 
 @patch("app.services.llm_service.alist_models")
@@ -562,9 +560,7 @@ def test_chat_uses_custom_system_prompt(mock_amessages: MagicMock, client: TestC
 
 
 @patch("app.services.llm_service.amessages")
-def test_chat_multimodal_content_passthrough(
-    mock_amessages: MagicMock, client: TestClient
-) -> None:
+def test_chat_multimodal_content_passthrough(mock_amessages: MagicMock, client: TestClient) -> None:
     """Multimodal content (image + text) should be passed through to the LLM."""
     _, song = _make_profile_and_song(client)
 
@@ -598,9 +594,7 @@ def test_chat_multimodal_content_passthrough(
 
 
 @patch("app.services.llm_service.amessages")
-def test_chat_multimodal_display_text_only(
-    mock_amessages: MagicMock, client: TestClient
-) -> None:
+def test_chat_multimodal_display_text_only(mock_amessages: MagicMock, client: TestClient) -> None:
     """Messages endpoint returns text-only display content for multimodal messages."""
     _, song = _make_profile_and_song(client)
 

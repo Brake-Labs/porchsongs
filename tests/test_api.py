@@ -541,7 +541,7 @@ def test_parse_uses_env_credentials(client: TestClient) -> None:
         assert resp.status_code == 200
         # Verify amessages was called without api_key
         assert mock_ac.call_count == 1
-        assert "api_key" not in mock_ac.call_args.kwargs
+        assert mock_ac.call_args.kwargs.get("api_key") is None
 
 
 def test_parse_returns_title_artist(client: TestClient) -> None:

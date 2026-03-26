@@ -166,6 +166,6 @@ def test_pdf_filename_sanitizes_special_chars(
     assert resp.status_code == 200
     cd = resp.headers["Content-Disposition"]
     # Sanitized ASCII filename should not contain raw double quotes
-    assert 'He said hello' in cd
+    assert "He said hello" in cd
     # UTF-8 encoded filename should be present for Unicode support
     assert "filename*=UTF-8''" in cd
