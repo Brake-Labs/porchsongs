@@ -232,14 +232,28 @@ function PerformanceSheet({ song, onSongUpdated }: { song: Song; onSongUpdated: 
         )}
       </div>
       {canSplit && (
-        <Button
-          variant="secondary"
-          size="sm"
-          className="hidden xl:inline-flex"
-          onClick={() => setUserOverride(showTwoCol ? 1 : 2)}
-        >
-          {showTwoCol ? '1 Column' : '2 Columns'}
-        </Button>
+        <div className="hidden xl:inline-flex items-center gap-0.5 bg-panel border border-border rounded-md p-0.5">
+          <button
+            className={cn(
+              'px-2 py-1 text-xs rounded cursor-pointer transition-colors',
+              !showTwoCol ? 'bg-card text-foreground shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'
+            )}
+            onClick={() => setUserOverride(1)}
+            title="Single column layout"
+          >
+            1 Col
+          </button>
+          <button
+            className={cn(
+              'px-2 py-1 text-xs rounded cursor-pointer transition-colors',
+              showTwoCol ? 'bg-card text-foreground shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'
+            )}
+            onClick={() => setUserOverride(2)}
+            title="Two column layout"
+          >
+            2 Col
+          </button>
+        </div>
       )}
     </div>
   );
@@ -734,7 +748,7 @@ export default function LibraryTab() {
   if (viewingSong) {
     const song = viewingSong;
     return (
-      <div className="mx-auto max-w-none w-full sm:w-[calc(100vw-4rem)] sm:ml-[calc(-50vw+50%)] px-0 sm:px-8">
+      <div className="w-full max-w-4xl mx-auto">
         <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center mb-3 gap-3">
           <Button variant="secondary" onClick={handleBack}>&larr; All Songs</Button>
           <div className="flex gap-2 justify-end flex-wrap">
@@ -831,7 +845,7 @@ export default function LibraryTab() {
   const hasFolders = folders.length > 0;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 max-w-4xl mx-auto w-full">
       <div className="flex flex-col gap-2">
         <div className="flex gap-2">
           <Input
