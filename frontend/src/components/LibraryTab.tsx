@@ -746,7 +746,7 @@ export default function LibraryTab() {
   if (viewingSong) {
     const song = viewingSong;
     return (
-      <div className="w-full max-w-4xl mx-auto">
+      <div className="w-full max-w-[1120px] mx-auto">
         <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center mb-3 gap-3">
           <Button variant="secondary" onClick={handleBack}>&larr; All Songs</Button>
           <div className="flex gap-2 justify-end flex-wrap">
@@ -843,7 +843,7 @@ export default function LibraryTab() {
   const hasFolders = folders.length > 0;
 
   return (
-    <div className="flex flex-col gap-4 max-w-4xl mx-auto w-full">
+    <div className="flex flex-col gap-4 max-w-[1120px] mx-auto w-full">
       <div className="flex flex-col gap-2">
         <div className="flex gap-2">
           <Input
