@@ -106,6 +106,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const [scrapDialogOpen, setScrapDialogOpen] = useState(false);
   const [newSongDialogOpen, setNewSongDialogOpen] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
+  const [showHints, setShowHints] = useState(false);
   const [hasSongs, setHasSongs] = useState(
     () => !!localStorage.getItem(STORAGE_KEYS.HAS_REWRITTEN),
   );
@@ -167,11 +168,11 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const parseBlocker = !hasModel
       ? 'Select a model'
       : input.trim().length === 0
-        ? 'Paste some content above'
+        ? 'Paste your song above'
         : null;
 
   const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.userAgent);
-  const shortcutHint = `${isMac ? '\u2318' : 'Ctrl'}+Enter to parse`;
+  const shortcutHint = `${isMac ? '\u2318' : 'Ctrl'}+Enter to import`;
 
   const handlePasteFromClipboard = async () => {
     try {
@@ -613,6 +614,11 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 </p>
               )}
 
+              <div className="mb-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Step 1: Import your song</p>
+                <p className="text-sm text-muted-foreground mt-1">Drop your lyrics and chords in here, any format. We&apos;ll tidy up the formatting so you can start workshopping.</p>
+              </div>
+
               {!input && (
                 <Button
                   variant="secondary"
@@ -627,7 +633,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 className="flex-1 min-h-0 resize-none"
                 value={input}
                 onChange={e => setInput(e.target.value)}
-                placeholder="Paste your lyrics and chords here. Any format works."
+                placeholder="Paste or drop lyrics here..."
                 onKeyDown={e => {
                   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canParse) {
                     e.preventDefault();
@@ -636,23 +642,34 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 }}
               />
 
-              <Textarea
-                rows={2}
-                value={instruction}
-                onChange={e => setInstruction(e.target.value)}
-                placeholder="Optional instructions, e.g. &quot;only grab the first song&quot; or &quot;skip the intro&quot;"
-                className="mt-3 font-ui"
-                onKeyDown={e => {
-                  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canParse) {
-                    e.preventDefault();
-                    handleParse();
-                  }
-                }}
-              />
+              <div className="mt-3">
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground cursor-pointer hover:text-foreground"
+                  onClick={() => setShowHints(prev => !prev)}
+                >
+                  {showHints ? '− Import options' : '+ Import options'}
+                </button>
+                {showHints && (
+                  <Textarea
+                    rows={2}
+                    value={instruction}
+                    onChange={e => setInstruction(e.target.value)}
+                    placeholder='Cleanup hints, e.g. "only grab the first song" or "ignore the intro"'
+                    className="mt-2 font-ui"
+                    onKeyDown={e => {
+                      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canParse) {
+                        e.preventDefault();
+                        handleParse();
+                      }
+                    }}
+                  />
+                )}
+              </div>
 
               <div className="flex items-center gap-3 mt-3">
                 <Button onClick={handleParse} disabled={!canParse}>
-                  Parse
+                  Import Song
                 </Button>
                 <span className="text-xs text-muted-foreground">
                   {parseBlocker ?? shortcutHint}
@@ -686,7 +703,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
         <Card className="flex flex-col text-muted-foreground">
           <div className="flex items-center justify-center gap-3 py-4">
             <Spinner size="sm" />
-            <span className="text-sm">{parseReasoningText ? 'Thinking...' : 'Parsing song...'}</span>
+            <span className="text-sm">{parseReasoningText ? 'Thinking...' : 'Importing song...'}</span>
             <Button variant="danger-outline" size="sm" onClick={handleCancelParse}>Cancel</Button>
           </div>
           {parseReasoningText && !parseStreamText && (
@@ -701,6 +718,9 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
       {/* PARSED + WORKSHOPPING states */}
       {(isParsed || isWorkshopping) && (
         <div className="flex flex-col flex-1 min-h-0 mt-2 md:mt-0">
+          {isParsed && !isWorkshopping && (
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2 px-4 md:px-0">Step 2: Edit your song</p>
+          )}
           {mobilePaneToggle}
 
           {/* Unified toolbar (desktop only) */}

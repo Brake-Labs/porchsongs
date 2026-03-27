@@ -416,7 +416,7 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
         {initialLoading && (
           <div className="flex items-center gap-2 py-2 text-muted-foreground text-sm">
             <Spinner size="sm" />
-            <span>Parsing song...</span>
+            <span>Importing song...</span>
           </div>
         )}
         {sending && !streaming && (
@@ -459,7 +459,7 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
           ref={inputRef}
           value={input}
           onChange={e => setInput(e.target.value)}
-          placeholder={dragging ? 'Drop image here...' : 'Tell the AI how to change the song...'}
+          placeholder={dragging ? 'Drop image here...' : messages.length === 0 ? 'Your song is ready. How would you like to change it?' : 'Tell the AI how to change the song...'}
           onKeyDown={e => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();

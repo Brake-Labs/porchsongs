@@ -62,15 +62,15 @@ test.describe('Song Lifecycle', () => {
     await page.goto('/');
     await waitForAppReady(page);
 
-    const textarea = page.getByPlaceholder(/Paste your lyrics/);
+    const textarea = page.getByPlaceholder(/Paste or drop lyrics/);
     await textarea.fill(RAW_LYRICS);
-    await page.getByRole('button', { name: 'Parse' }).click();
+    await page.getByRole('button', { name: 'Import Song' }).click();
 
     // Wait for parse to complete
     await expect(page.getByLabel('Song title').first()).toHaveValue(PARSED_TITLE, { timeout: 10_000 });
 
     // Send a chat message — this triggers auto-save via onBeforeSend
-    const chatInput = page.getByPlaceholder('Tell the AI how to change the song...');
+    const chatInput = page.getByPlaceholder('Your song is ready. How would you like to change it?');
     await expect(chatInput).toBeVisible({ timeout: 5_000 });
     await chatInput.fill('Change "wretch" to "soul"');
     await page.getByRole('button', { name: 'Send' }).click();
@@ -117,7 +117,7 @@ test.describe('Song Lifecycle', () => {
     await expect(page).toHaveURL(/\/app\/rewrite/);
 
     // Send a chat message
-    const chatInput = page.getByPlaceholder('Tell the AI how to change the song...');
+    const chatInput = page.getByPlaceholder('Your song is ready. How would you like to change it?');
     await expect(chatInput).toBeVisible({ timeout: 5_000 });
     await chatInput.fill('Change "wretch" to "soul"');
     await page.getByRole('button', { name: 'Send' }).click();

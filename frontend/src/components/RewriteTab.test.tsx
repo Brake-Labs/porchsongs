@@ -89,11 +89,11 @@ describe('RewriteTab', () => {
     const { unmount } = render(<RewriteTab {...props} />);
 
     // Type some input so the Parse button is enabled
-    const textarea = screen.getByPlaceholderText(/Paste your lyrics/);
+    const textarea = screen.getByPlaceholderText(/Paste or drop lyrics/);
     fireEvent.change(textarea, { target: { value: 'Some lyrics here' } });
 
     // Click Parse to start the streaming request
-    const parseButton = screen.getByText('Parse');
+    const parseButton = screen.getByText('Import Song');
     fireEvent.click(parseButton);
 
     // Verify parseStream was called
@@ -108,12 +108,29 @@ describe('RewriteTab', () => {
     expect(abortSpy).toHaveBeenCalled();
   });
 
+  it('shows step 1 indicator in INPUT state', () => {
+    const props = makeProps();
+    render(<RewriteTab {...props} />);
+
+    expect(screen.getByText('Step 1: Import your song')).toBeInTheDocument();
+  });
+
+  it('shows step 2 indicator in PARSED state', () => {
+    const props = makeProps();
+    render(<RewriteTab {...props} />);
+
+    // Load sample to get into parsed state
+    fireEvent.click(screen.getByText('When the Saints Go Marching In'));
+
+    expect(screen.getByText('Step 2: Edit your song')).toBeInTheDocument();
+  });
+
   it('input card expands to fill available space with flex layout', () => {
     const props = makeProps();
     render(<RewriteTab {...props} />);
 
     // The Card wrapping the textareas should use flex-1 to fill space
-    const lyricsTextarea = screen.getByPlaceholderText(/Paste your lyrics/);
+    const lyricsTextarea = screen.getByPlaceholderText(/Paste or drop lyrics/);
     const card = lyricsTextarea.closest('.shadow-sm');
     expect(card).toBeTruthy();
     expect(card!.className).toContain('flex-1');
@@ -346,7 +363,7 @@ describe('RewriteTab', () => {
     });
 
     // The input textarea should no longer be visible (we're past the input state)
-    expect(screen.queryByPlaceholderText(/Paste your lyrics/)).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/Paste or drop lyrics/)).not.toBeInTheDocument();
   });
 
   it('shows "Start with a sample" above textarea for first-time users', () => {
@@ -354,7 +371,7 @@ describe('RewriteTab', () => {
     render(<RewriteTab {...props} />);
 
     const sampleText = screen.getByText(/Start with a sample/);
-    const textarea = screen.getByPlaceholderText(/Paste your lyrics/);
+    const textarea = screen.getByPlaceholderText(/Paste or drop lyrics/);
 
     // Sample prompt should appear before the textarea in the DOM
     expect(sampleText.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -366,7 +383,7 @@ describe('RewriteTab', () => {
     render(<RewriteTab {...props} />);
 
     const sampleText = screen.getByText(/Or try a sample/);
-    const textarea = screen.getByPlaceholderText(/Paste your lyrics/);
+    const textarea = screen.getByPlaceholderText(/Paste or drop lyrics/);
 
     // Sample prompt should appear after the textarea in the DOM
     expect(sampleText.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
@@ -388,7 +405,7 @@ describe('RewriteTab', () => {
 
     expect(screen.getByRole('button', { name: 'Paste from clipboard' })).toBeInTheDocument();
 
-    const textarea = screen.getByPlaceholderText(/Paste your lyrics/);
+    const textarea = screen.getByPlaceholderText(/Paste or drop lyrics/);
     fireEvent.change(textarea, { target: { value: 'Some lyrics' } });
 
     expect(screen.queryByRole('button', { name: 'Paste from clipboard' })).not.toBeInTheDocument();
@@ -408,7 +425,7 @@ describe('RewriteTab', () => {
     fireEvent.click(pasteBtn);
 
     await waitFor(() => {
-      const textarea = screen.getByPlaceholderText(/Paste your lyrics/) as HTMLTextAreaElement;
+      const textarea = screen.getByPlaceholderText(/Paste or drop lyrics/) as HTMLTextAreaElement;
       expect(textarea.value).toBe(clipboardText);
     });
 
@@ -450,7 +467,7 @@ describe('RewriteTab', () => {
     });
 
     const sampleText = screen.getByText(/Or try a sample/);
-    const textarea = screen.getByPlaceholderText(/Paste your lyrics/);
+    const textarea = screen.getByPlaceholderText(/Paste or drop lyrics/);
     expect(sampleText.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
   });
 

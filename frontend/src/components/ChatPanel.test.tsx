@@ -25,15 +25,15 @@ describe('ChatPanel', () => {
 
   it('renders the input and send button', () => {
     render(<ChatPanel {...defaults} />);
-    expect(screen.getByPlaceholderText(/Tell the AI/)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/How would you like to change/)).toBeInTheDocument();
     expect(screen.getByText('Send')).toBeInTheDocument();
   });
 
   it('disables input and send when initialLoading', () => {
     render(<ChatPanel {...defaults} initialLoading={true} />);
-    expect(screen.getByPlaceholderText(/Tell the AI/)).toBeDisabled();
+    expect(screen.getByPlaceholderText(/How would you like to change/)).toBeDisabled();
     expect(screen.getByText('Send')).toBeDisabled();
-    expect(screen.getByText('Parsing song...')).toBeInTheDocument();
+    expect(screen.getByText('Importing song...')).toBeInTheDocument();
   });
 
   it('renders chat messages', () => {
@@ -66,7 +66,7 @@ describe('ChatPanel', () => {
 
   it('shows drag-over visual indicator when dragging files', () => {
     render(<ChatPanel {...defaults} />);
-    const inputRow = screen.getByPlaceholderText(/Tell the AI/).closest('div')!;
+    const inputRow = screen.getByPlaceholderText(/How would you like to change/).closest('div')!;
 
     fireEvent.dragEnter(inputRow, { dataTransfer: { types: ['Files'], files: [] } });
 
@@ -99,7 +99,7 @@ describe('ChatPanel', () => {
 
   it('keeps focus on chat input after sending a message', async () => {
     render(<ChatPanel {...defaults} />);
-    const input = screen.getByPlaceholderText(/Tell the AI/) as HTMLInputElement;
+    const input = screen.getByPlaceholderText(/How would you like to change/) as HTMLInputElement;
 
     // Focus the input and type a message
     input.focus();
@@ -117,7 +117,7 @@ describe('ChatPanel', () => {
 
   it('rejects images larger than 5 MB with a toast error', async () => {
     render(<ChatPanel {...defaults} />);
-    const input = screen.getByPlaceholderText(/Tell the AI/);
+    const input = screen.getByPlaceholderText(/How would you like to change/);
     const dropZone = input.closest('div')!;
 
     const largeFile = new File(['x'.repeat(6 * 1024 * 1024)], 'huge.png', { type: 'image/png' });

@@ -37,12 +37,12 @@ test.describe('OSS Rewrite Flow', () => {
     await waitForAppReady(page);
 
     // Fill lyrics textarea
-    const textarea = page.getByPlaceholder('Paste your lyrics');
+    const textarea = page.getByPlaceholder('Paste or drop lyrics');
     await expect(textarea).toBeVisible();
     await textarea.fill(RAW_LYRICS);
 
     // Click Parse
-    await page.getByRole('button', { name: 'Parse' }).click();
+    await page.getByRole('button', { name: 'Import Song' }).click();
 
     // Wait for parsed content to appear — title and artist inputs should be visible
     // Scope to the desktop toolbar to avoid matching the mobile-only duplicate
@@ -56,7 +56,7 @@ test.describe('OSS Rewrite Flow', () => {
     await expect(artistInput).toHaveValue(PARSED_ARTIST);
 
     // The chat panel should be visible after parse (indicating parsed state)
-    await expect(page.getByPlaceholder('Tell the AI how to change the song...')).toBeVisible();
+    await expect(page.getByPlaceholder('Your song is ready. How would you like to change it?')).toBeVisible();
   });
 
   test('cancel parse mid-stream shows input again', async ({ page }) => {
@@ -75,15 +75,15 @@ test.describe('OSS Rewrite Flow', () => {
     await page.goto('/');
     await waitForAppReady(page);
 
-    const textarea = page.getByPlaceholder('Paste your lyrics');
+    const textarea = page.getByPlaceholder('Paste or drop lyrics');
     await textarea.fill(RAW_LYRICS);
-    await page.getByRole('button', { name: 'Parse' }).click();
+    await page.getByRole('button', { name: 'Import Song' }).click();
 
     // After the SSE completes (no done event), the app may show an error or
     // return to input state. Verify we can see the input area again.
     // The partial response without a done event triggers the error path.
     await expect(
-      page.getByPlaceholder('Paste your lyrics').or(page.getByText(/error|failed/i))
+      page.getByPlaceholder('Paste or drop lyrics').or(page.getByText(/error|failed/i))
     ).toBeVisible({ timeout: 10_000 });
   });
 
@@ -95,9 +95,9 @@ test.describe('OSS Rewrite Flow', () => {
     await page.goto('/');
     await waitForAppReady(page);
 
-    const textarea = page.getByPlaceholder('Paste your lyrics');
+    const textarea = page.getByPlaceholder('Paste or drop lyrics');
     await textarea.fill(RAW_LYRICS);
-    await page.getByRole('button', { name: 'Parse' }).click();
+    await page.getByRole('button', { name: 'Import Song' }).click();
 
     // Error message should be visible (in a toast or inline)
     await expect(page.getByText(/API key/i)).toBeVisible({ timeout: 10_000 });

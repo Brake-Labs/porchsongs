@@ -91,7 +91,7 @@ test.describe('OSS Library', () => {
     await expect(page.getByLabel('Artist').first()).toHaveValue(PARSED_ARTIST);
 
     // Chat input should be visible (song is in WORKSHOPPING state)
-    await expect(page.getByPlaceholder('Tell the AI how to change the song...')).toBeVisible();
+    await expect(page.getByPlaceholder('Your song is ready. How would you like to change it?')).toBeVisible();
 
     // Song content should be displayed (check for chord annotation from PARSED_CONTENT)
     await expect(page.getByText(/Amazing grace how/).first()).toBeVisible();
