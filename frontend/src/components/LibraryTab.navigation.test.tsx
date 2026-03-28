@@ -28,6 +28,7 @@ vi.mock('@/api', () => ({
   default: {
     listSongs: vi.fn().mockResolvedValue([MOCK_SONG]),
     getSong: vi.fn().mockResolvedValue(MOCK_SONG),
+    getSongRevisions: vi.fn().mockResolvedValue([]),
   },
   STORAGE_KEYS: {
     PROVIDER: 'test_provider',
@@ -87,6 +88,44 @@ function NavButton() {
 }
 
 import LibraryTab from '@/components/LibraryTab';
+
+describe('LibraryTab song detail view (issue #177)', () => {
+  it('original content does not have embedded scroll constraints', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter initialEntries={['/app/library/test-uuid-123']}>
+        <Routes>
+          <Route path="/app" element={<ContextWrapper />}>
+            <Route path="library/:id" element={<LibraryTab />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Wait for the song detail view to render
+    await waitFor(() => {
+      expect(screen.getByText('Amazing Grace')).toBeInTheDocument();
+    });
+
+    // Expand the details section
+    await user.click(screen.getByRole('button', { name: /show original/i }));
+
+    // Wait for the Original section to appear
+    await waitFor(() => {
+      expect(screen.getByText('Original')).toBeInTheDocument();
+    });
+
+    // The original content pre element should not have max-height or overflow-y
+    // (embedded scroll creates confusing dual-scroll UX on mobile)
+    const originalHeader = screen.getByText('Original');
+    const originalCard = originalHeader.closest('[class*="bg-card"]')!;
+    const pre = originalCard.querySelector('pre')!;
+    expect(pre).toBeTruthy();
+    expect(pre.className).not.toMatch(/max-h/);
+    expect(pre.className).not.toMatch(/overflow-y/);
+  });
+});
 
 describe('LibraryTab navigation (issue #94)', () => {
   it('returns to song list when navigating from /app/library/:id to /app/library', async () => {

@@ -784,7 +784,7 @@ export default function LibraryTab() {
           <div className="mt-4 flex flex-col gap-4">
             <Card>
               <CardHeader>Original</CardHeader>
-              <pre className="p-3 sm:p-4 font-mono text-xs sm:text-code leading-relaxed whitespace-pre-wrap break-words overflow-x-auto max-h-[600px] overflow-y-auto">{song.original_content}</pre>
+              <pre className="p-3 sm:p-4 font-mono text-xs sm:text-code leading-relaxed whitespace-pre-wrap break-words">{song.original_content}</pre>
             </Card>
 
             {song.changes_summary && (
