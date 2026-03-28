@@ -842,7 +842,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                   )}
                   <div className="flex-1 min-h-[200px] bg-card shadow-[inset_0_1px_4px_rgba(0,0,0,0.04)] rounded-sm">
                     <Textarea
-                      className="h-full min-h-[50vh] md:min-h-0 border-0 bg-transparent p-3 sm:p-4 font-mono text-xs sm:text-code leading-relaxed resize-none focus-visible:ring-0"
+                      className="h-full min-h-[50vh] md:min-h-0 border-0 bg-transparent p-3 sm:p-4 font-mono text-xs sm:text-code leading-relaxed resize-none overflow-y-auto overscroll-y-contain focus-visible:ring-0"
                       value={parsedContent}
                       onChange={e => setParsedContent(e.target.value)}
                     />
