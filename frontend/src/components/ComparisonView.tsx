@@ -55,7 +55,7 @@ export default function ComparisonView({
       </CardHeader>
       <div className="relative flex-1 min-h-0 group/copy bg-card shadow-[inset_0_1px_4px_rgba(0,0,0,0.04)] rounded-sm">
         <Textarea
-          className="h-full border-0 rounded-none p-3 sm:p-4 text-xs sm:text-code bg-transparent resize-none overflow-y-auto cursor-text focus-visible:ring-0"
+          className="h-full border-0 rounded-none p-3 sm:p-4 text-xs sm:text-code bg-transparent resize-none overflow-y-auto overscroll-y-contain cursor-text focus-visible:ring-0"
           value={rewritten}
           onChange={e => onRewrittenChange(e.target.value)}
           aria-label="Rewritten content editor"

@@ -397,7 +397,7 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
           Chat history limit reached ({MAX_MESSAGES} messages). Older messages will be dropped.
         </div>
       )}
-      <div ref={scrollContainerRef} className={cn('flex-1 overflow-y-auto p-4 flex flex-col gap-2', flat && 'md:bg-panel md:shadow-[inset_0_1px_4px_rgba(0,0,0,0.04)] md:rounded-md')}>
+      <div ref={scrollContainerRef} className={cn('flex-1 overflow-y-auto overscroll-y-contain p-4 flex flex-col gap-2', flat && 'md:bg-panel md:shadow-[inset_0_1px_4px_rgba(0,0,0,0.04)] md:rounded-md')}>
         {messages.map((msg, i) => (
           <div key={i} className={cn('flex flex-col', msg.role === 'user' ? 'items-end' : 'items-start')}>
             <ChatMessageBubble msg={msg} isStreaming={streaming && i === messages.length - 1} />
