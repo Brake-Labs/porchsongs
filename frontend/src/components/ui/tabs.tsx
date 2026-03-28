@@ -11,7 +11,7 @@ const TabsList = forwardRef<
   <TabsPrimitive.List
     ref={ref}
     className={cn(
-      'flex border-b border-border px-4 sm:px-8 bg-card overflow-x-auto',
+      'flex px-4 sm:px-8 overflow-x-auto max-w-[1800px] mx-auto',
       className
     )}
     {...props}

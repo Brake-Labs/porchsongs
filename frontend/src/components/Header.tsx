@@ -18,7 +18,8 @@ export default function Header({ user, authRequired, onLogout, isPremium, leftSl
   const logoTo = isPremium ? '/' : '/app/rewrite';
 
   return (
-    <header className="flex justify-between items-center px-3 sm:px-8 py-2 sm:py-2.5 bg-linear-to-r from-header-bg-from to-header-bg-to text-header-text border-b border-header-border">
+    <header className="bg-linear-to-r from-header-bg-from to-header-bg-to text-header-text border-b border-header-border">
+      <div className="flex justify-between items-center px-3 sm:px-8 py-2 sm:py-2.5 max-w-[1800px] mx-auto">
       <div className="flex items-center gap-0 min-w-0">
         {leftSlot}
         <Link
@@ -68,6 +69,7 @@ export default function Header({ user, authRequired, onLogout, isPremium, leftSl
             Log out
           </button>
         )}
+      </div>
       </div>
     </header>
   );

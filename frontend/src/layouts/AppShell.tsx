@@ -304,7 +304,7 @@ export default function AppShell() {
           isPremium={isPremium}
           leftSlot={<MobileNav />}
         />
-        <div className="hidden md:block">
+        <div className="hidden md:block bg-card border-b border-border">
           <Tabs />
         </div>
       </div>

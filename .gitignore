@@ -9,3 +9,4 @@ frontend/openapi.json
 # Playwright
 playwright-report/
 test-results/
+.gstack/

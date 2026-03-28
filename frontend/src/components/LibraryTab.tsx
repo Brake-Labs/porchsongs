@@ -1,7 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, type DragEvent, type MouseEvent } from 'react';
 import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
 import { toast } from 'sonner';
-import api from '@/api';
+import api, { STORAGE_KEYS } from '@/api';
 import { Button } from '@/components/ui/button';
 import Spinner from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
@@ -232,14 +232,26 @@ function PerformanceSheet({ song, onSongUpdated }: { song: Song; onSongUpdated: 
         )}
       </div>
       {canSplit && (
-        <Button
-          variant="secondary"
-          size="sm"
-          className="hidden xl:inline-flex"
-          onClick={() => setUserOverride(showTwoCol ? 1 : 2)}
-        >
-          {showTwoCol ? '1 Column' : '2 Columns'}
-        </Button>
+        <div className="hidden xl:inline-flex items-center gap-0.5 bg-panel border border-border rounded-md p-0.5" role="radiogroup" aria-label="Column layout">
+          {([1, 2] as const).map(cols => {
+            const isActive = cols === 1 ? !showTwoCol : showTwoCol;
+            return (
+              <button
+                key={cols}
+                className={cn(
+                  'px-2.5 py-1.5 text-xs rounded cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1',
+                  isActive ? 'bg-card text-foreground shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'
+                )}
+                onClick={() => setUserOverride(cols)}
+                role="radio"
+                aria-checked={isActive}
+                aria-label={`${cols} column layout`}
+              >
+                {cols} Col
+              </button>
+            );
+          })}
+        </div>
       )}
     </div>
   );
@@ -413,6 +425,19 @@ export default function LibraryTab() {
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [page, setPage] = useState(0);
   const [dialogState, setDialogState] = useState<DialogState>({ kind: 'none' });
+  const [layoutWidth, setLayoutWidth] = useState<'default' | 'wide'>(() => {
+    return (localStorage.getItem(STORAGE_KEYS.LIBRARY_LAYOUT) as 'default' | 'wide') || 'default';
+  });
+
+  const toggleLayoutWidth = useCallback(() => {
+    setLayoutWidth(prev => {
+      const next = prev === 'default' ? 'wide' : 'default';
+      localStorage.setItem(STORAGE_KEYS.LIBRARY_LAYOUT, next);
+      return next;
+    });
+  }, []);
+
+  const containerClass = layoutWidth === 'wide' ? 'w-full' : 'max-w-[1120px] mx-auto w-full';
 
   useEffect(() => {
     api.listSongs().then(data => {
@@ -734,13 +759,13 @@ export default function LibraryTab() {
   if (viewingSong) {
     const song = viewingSong;
     return (
-      <div className="mx-auto max-w-none w-full sm:w-[calc(100vw-4rem)] sm:ml-[calc(-50vw+50%)] px-0 sm:px-8">
+      <div className={containerClass}>
         <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center mb-3 gap-3">
           <Button variant="secondary" onClick={handleBack}>&larr; All Songs</Button>
           <div className="flex gap-2 justify-end flex-wrap">
+            <Button variant="default" onClick={() => onLoadSong(song)}>Edit in Rewrite</Button>
             <Button variant="secondary" onClick={() => handleDownloadPdf(song)}>Download PDF</Button>
-            <Button variant="secondary" onClick={() => onLoadSong(song)}>Edit in Rewrite</Button>
-            <Button variant="danger" onClick={() => handleDeleteRequest(song.uuid)}>Delete</Button>
+            <Button variant="ghost" className="text-muted-foreground hover:text-danger" onClick={() => handleDeleteRequest(song.uuid)}>Delete</Button>
           </div>
         </div>
 
@@ -831,7 +856,7 @@ export default function LibraryTab() {
   const hasFolders = folders.length > 0;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className={cn('flex flex-col gap-4', containerClass)}>
       <div className="flex flex-col gap-2">
         <div className="flex gap-2">
           <Input
@@ -858,6 +883,30 @@ export default function LibraryTab() {
             aria-label={sortDir === 'asc' ? 'Sort ascending' : 'Sort descending'}
           >
             {sortDir === 'asc' ? '\u2191' : '\u2193'}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={toggleLayoutWidth}
+            title={layoutWidth === 'default' ? 'Switch to wide layout' : 'Switch to compact layout'}
+            aria-label={layoutWidth === 'default' ? 'Switch to wide layout' : 'Switch to compact layout'}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+              {layoutWidth === 'default' ? (
+                <>
+                  <rect x="2" y="3" width="12" height="10" rx="1" />
+                  <line x1="5" y1="3" x2="5" y2="13" />
+                  <line x1="11" y1="3" x2="11" y2="13" />
+                </>
+              ) : (
+                <>
+                  <rect x="1" y="3" width="14" height="10" rx="1" />
+                  <line x1="4" y1="6" x2="12" y2="6" />
+                  <line x1="4" y1="8" x2="12" y2="8" />
+                  <line x1="4" y1="10" x2="9" y2="10" />
+                </>
+              )}
+            </svg>
           </Button>
         </div>
         <div className="flex flex-wrap gap-1.5 items-center overflow-x-auto">
@@ -943,7 +992,7 @@ export default function LibraryTab() {
         </div>
       )}
 
-      <div className="flex flex-col gap-3">
+      <div className={cn('gap-3', layoutWidth === 'wide' ? 'grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3' : 'flex flex-col')}>
         {pagedSongs.map(song => {
           const date = new Date(song.created_at).toLocaleDateString();
           const artist = song.artist ? ` by ${song.artist}` : '';
@@ -954,7 +1003,7 @@ export default function LibraryTab() {
             <Card
               key={song.uuid}
               className={cn(
-                'cursor-pointer transition-colors',
+                'group cursor-pointer transition-colors',
                 draggingSongUuid === song.uuid && 'opacity-40',
                 isSelected && 'border-primary bg-selected-bg'
               )}
@@ -965,7 +1014,10 @@ export default function LibraryTab() {
             >
               <div className="flex justify-between items-center p-4 hover:bg-panel transition-colors">
                 <label
-                  className="flex items-center pr-2 cursor-pointer shrink-0"
+                  className={cn(
+                    'flex items-center pr-2 cursor-pointer shrink-0 transition-opacity',
+                    selectMode || isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                  )}
                   onClick={e => e.stopPropagation()}
                 >
                   <Checkbox
