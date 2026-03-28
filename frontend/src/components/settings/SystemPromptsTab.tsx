@@ -50,7 +50,7 @@ export default function SystemPromptsTab({ profile, onSaveProfile }: SystemPromp
   return (
     <div>
       <div className="mb-6">
-        <h2 className="text-xl font-semibold mb-1">System Prompts</h2>
+        <h2 className="font-display text-xl font-semibold mb-1">System Prompts</h2>
         <p className="text-muted-foreground">
           Customize the system prompts used for LLM calls. Leave empty to use the built-in defaults.
         </p>

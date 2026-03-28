@@ -85,6 +85,7 @@
 - **sm:** `0 1px 3px rgba(0, 0, 0, 0.06)` -- cards at rest
 - **md:** `0 2px 8px rgba(0, 0, 0, 0.08)` -- cards on hover, dropdowns
 - **lg:** `0 8px 32px rgba(0, 0, 0, 0.12)` -- modals, overlays
+- **inset:** `inset 0 1px 4px rgba(0, 0, 0, 0.04)` -- subtle inner shadow for recessed text areas (editors, chat panels, code blocks)
 - **Dark mode:** Increase opacity (0.3, 0.4, 0.5) since shadows need more contrast on dark surfaces.
 
 ## Design Risks (Intentional Departures)

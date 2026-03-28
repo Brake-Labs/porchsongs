@@ -770,7 +770,7 @@ export default function LibraryTab() {
         </div>
 
         <div className="text-center mb-3">
-          <h2 className="text-xl font-bold text-foreground">{song.title || 'Untitled'}</h2>
+          <h2 className="font-display text-xl font-bold text-foreground">{song.title || 'Untitled'}</h2>
           {song.artist && <div className="text-sm text-muted-foreground mt-0.5">{song.artist}</div>}
         </div>
 
@@ -798,14 +798,14 @@ export default function LibraryTab() {
               <div className="mt-4 border-t border-border pt-3">
                 <h4 className="text-sm text-muted-foreground mb-2">Revision History ({revisions.length} versions)</h4>
                 {revisions.map(rev => (
-                  <div key={rev.id} className="text-xs py-1 text-muted-foreground border-b border-border last:border-b-0">
+                  <div key={rev.id} className="text-xs py-1 text-muted-foreground border-b border-border last:border-b-0 font-[family-name:var(--font-data)] tabular-nums">
                     v{rev.version} · {rev.edit_type === 'chat' ? 'Chat edit' : 'Full rewrite'} · {rev.changes_summary || 'No summary'} · {new Date(rev.created_at).toLocaleString()}
                   </div>
                 ))}
               </div>
             )}
 
-            <div className="flex gap-4 text-xs text-muted-foreground pt-2">
+            <div className="flex gap-4 text-xs text-muted-foreground pt-2 font-[family-name:var(--font-data)] tabular-nums">
               {song.current_version > 1 && <span>Version {song.current_version}</span>}
               <span>{new Date(song.created_at).toLocaleDateString()}</span>
             </div>
@@ -841,7 +841,7 @@ export default function LibraryTab() {
   if (songs.length === 0) {
     return (
       <div className="text-center py-16 px-8">
-        <h3 className="text-lg font-semibold text-foreground mb-2">Your library is empty</h3>
+        <h3 className="font-display text-lg font-semibold text-foreground mb-2">Your library is empty</h3>
         <p className="text-muted-foreground mb-4">
           Songs you rewrite will appear here. Head to the Rewrite tab to get started.
         </p>
@@ -971,7 +971,7 @@ export default function LibraryTab() {
 
       {selectMode && (
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 px-4 py-2.5 bg-primary-light border border-primary rounded-md flex-wrap">
-          <span className="text-sm font-semibold text-primary mr-1">{selectedUuids.size} selected</span>
+          <span className="text-sm font-semibold text-primary mr-1 tabular-nums">{selectedUuids.size} selected</span>
           <Button variant="secondary" size="sm" onClick={selectAll}>Select All</Button>
           <Button variant="secondary" size="sm" onClick={clearSelection}>Clear</Button>
           {folders.length > 0 && (
@@ -1033,7 +1033,7 @@ export default function LibraryTab() {
                   {preview && (
                     <p className="text-xs text-muted-foreground truncate mt-0.5">{preview}</p>
                   )}
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-xs text-muted-foreground font-[family-name:var(--font-data)] tabular-nums">
                     {date}
                     {song.current_version > 1 ? ` \u00B7 v${song.current_version}` : ''}
                     {song.folder ? ` \u00B7 ${song.folder}` : ''}

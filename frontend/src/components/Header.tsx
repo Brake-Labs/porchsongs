@@ -27,7 +27,7 @@ export default function Header({ user, authRequired, onLogout, isPremium, leftSl
           to={logoTo}
         >
           <img src="/logo.svg" alt="" className="w-7 h-7 sm:w-9 sm:h-9 mr-2 sm:mr-2.5 self-center" />
-          <h1 className="text-lg sm:text-2xl font-bold tracking-tight">porchsongs</h1>
+          <h1 className="font-display text-lg sm:text-2xl font-bold tracking-tight">porchsongs</h1>
         </Link>
         <span className="text-sm opacity-70 ml-4 hidden md:inline">Make every song yours</span>
       </div>

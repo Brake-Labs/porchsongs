@@ -37,7 +37,7 @@ export default class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="flex items-center justify-center p-8">
           <Card className="p-8 sm:p-10 w-full max-w-md mx-4 text-center flex flex-col items-center gap-4 shadow-md">
-            <h1 className="text-2xl font-bold text-foreground">Something went wrong</h1>
+            <h1 className="font-display text-2xl font-bold text-foreground">Something went wrong</h1>
             <p className="text-sm text-muted-foreground">
               {fallbackLabel
                 ? `An error occurred in ${fallbackLabel}. You can try again or reload the page.`
