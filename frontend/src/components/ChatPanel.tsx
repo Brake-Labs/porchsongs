@@ -5,7 +5,6 @@ import { cn, stripXmlTags } from '@/lib/utils';
 import api from '@/api';
 import { isQuotaError, QuotaUpgradeLink, UsageFooter } from '@/extensions/quota';
 import { Card, CardHeader } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import Spinner from '@/components/ui/spinner';
 import StreamingPre from '@/components/ui/streaming-pre';
@@ -111,7 +110,7 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
   const [tokenUsage, setTokenUsage] = useState<TokenUsage>({ input_tokens: 0, output_tokens: 0 });
   const [images, setImages] = useState<AttachedImage[]>([]);
   const [dragging, setDragging] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const dragCounterRef = useRef(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -193,6 +192,21 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
       el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     }
   }, [messages, reasoningText]);
+
+  // Auto-resize textarea to fit content (up to ~8 lines / 200px)
+  const MAX_INPUT_HEIGHT = 200;
+  const autoResize = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const clamped = Math.min(el.scrollHeight, MAX_INPUT_HEIGHT);
+    el.style.height = clamped + 'px';
+    el.style.overflowY = el.scrollHeight > MAX_INPUT_HEIGHT ? 'auto' : 'hidden';
+  }, []);
+
+  useEffect(() => {
+    autoResize();
+  }, [input, autoResize]);
 
   // Abort any in-flight request on unmount
   useEffect(() => {
@@ -449,36 +463,41 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
         </div>
       )}
       <div
-        className={cn('flex gap-3 px-4 py-3 border-t border-border transition-colors', dragging && 'bg-primary/10 border-primary')}
+        className={cn('px-4 py-3 border-t border-border transition-colors', dragging && 'bg-primary/10 border-primary')}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
       >
-        <Input
-          ref={inputRef}
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          placeholder={dragging ? 'Drop image here...' : messages.length === 0 ? 'Your song is ready. How would you like to change it?' : 'Tell the AI how to change the song...'}
-          onKeyDown={e => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
-          onPaste={handlePaste}
-          disabled={sending || initialLoading}
-          className="flex-1"
-        />
-        {sending ? (
-          <Button variant="danger-outline" onClick={handleCancel}>
-            Cancel
-          </Button>
-        ) : (
-          <Button onClick={handleSend} disabled={initialLoading || (!input.trim() && images.length === 0) || (!songId && !onBeforeSend)}>
-            Send
-          </Button>
-        )}
+        <div className="relative flex flex-col rounded-lg border border-border bg-card focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30 focus-within:ring-offset-1 ring-offset-card transition-colors">
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            placeholder={dragging ? 'Drop image here...' : messages.length === 0 ? 'Your song is ready. How would you like to change it?' : 'Tell the AI how to change the song...'}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            onPaste={handlePaste}
+            disabled={sending || initialLoading}
+            rows={1}
+            className="w-full resize-none overflow-hidden bg-transparent px-3 pt-2.5 pb-1 sm:pt-2 text-sm text-foreground font-ui placeholder:text-muted-foreground focus:outline-none disabled:opacity-50 disabled:pointer-events-none"
+          />
+          <div className="flex justify-end px-2 pb-2">
+            {sending ? (
+              <Button variant="danger-outline" size="sm" onClick={handleCancel}>
+                Cancel
+              </Button>
+            ) : (
+              <Button size="sm" onClick={handleSend} disabled={initialLoading || (!input.trim() && images.length === 0) || (!songId && !onBeforeSend)}>
+                Send
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
     </Card>
   );

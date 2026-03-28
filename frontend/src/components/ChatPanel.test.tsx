@@ -97,9 +97,15 @@ describe('ChatPanel', () => {
     expect(scrollContainer!.scrollTo).toHaveBeenCalledWith({ top: expect.any(Number), behavior: 'smooth' });
   });
 
+  it('uses a textarea for the chat input so text wraps vertically', () => {
+    render(<ChatPanel {...defaults} />);
+    const input = screen.getByPlaceholderText(/How would you like to change/);
+    expect(input.tagName).toBe('TEXTAREA');
+  });
+
   it('keeps focus on chat input after sending a message', async () => {
     render(<ChatPanel {...defaults} />);
-    const input = screen.getByPlaceholderText(/How would you like to change/) as HTMLInputElement;
+    const input = screen.getByPlaceholderText(/How would you like to change/) as HTMLTextAreaElement;
 
     // Focus the input and type a message
     input.focus();
