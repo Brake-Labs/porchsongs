@@ -326,6 +326,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/parse/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Parse Image
+         * @description Extract song text from an uploaded image using LLM vision.
+         */
+        post: operations["parse_image_api_parse_image_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/chat": {
         parameters: {
             query?: never;
@@ -659,6 +679,27 @@ export interface components {
             status: string;
             /** Version */
             version: string;
+        };
+        /** ImageExtractRequest */
+        ImageExtractRequest: {
+            /** Profile Id */
+            profile_id: number;
+            /** Image */
+            image: string;
+            /** Provider */
+            provider: string;
+            /** Model */
+            model: string;
+            /** Max Tokens */
+            max_tokens?: number | null;
+            /** Api Key */
+            api_key?: string | null;
+        };
+        /** ImageExtractResponse */
+        ImageExtractResponse: {
+            /** Text */
+            text: string;
+            usage?: components["schemas"]["TokenUsage"] | null;
         };
         /** OkResponse */
         OkResponse: {
@@ -1818,6 +1859,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    parse_image_api_parse_image_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImageExtractRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageExtractResponse"];
                 };
             };
             /** @description Validation Error */

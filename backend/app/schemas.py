@@ -97,6 +97,20 @@ class ParseRequest(BaseModel):
     api_key: str | None = None
 
 
+class ImageExtractRequest(BaseModel):
+    profile_id: int
+    image: str = Field(max_length=10_000_000)  # base64-encoded image (up to ~7MB)
+    provider: str
+    model: str
+    max_tokens: int | None = None
+    api_key: str | None = None
+
+
+class ImageExtractResponse(BaseModel):
+    text: str
+    usage: TokenUsage | None = None
+
+
 class ParseResponse(BaseModel):
     original_content: str
     title: str | None = None

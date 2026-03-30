@@ -152,6 +152,70 @@ def test_parse_llm_error(mock_amessages: MagicMock, client: TestClient) -> None:
     assert "rate limit" not in resp.json()["detail"]
 
 
+# --- POST /api/parse/image ---
+
+
+@patch("app.services.llm_service.amessages")
+def test_parse_image_endpoint(mock_amessages: MagicMock, client: TestClient) -> None:
+    """Image extract endpoint returns extracted text."""
+    profile = client.post("/api/profiles", json={"name": "Test"}).json()
+
+    mock_amessages.return_value = _fake_message_response(
+        "G  Am\nHello world\nDm  G\nGoodbye moon"
+    )
+
+    resp = client.post(
+        "/api/parse/image",
+        json={
+            "profile_id": profile["id"],
+            "image": "data:image/png;base64,iVBORw0KGgo=",
+            **LLM_SETTINGS,
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "Hello world" in data["text"]
+
+    # Verify the LLM received multimodal content (image + text)
+    call_kwargs = mock_amessages.call_args.kwargs
+    messages = call_kwargs.get("messages", [])
+    assert len(messages) == 1
+    content = messages[0]["content"]
+    assert isinstance(content, list)
+    assert any(block.get("type") == "image_url" for block in content)
+    assert any(block.get("type") == "text" for block in content)
+
+
+@patch("app.services.llm_service.amessages")
+def test_parse_image_llm_error(mock_amessages: MagicMock, client: TestClient) -> None:
+    """LLM error during image extract should return 502."""
+    profile = client.post("/api/profiles", json={"name": "Test"}).json()
+    mock_amessages.side_effect = RuntimeError("Vision model not available")
+
+    resp = client.post(
+        "/api/parse/image",
+        json={
+            "profile_id": profile["id"],
+            "image": "data:image/png;base64,iVBORw0KGgo=",
+            **LLM_SETTINGS,
+        },
+    )
+    assert resp.status_code == 502
+
+
+def test_parse_image_profile_not_found(client: TestClient) -> None:
+    """Missing profile should return 404."""
+    resp = client.post(
+        "/api/parse/image",
+        json={
+            "profile_id": 9999,
+            "image": "data:image/png;base64,iVBORw0KGgo=",
+            **LLM_SETTINGS,
+        },
+    )
+    assert resp.status_code == 404
+
+
 # --- POST /api/chat ---
 
 

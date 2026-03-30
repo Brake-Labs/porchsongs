@@ -250,6 +250,66 @@ def _add_cache_breakpoint(message: dict[str, Any]) -> dict[str, Any]:
     return message
 
 
+IMAGE_EXTRACT_SYSTEM_PROMPT = """You are a text extraction tool for the PorchSongs song lyric editing app. \
+Your ONLY job is to extract song lyrics and chords from an image.
+
+INSTRUCTIONS:
+- Extract ALL text visible in the image, preserving the original formatting
+- Keep chord lines exactly as they appear, preserving spacing and alignment
+- Keep section headers like [Verse], [Chorus], etc.
+- Preserve blank lines between sections
+- If the image contains multiple songs, extract all of them
+- If the image is not a song or contains no readable text, say so briefly
+
+Do NOT add any commentary, explanation, or formatting beyond what appears in the image. \
+Just return the raw extracted text."""
+
+
+async def extract_text_from_image(
+    image_data_url: str,
+    provider: str,
+    model: str,
+    api_base: str | None = None,
+    max_tokens: int | None = None,
+    api_key: str | None = None,
+) -> dict[str, Any]:
+    """Extract text from an image using LLM vision.
+
+    Returns dict with: text, usage
+    """
+    from ..config import settings
+
+    params = LLMCallParams(
+        model=model,
+        provider=provider,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": image_data_url},
+                    },
+                    {
+                        "type": "text",
+                        "text": "Extract the song lyrics and chords from this image. "
+                        "Preserve all formatting, spacing, and chord positions exactly.",
+                    },
+                ],
+            }
+        ],
+        system=IMAGE_EXTRACT_SYSTEM_PROMPT,
+        max_tokens=max_tokens if max_tokens is not None else settings.default_max_tokens,
+        api_base=api_base,
+        api_key=api_key,
+    )
+    response = cast("MessageResponse", await params.send())
+    text = _get_content(response)
+    usage = _get_usage(response)
+
+    return {"text": text, "usage": usage}
+
+
 def _build_parse_params(
     content: str,
     provider: str,

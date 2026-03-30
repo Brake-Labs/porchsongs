@@ -130,6 +130,8 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const [newSongDialogOpen, setNewSongDialogOpen] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
   const [showHints, setShowHints] = useState(false);
+  const [imageLoading, setImageLoading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [parseReasoningExpanded, setParseReasoningExpanded] = useState(false);
   const [hasSongs, setHasSongs] = useState(
     () => !!localStorage.getItem(STORAGE_KEYS.HAS_REWRITTEN),
@@ -220,6 +222,45 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
       if (text) setInput(text);
     } catch {
       // Clipboard access denied: user can still tap the textarea to paste manually
+    }
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !profile?.id) return;
+    // Reset so the same file can be re-selected
+    e.target.value = '';
+
+    if (!file.type.startsWith('image/')) {
+      setParseError('Please select an image file.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setParseError('Image must be under 5 MB.');
+      return;
+    }
+
+    setImageLoading(true);
+    setParseError(null);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsDataURL(file);
+      });
+
+      const result = await api.parseImage({
+        profile_id: profile.id,
+        image: dataUrl,
+        provider: llmSettings.provider,
+        model: llmSettings.model,
+      });
+      setInput(result.text);
+    } catch (err) {
+      setParseError('Image extraction failed: ' + (err as Error).message);
+    } finally {
+      setImageLoading(false);
     }
   };
 
@@ -664,9 +705,23 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 )}
               </div>
 
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleImageUpload}
+              />
               <div className="flex items-center gap-3 mt-3">
                 <Button onClick={handleParse} disabled={!canParse}>
                   Import Song
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={!hasProfile || !hasModel || imageLoading}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {imageLoading ? <><Spinner size="sm" className="mr-1.5" /> Extracting...</> : 'Import from Photo'}
                 </Button>
                 <span className="text-xs text-muted-foreground">
                   {parseBlocker ?? shortcutHint}

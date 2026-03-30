@@ -14,6 +14,7 @@ vi.mock('react-router-dom', async () => {
 vi.mock('@/api', () => ({
   default: {
     parseStream: vi.fn(),
+    parseImage: vi.fn().mockResolvedValue({ text: '' }),
     listSongs: vi.fn().mockResolvedValue([]),
     updateSong: vi.fn().mockResolvedValue({}),
   },
@@ -686,5 +687,36 @@ describe('RewriteTab', () => {
         expect(result.rewritten_content).not.toBe('old rewritten lyrics');
       }
     }
+  });
+
+  it('renders Import from Photo button on splash page', () => {
+    const props = makeProps();
+    Object.assign(mockOutletContext, props);
+    render(<RewriteTab />);
+    expect(screen.getByText('Import from Photo')).toBeInTheDocument();
+  });
+
+  it('shows extracting state when image is being processed', async () => {
+    // Mock parseImage to return a promise that we control
+    const parseImageMock = vi.fn().mockResolvedValue({ text: 'G Am\nHello world' });
+    const apiModule = await import('@/api');
+    (apiModule.default as Record<string, unknown>).parseImage = parseImageMock;
+
+    const props = makeProps();
+    Object.assign(mockOutletContext, props);
+    render(<RewriteTab />);
+
+    // The button should exist and be enabled
+    const photoBtn = screen.getByText('Import from Photo');
+    expect(photoBtn).toBeInTheDocument();
+    expect(photoBtn.closest('button')).not.toBeDisabled();
+  });
+
+  it('disables Import from Photo when no model is selected', () => {
+    const props = makeProps({ llmSettings: { provider: '', model: '', reasoning_effort: '' } });
+    Object.assign(mockOutletContext, props);
+    render(<RewriteTab />);
+    const photoBtn = screen.getByText('Import from Photo');
+    expect(photoBtn.closest('button')).toBeDisabled();
   });
 });

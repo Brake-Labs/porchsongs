@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 from app.services.llm_service import (
     CHAT_SYSTEM_PROMPT,
     CLEAN_SYSTEM_PROMPT,
+    IMAGE_EXTRACT_SYSTEM_PROMPT,
     LLMCallParams,
     _build_chat_params,
     _build_parse_params,
@@ -15,6 +16,7 @@ from app.services.llm_service import (
     _parse_clean_response,
     _resolve_thinking,
     chat_edit_content_stream,
+    extract_text_from_image,
     parse_content_stream,
 )
 
@@ -68,6 +70,56 @@ def test_clean_system_prompt_preserves_existing_instructions() -> None:
     assert "CHORD PRESERVATION" in CLEAN_SYSTEM_PROMPT
     assert "<meta>" in CLEAN_SYSTEM_PROMPT
     assert "<original>" in CLEAN_SYSTEM_PROMPT
+
+
+# --- Image extract system prompt ---
+
+
+def test_image_extract_prompt_identifies_as_extraction_tool() -> None:
+    """IMAGE_EXTRACT_SYSTEM_PROMPT should describe its purpose."""
+    assert "text extraction" in IMAGE_EXTRACT_SYSTEM_PROMPT.lower()
+    assert "PorchSongs" in IMAGE_EXTRACT_SYSTEM_PROMPT
+
+
+def test_image_extract_prompt_preserves_formatting() -> None:
+    """IMAGE_EXTRACT_SYSTEM_PROMPT should instruct preserving formatting."""
+    assert "preserving" in IMAGE_EXTRACT_SYSTEM_PROMPT.lower() or "preserve" in IMAGE_EXTRACT_SYSTEM_PROMPT.lower()
+
+
+# --- extract_text_from_image ---
+
+
+@patch("app.services.llm_service.amessages")
+def test_extract_text_from_image_sends_multimodal_message(mock_amessages: AsyncMock) -> None:
+    """extract_text_from_image should send image_url content to the LLM."""
+    text_block = SimpleNamespace(type="text", text="G Am\nHello world", thinking=None)
+    usage = SimpleNamespace(
+        input_tokens=100, output_tokens=50,
+        cache_creation_input_tokens=None, cache_read_input_tokens=None,
+    )
+    mock_amessages.return_value = SimpleNamespace(content=[text_block], usage=usage)
+
+    result = asyncio.run(
+        extract_text_from_image(
+            image_data_url="data:image/png;base64,abc123",
+            provider="openai",
+            model="gpt-4o",
+        )
+    )
+
+    assert result["text"] == "G Am\nHello world"
+    assert result["usage"]["input_tokens"] == 100
+    assert result["usage"]["output_tokens"] == 50
+
+    # Verify the message structure sent to the LLM
+    call_kwargs = mock_amessages.call_args.kwargs
+    messages = call_kwargs["messages"]
+    assert len(messages) == 1
+    content = messages[0]["content"]
+    assert isinstance(content, list)
+    assert content[0]["type"] == "image_url"
+    assert content[0]["image_url"]["url"] == "data:image/png;base64,abc123"
+    assert content[1]["type"] == "text"
 
 
 # --- _resolve_thinking ---

@@ -18,6 +18,8 @@ from ..schemas import (
     ChatRequest,
     ChatResponse,
     DefaultPromptsResponse,
+    ImageExtractRequest,
+    ImageExtractResponse,
     ParseRequest,
     ParseResponse,
     ProvidersResponse,
@@ -233,6 +235,40 @@ async def parse_stream(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.post("/parse/image", response_model=ImageExtractResponse)
+async def parse_image(
+    req: ImageExtractRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ImageExtractResponse:
+    """Extract song text from an uploaded image using LLM vision."""
+    get_user_profile(db, current_user, req.profile_id)
+    api_base = _lookup_api_base(db, req.profile_id, req.provider, req.model)
+
+    try:
+        result = await _cancellable(
+            request,
+            llm_service.extract_text_from_image(
+                image_data_url=req.image,
+                provider=req.provider,
+                model=req.model,
+                api_base=api_base,
+                max_tokens=req.max_tokens,
+                api_key=req.api_key,
+            ),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=_format_llm_error(e, req.provider)) from None
+
+    usage_data = result.get("usage")
+    usage = TokenUsage(**usage_data) if usage_data else None
+
+    return ImageExtractResponse(text=result["text"], usage=usage)
 
 
 def _deserialize_content(raw: str) -> str | list[dict[str, object]]:
