@@ -6,7 +6,10 @@ export {
   shouldRedirectRootToApp,
   getFeatureRequestUrl,
   getReportIssueUrl,
+  getExtraTopLevelTabs,
+  getAdminPageElement,
 } from './routes';
+export type { TopLevelTab } from './routes';
 export {
   getExtraSettingsTabs,
   renderPremiumSettingsTab,

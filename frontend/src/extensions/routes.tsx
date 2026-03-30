@@ -25,3 +25,17 @@ export function getFeatureRequestUrl(): string {
 export function getReportIssueUrl(): string {
   return 'https://github.com/Brake-Labs/porchsongs/issues/new?title=Bug:+&labels=bug';
 }
+
+export interface TopLevelTab {
+  key: string;
+  path: string;
+  label: string;
+}
+
+export function getExtraTopLevelTabs(_isPremium: boolean, _isAdmin: boolean): TopLevelTab[] {
+  return [];
+}
+
+export function getAdminPageElement(): ReactNode {
+  return <Navigate to="/app" replace />;
+}

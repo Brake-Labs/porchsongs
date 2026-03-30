@@ -1,9 +1,9 @@
 import { screen } from '@testing-library/react';
 import { renderWithRouter } from '@/test/test-utils';
-import Tabs from '@/components/Tabs';
+import Tabs, { buildTabItems, activeKeyFromPath } from '@/components/Tabs';
 
 vi.mock('@/contexts/AuthContext', () => ({
-  useAuth: () => ({ isPremium: false }),
+  useAuth: () => ({ isPremium: false, currentAuthUser: null }),
 }));
 
 describe('Tabs', () => {
@@ -24,5 +24,32 @@ describe('Tabs', () => {
   it('defaults to rewrite tab for unknown paths', () => {
     renderWithRouter(<Tabs />, { route: '/app/unknown' });
     expect(screen.getByText('Rewrite')).toHaveAttribute('data-state', 'active');
+  });
+});
+
+describe('activeKeyFromPath', () => {
+  it('returns admin for /app/admin path', () => {
+    expect(activeKeyFromPath('/app/admin')).toBe('admin');
+  });
+
+  it('returns settings for /app/settings paths', () => {
+    expect(activeKeyFromPath('/app/settings/models')).toBe('settings');
+  });
+
+  it('returns rewrite as default', () => {
+    expect(activeKeyFromPath('/app/rewrite')).toBe('rewrite');
+  });
+});
+
+describe('buildTabItems', () => {
+  it('returns three base tabs for non-admin users', () => {
+    const tabs = buildTabItems(false, false);
+    expect(tabs.map(t => t.key)).toEqual(['rewrite', 'library', 'settings']);
+  });
+
+  it('does not include admin tab in OSS mode even if isAdmin is true', () => {
+    // In OSS, getExtraTopLevelTabs returns [] regardless
+    const tabs = buildTabItems(false, true);
+    expect(tabs.find(t => t.key === 'admin')).toBeUndefined();
   });
 });

@@ -11,6 +11,7 @@ import {
   getLoginPageElement,
   getPremiumRouteElements,
   getDefaultSettingsTab,
+  getAdminPageElement,
   shouldRedirectRootToApp,
 } from '@/extensions';
 
@@ -49,6 +50,7 @@ export default function App() {
         <Route path="library/:id" element={<ErrorBoundary fallbackLabel="Library"><LibraryTab /></ErrorBoundary>} />
         <Route path="settings/:tab" element={<ErrorBoundary fallbackLabel="Settings"><SettingsPage /></ErrorBoundary>} />
         <Route path="settings" element={<Navigate to={`/app/settings/${getDefaultSettingsTab(isPremium)}`} replace />} />
+        <Route path="admin" element={<ErrorBoundary fallbackLabel="Admin">{getAdminPageElement()}</ErrorBoundary>} />
       </Route>
 
       {/* OSS root redirects to app; premium root handled by extension routes */}

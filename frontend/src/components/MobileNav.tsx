@@ -10,8 +10,9 @@ export default function MobileNav() {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const { isPremium } = useAuth();
-  const navItems = buildTabItems(isPremium);
+  const { isPremium, currentAuthUser } = useAuth();
+  const isAdmin = currentAuthUser?.role === 'admin';
+  const navItems = buildTabItems(isPremium, isAdmin);
   const active = activeKeyFromPath(pathname);
 
   const handleNav = (path: string) => {
