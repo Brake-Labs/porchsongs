@@ -268,18 +268,40 @@ def _load_chat_messages(
     return history + [{"role": m.role, "content": m.content} for m in req_messages], history_len
 
 
+def _persist_user_message(
+    db: Session,
+    song_id: int,
+    req_messages: list[ChatMessage],
+) -> None:
+    """Persist the user message from the request so it survives cancellation."""
+    last_user_msg = req_messages[-1] if req_messages else None
+    if last_user_msg and last_user_msg.role == "user":
+        content = last_user_msg.content
+        db.add(
+            ChatMessageModel(
+                song_id=song_id,
+                role="user",
+                content=json.dumps(content) if isinstance(content, list) else content,
+                is_note=False,
+            )
+        )
+
+
 def _persist_chat_result(
     db: Session,
     song: Song,
     rewritten_content: str | None,
     changes_summary: str,
     assistant_content: str,
-    req_messages: list[ChatMessage],
     original_content: str | None = None,
     reasoning: str | None = None,
     model: str | None = None,
 ) -> None:
-    """Update song, create revision, and save chat messages (does not commit)."""
+    """Update song, create revision, and save assistant message (does not commit).
+
+    The user message is persisted earlier via ``_persist_user_message`` so that
+    it survives request cancellation.
+    """
     if original_content is not None:
         song.original_content = original_content
 
@@ -298,17 +320,6 @@ def _persist_chat_result(
             )
         )
 
-    last_user_msg = req_messages[-1] if req_messages else None
-    if last_user_msg and last_user_msg.role == "user":
-        content = last_user_msg.content
-        db.add(
-            ChatMessageModel(
-                song_id=song.id,
-                role="user",
-                content=json.dumps(content) if isinstance(content, list) else content,
-                is_note=False,
-            )
-        )
     db.add(
         ChatMessageModel(
             song_id=song.id,
@@ -332,6 +343,10 @@ async def chat(
     messages, history_len = _load_chat_messages(db, song.id, req.messages)
     api_base = _lookup_api_base(db, song.profile_id, req.provider, req.model)
     profile = db.query(Profile).filter(Profile.id == song.profile_id).first()
+
+    # Persist the user message before the LLM call so it survives cancellation
+    _persist_user_message(db, song.id, req.messages)
+    db.commit()
 
     try:
         result = await _cancellable(
@@ -360,7 +375,6 @@ async def chat(
         rewritten_content=result["rewritten_content"],
         changes_summary=result["changes_summary"],
         assistant_content=result["assistant_message"],
-        req_messages=req.messages,
         original_content=result.get("original_content"),
         reasoning=result.get("reasoning"),
         model=req.model,
@@ -392,6 +406,10 @@ async def chat_stream(
     messages, history_len = _load_chat_messages(db, song.id, req.messages)
     api_base = _lookup_api_base(db, song.profile_id, req.provider, req.model)
     profile = db.query(Profile).filter(Profile.id == song.profile_id).first()
+
+    # Persist the user message before streaming so it survives cancellation
+    _persist_user_message(db, song.id, req.messages)
+    db.commit()
 
     async def event_generator() -> AsyncIterator[str]:
         accumulated = ""
@@ -439,7 +457,6 @@ async def chat_stream(
                 rewritten_content=parsed["content"],
                 changes_summary=changes_summary,
                 assistant_content=accumulated,
-                req_messages=req.messages,
                 original_content=parsed.get("original_content"),
                 reasoning=reasoning_accumulated or None,
                 model=req.model,

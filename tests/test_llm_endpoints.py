@@ -325,6 +325,32 @@ def test_chat_conversational_stores_messages(mock_amessages: MagicMock, client: 
     assert msgs[1]["content"] == conversational_response
 
 
+@patch("app.services.llm_service.amessages")
+def test_chat_persists_user_message_before_llm_call(
+    mock_amessages: MagicMock, client: TestClient
+) -> None:
+    """User message should be persisted even when the LLM call fails (e.g. cancellation)."""
+    _, song = _make_profile_and_song(client)
+
+    mock_amessages.side_effect = RuntimeError("connection cancelled")
+
+    resp = client.post(
+        "/api/chat",
+        json={
+            "song_id": song["id"],
+            "messages": [{"role": "user", "content": "Change the first verse"}],
+            **LLM_SETTINGS,
+        },
+    )
+    assert resp.status_code == 502  # LLM error
+
+    # The user message should still be persisted in the DB
+    msgs = client.get(f"/api/songs/{song['id']}/messages").json()
+    assert len(msgs) == 1
+    assert msgs[0]["role"] == "user"
+    assert msgs[0]["content"] == "Change the first verse"
+
+
 def test_chat_song_not_found(client: TestClient) -> None:
     resp = client.post(
         "/api/chat",
