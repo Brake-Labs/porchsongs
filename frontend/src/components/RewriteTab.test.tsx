@@ -165,7 +165,7 @@ describe('RewriteTab', () => {
     expect(resizable.className).toContain('flex-1');
   });
 
-  it('renders Save button as "Saved" (disabled) in workshopping state with no dirty edits', () => {
+  it('does not show save button in workshopping state (autosave handles persistence)', () => {
     const props = makeProps({
       rewriteResult: {
         original_content: '[C]Hello [G]World',
@@ -178,40 +178,17 @@ describe('RewriteTab', () => {
     });
     render(<RewriteTab {...props} />);
 
-    // Save buttons render as "Saved" when not dirty
-    const saveBtns = screen.getAllByRole('button', { name: 'Saved' });
-    expect(saveBtns.length).toBeGreaterThanOrEqual(1);
-    expect(saveBtns[0]).toBeDisabled();
+    // No save button should exist
+    expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Saved' })).not.toBeInTheDocument();
 
-    // Overflow triggers exist
+    // Overflow triggers still exist
     const overflowTriggers = screen.getAllByRole('button', { name: 'More actions' });
     expect(overflowTriggers.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('shows "Save" (enabled) after editing title in workshopping state', () => {
-    const props = makeProps({
-      rewriteResult: {
-        original_content: '[C]Hello [G]World',
-        rewritten_content: '[C]Hello [G]World',
-        changes_summary: 'No changes',
-      },
-      rewriteMeta: { title: 'Test', artist: 'Test' },
-      currentSongId: 1,
-      currentSongUuid: 'uuid-1',
-    });
-    render(<RewriteTab {...props} />);
-
-    // Edit title to set dirty
-    const titleInput = screen.getAllByLabelText('Song title')[0]!;
-    fireEvent.change(titleInput, { target: { value: 'New Title' } });
-
-    // Save buttons should now say "Save" and be enabled
-    const saveBtns = screen.getAllByRole('button', { name: 'Save' });
-    expect(saveBtns.length).toBeGreaterThanOrEqual(1);
-    expect(saveBtns[0]).not.toBeDisabled();
-  });
-
-  it('clears dirty state and shows "Saved" after successful save', async () => {
+  it('autosaves after debounce when title is edited', async () => {
+    vi.useFakeTimers();
     vi.mocked(api.updateSong).mockResolvedValue({} as never);
     const props = makeProps({
       rewriteResult: {
@@ -225,23 +202,60 @@ describe('RewriteTab', () => {
     });
     render(<RewriteTab {...props} />);
 
-    // Edit artist to set dirty
+    // Edit title
+    const titleInput = screen.getAllByLabelText('Song title')[0]!;
+    fireEvent.change(titleInput, { target: { value: 'New Title' } });
+
+    // Not saved yet (debounce hasn't fired)
+    expect(api.updateSong).not.toHaveBeenCalled();
+
+    // Advance past the 1.5s debounce
+    await act(async () => { vi.advanceTimersByTime(1600); });
+
+    expect(api.updateSong).toHaveBeenCalledWith('uuid-1', expect.objectContaining({
+      title: 'New Title',
+    }));
+
+    vi.useRealTimers();
+  });
+
+  it('shows "Saved" indicator briefly after autosave completes', async () => {
+    vi.useFakeTimers();
+    vi.mocked(api.updateSong).mockResolvedValue({} as never);
+    const props = makeProps({
+      rewriteResult: {
+        original_content: '[C]Hello [G]World',
+        rewritten_content: '[C]Hello [G]World',
+        changes_summary: 'No changes',
+      },
+      rewriteMeta: { title: 'Test', artist: 'Test' },
+      currentSongId: 1,
+      currentSongUuid: 'uuid-1',
+    });
+    render(<RewriteTab {...props} />);
+
+    // Edit artist to trigger autosave
     const artistInput = screen.getAllByLabelText('Artist')[0]!;
     fireEvent.change(artistInput, { target: { value: 'New Artist' } });
 
-    // Click save
-    const saveBtn = screen.getAllByRole('button', { name: 'Save' })[0]!;
-    fireEvent.click(saveBtn);
+    // Advance past debounce
+    await act(async () => { vi.advanceTimersByTime(1600); });
 
-    // After save resolves, button should show "Saved" and be disabled
-    await waitFor(() => {
-      const savedBtns = screen.getAllByRole('button', { name: 'Saved' });
-      expect(savedBtns.length).toBeGreaterThanOrEqual(1);
-      expect(savedBtns[0]).toBeDisabled();
-    });
+    // "Saved" indicator should appear
+    const indicators = screen.getAllByTestId('save-status');
+    expect(indicators.length).toBeGreaterThanOrEqual(1);
+    expect(indicators[0]!.textContent).toBe('Saved');
+
+    // After 2s, indicator should disappear
+    await act(async () => { vi.advanceTimersByTime(2100); });
+    expect(screen.queryByTestId('save-status')).not.toBeInTheDocument();
+
+    vi.useRealTimers();
   });
 
-  it('keeps dirty state after chat update so user can save (fixes #189)', () => {
+  it('sets dirty state after chat update for autosave (fixes #189)', () => {
+    vi.useFakeTimers();
+    vi.mocked(api.updateSong).mockResolvedValue({} as never);
     render(<RewriteTab {...makeProps({
       rewriteResult: {
         original_content: 'original lyrics',
@@ -257,10 +271,14 @@ describe('RewriteTab', () => {
     const chatOnContent = capturedChatPanelProps.onContentUpdated as (s: string) => void;
     act(() => chatOnContent('NEW content from chat'));
 
-    // After chat update, dirty should be set so user can save
-    const saveBtns = screen.getAllByRole('button', { name: 'Save' });
-    expect(saveBtns.length).toBeGreaterThanOrEqual(1);
-    expect(saveBtns[0]).not.toBeDisabled();
+    // Not saved immediately
+    expect(api.updateSong).not.toHaveBeenCalled();
+
+    // Autosave fires after debounce
+    act(() => { vi.advanceTimersByTime(1600); });
+    expect(api.updateSong).toHaveBeenCalled();
+
+    vi.useRealTimers();
   });
 
   it('Cmd+S triggers save', async () => {
@@ -327,7 +345,7 @@ describe('RewriteTab', () => {
     removeSpy.mockRestore();
   });
 
-  it('does not auto-save on title blur', () => {
+  it('does not save immediately on edit (waits for debounce)', () => {
     render(<RewriteTab {...makeProps({
       rewriteResult: {
         original_content: 'orig',
@@ -341,9 +359,8 @@ describe('RewriteTab', () => {
 
     const titleInput = screen.getAllByLabelText('Song title')[0]!;
     fireEvent.change(titleInput, { target: { value: 'New Title' } });
-    fireEvent.blur(titleInput);
 
-    // updateSong should NOT have been called on blur
+    // updateSong should NOT have been called immediately
     expect(api.updateSong).not.toHaveBeenCalled();
   });
 

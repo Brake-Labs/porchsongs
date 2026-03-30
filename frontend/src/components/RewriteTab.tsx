@@ -97,9 +97,10 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   }, []);
   const [loading, setLoading] = useState(false);
   const parseAbortRef = useRef<AbortController | null>(null);
+  const handleSaveRef = useRef<() => Promise<void>>(async () => {});
   const [mobilePane, setMobilePane] = useState<'chat' | 'content'>('chat');
   const [error, setError] = useState<string | null>(null);
-  const [saveStatus, setSaveStatus] = useState<'saving' | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'saving' | 'saved' | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [songTitle, setSongTitle] = useState('');
   const [songArtist, setSongArtist] = useState('');
@@ -160,6 +161,22 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [isDirty]);
+
+  // Autosave: debounce manual edits by 1.5s
+  useEffect(() => {
+    if (!isDirty) return;
+    const timer = setTimeout(() => {
+      handleSaveRef.current();
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [isDirty, songTitle, songArtist, rewriteResult?.rewritten_content, rewriteResult?.original_content]);
+
+  // Auto-clear "Saved" indicator after 2s
+  useEffect(() => {
+    if (saveStatus !== 'saved') return;
+    const timer = setTimeout(() => setSaveStatus(null), 2000);
+    return () => clearTimeout(timer);
+  }, [saveStatus]);
 
   const hasProfile = !!profile?.id;
   const hasModel = isPremium || (llmSettings.provider && llmSettings.model);
@@ -338,16 +355,13 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
         rewritten_content: rewriteResult.rewritten_content,
         original_content: rewriteResult.original_content,
       } as Partial<Song>);
-      setSaveStatus(null);
+      setSaveStatus('saved');
       setIsDirty(false);
     } catch (err) {
       setError('Failed to save: ' + (err as Error).message);
       setSaveStatus(null);
     }
   };
-
-  // Cmd/Ctrl+S keyboard shortcut
-  const handleSaveRef = useRef(handleSave);
   handleSaveRef.current = handleSave;
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -520,15 +534,11 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
               <Button variant="secondary" size="sm" onClick={() => setShowOriginal(true)}>
                 Original
               </Button>
-              <Button
-                variant={isDirty ? 'default' : 'secondary'}
-                className="h-7 px-2.5 text-xs"
-                onClick={handleSave}
-                disabled={saveStatus === 'saving' || !currentSongUuid || !isDirty}
-              >
-                {saveStatus === 'saving' ? 'Saving...' :
-                 isDirty ? 'Save' : 'Saved'}
-              </Button>
+              {saveStatus && (
+                <span className="text-xs text-muted-foreground" data-testid="save-status">
+                  {saveStatus === 'saving' ? 'Saving...' : 'Saved'}
+                </span>
+              )}
             </>
           )}
           <Button
@@ -734,15 +744,11 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                   <Button variant="secondary" size="sm" onClick={() => setShowOriginal(true)}>
                     Original
                   </Button>
-                  <Button
-                    variant={isDirty ? 'default' : 'secondary'}
-                    className="h-7 px-2.5 text-xs"
-                    onClick={handleSave}
-                    disabled={saveStatus === 'saving' || !currentSongUuid || !isDirty}
-                  >
-                    {saveStatus === 'saving' ? 'Saving...' :
-                     isDirty ? 'Save' : 'Saved'}
-                  </Button>
+                  {saveStatus && (
+                    <span className="text-xs text-muted-foreground" data-testid="save-status">
+                      {saveStatus === 'saving' ? 'Saving...' : 'Saved'}
+                    </span>
+                  )}
                 </>
               )}
               <Button
@@ -801,17 +807,6 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 headerRight={
                   <>
                     {!isPremium && compactModelControls()}
-                    {isWorkshopping && (
-                      <Button
-                        variant={isDirty ? 'default' : 'secondary'}
-                        className="h-7 px-2.5 text-xs"
-                        onClick={handleSave}
-                        disabled={saveStatus === 'saving' || !currentSongUuid || !isDirty}
-                      >
-                        {saveStatus === 'saving' ? 'Saving...' :
-                         isDirty ? 'Save' : 'Saved'}
-                      </Button>
-                    )}
                     {isWorkshopping && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>

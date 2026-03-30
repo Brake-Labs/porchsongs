@@ -81,26 +81,31 @@ export async function tryRefresh(): Promise<boolean> {
 }
 
 // --- Auth middleware for openapi-fetch ---
+// Clone requests before fetch consumes the body so 401 retries can resend it.
+const _retryClones = new WeakMap<Request, Request>();
+
 const authMiddleware: Middleware = {
   async onRequest({ request }) {
     if (_accessToken) {
       request.headers.set('Authorization', `Bearer ${_accessToken}`);
     }
+    _retryClones.set(request, request.clone());
     return request;
   },
   async onResponse({ request, response }) {
     if (response.status === 401) {
       const refreshed = await tryRefresh();
       if (refreshed) {
-        // Clone the request with the new token and retry
-        const retryRequest = new Request(request, {
-          headers: new Headers(request.headers),
-        });
-        retryRequest.headers.set('Authorization', `Bearer ${_accessToken}`);
-        return fetch(retryRequest);
+        const clone = _retryClones.get(request);
+        _retryClones.delete(request);
+        if (clone) {
+          clone.headers.set('Authorization', `Bearer ${_accessToken}`);
+          return fetch(clone);
+        }
       }
       window.dispatchEvent(new CustomEvent('porchsongs-logout'));
     }
+    _retryClones.delete(request);
     return response;
   },
 };
