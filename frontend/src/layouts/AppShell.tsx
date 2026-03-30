@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Outlet, Navigate, useNavigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import api, { STORAGE_KEYS } from '@/api';
@@ -12,7 +12,7 @@ import MobileNav from '@/components/MobileNav';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { getFeatureRequestUrl, getReportIssueUrl } from '@/extensions';
-import type { Profile, RewriteResult, RewriteMeta, ChatMessage, ChatHistoryRow, Song } from '@/types';
+import type { Profile, RewriteResult, RewriteMeta, ChatMessage, ChatHistoryRow, Song, ParseResult } from '@/types';
 
 function chatHistoryToMessages(rows: ChatHistoryRow[]): ChatMessage[] {
   return rows.map(row => {
@@ -67,6 +67,19 @@ export interface AppShellContext {
   onSaveProfile: (data: Partial<Profile>) => Promise<Profile>;
   // Library-specific props
   onLoadSong: (song: Song) => Promise<void>;
+  // Parse state (survives tab navigation)
+  parseLoading: boolean;
+  parseResult: ParseResult | null;
+  parsedContent: string;
+  setParsedContent: React.Dispatch<React.SetStateAction<string>>;
+  setParseResult: React.Dispatch<React.SetStateAction<ParseResult | null>>;
+  parseStreamText: string;
+  parseReasoningText: string;
+  parseError: string | null;
+  setParseError: React.Dispatch<React.SetStateAction<string | null>>;
+  onParse: (params: { content: string; instruction?: string }) => Promise<ParseResult | null>;
+  onCancelParse: () => void;
+  onClearParse: () => void;
 }
 
 export default function AppShell() {
@@ -90,6 +103,15 @@ export default function AppShell() {
   const [rewriteResult, setRewriteResult] = useState<RewriteResult | null>(null);
   const [rewriteMeta, setRewriteMeta] = useState<RewriteMeta | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+
+  // Parse state (lives here so it survives tab navigation)
+  const [parseLoading, setParseLoading] = useState(false);
+  const [parseResult, setParseResult] = useState<ParseResult | null>(null);
+  const [parsedContent, setParsedContent] = useState('');
+  const [parseStreamText, setParseStreamText] = useState('');
+  const [parseReasoningText, setParseReasoningText] = useState('');
+  const [parseError, setParseError] = useState<string | null>(null);
+  const parseAbortRef = useRef<AbortController | null>(null);
 
   // Track current song: integer ID for chat requests, UUID for URL routing
   const [currentSongId, setCurrentSongIdRaw] = useState<number | null>(null);
@@ -193,6 +215,64 @@ export default function AppShell() {
     }
   }, [setCurrentSong]);
 
+  const handleParse = useCallback(async (params: { content: string; instruction?: string }): Promise<ParseResult | null> => {
+    if (!profile?.id) return null;
+    const controller = new AbortController();
+    parseAbortRef.current = controller;
+    setParseLoading(true);
+    setParseError(null);
+    setParseStreamText('');
+    setParseReasoningText('');
+    handleNewRewrite(null, null);
+    setParseResult(null);
+
+    let reasoningAccumulated = '';
+    try {
+      const result = await api.parseStream(
+        {
+          profile_id: profile.id,
+          content: params.content,
+          provider,
+          model,
+          reasoning_effort: reasoningEffort,
+          ...(params.instruction && { instruction: params.instruction }),
+        },
+        (token: string) => { setParseStreamText(prev => prev + token); },
+        controller.signal,
+        (reasoningToken: string) => {
+          reasoningAccumulated += reasoningToken;
+          setParseReasoningText(reasoningAccumulated);
+        },
+      );
+      setParseResult(result);
+      setParsedContent(result.original_content);
+      return result;
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        setParseError((err as Error).message);
+      }
+      return null;
+    } finally {
+      parseAbortRef.current = null;
+      setParseLoading(false);
+      setParseStreamText('');
+    }
+  }, [profile, provider, model, reasoningEffort, handleNewRewrite]);
+
+  const handleCancelParse = useCallback(() => {
+    parseAbortRef.current?.abort();
+  }, []);
+
+  const handleClearParse = useCallback(() => {
+    parseAbortRef.current?.abort();
+    setParseResult(null);
+    setParsedContent('');
+    setParseStreamText('');
+    setParseReasoningText('');
+    setParseLoading(false);
+    setParseError(null);
+  }, []);
+
   const handleSongSaved = useCallback((song: Song) => {
     setCurrentSong(song);
   }, [setCurrentSong]);
@@ -292,6 +372,18 @@ export default function AppShell() {
     onRemoveConnection: handleRemoveConnection,
     onSaveProfile: handleSaveProfile,
     onLoadSong: handleLoadSong,
+    parseLoading,
+    parseResult,
+    parsedContent,
+    setParsedContent,
+    setParseResult,
+    parseStreamText,
+    parseReasoningText,
+    parseError,
+    setParseError,
+    onParse: handleParse,
+    onCancelParse: handleCancelParse,
+    onClearParse: handleClearParse,
   };
 
   return (

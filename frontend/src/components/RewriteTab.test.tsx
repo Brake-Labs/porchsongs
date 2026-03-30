@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import RewriteTab from '@/components/RewriteTab';
 import type { AppShellContext } from '@/layouts/AppShell';
-import type { ChatMessage, SavedModel } from '@/types';
+import type { ChatMessage, SavedModel, ParseResult } from '@/types';
 
 // Mock react-router-dom: provide useOutletContext
 const mockOutletContext: Partial<AppShellContext> = {};
@@ -65,6 +65,19 @@ function makeProps(overrides: Partial<AppShellContext> = {}): AppShellContext {
     onChangeReasoningEffort: vi.fn(),
     savedModels: [] as SavedModel[],
     onOpenSettings: vi.fn(),
+    // Parse state (lifted to AppShell)
+    parseLoading: false,
+    parseResult: null,
+    parsedContent: '',
+    setParsedContent: vi.fn(),
+    setParseResult: vi.fn(),
+    parseStreamText: '',
+    parseReasoningText: '',
+    parseError: null,
+    setParseError: vi.fn(),
+    onParse: vi.fn().mockResolvedValue(null),
+    onCancelParse: vi.fn(),
+    onClearParse: vi.fn(),
     ...overrides,
   } as unknown as AppShellContext;
 }
@@ -76,16 +89,11 @@ describe('RewriteTab', () => {
     localStorage.clear();
   });
 
-  it('aborts in-flight parse when unmounted', async () => {
-    const abortSpy = vi.fn();
+  it('delegates parse to AppShell onParse and does not abort on unmount', async () => {
+    // onParse returns a promise that never resolves (simulates in-flight stream)
+    const onParse = vi.fn().mockReturnValue(new Promise(() => {}));
 
-    // parseStream returns a promise that never resolves (simulates in-flight stream)
-    vi.mocked(api.parseStream).mockImplementation((_data, _onToken, signal) => {
-      signal?.addEventListener('abort', abortSpy);
-      return new Promise(() => {}); // never resolves
-    });
-
-    const props = makeProps();
+    const props = makeProps({ onParse });
     const { unmount } = render(<RewriteTab {...props} />);
 
     // Type some input so the Parse button is enabled
@@ -96,16 +104,19 @@ describe('RewriteTab', () => {
     const parseButton = screen.getByText('Import Song');
     fireEvent.click(parseButton);
 
-    // Verify parseStream was called
+    // Verify onParse was called (delegated to AppShell)
     await waitFor(() => {
-      expect(api.parseStream).toHaveBeenCalledTimes(1);
+      expect(onParse).toHaveBeenCalledWith(
+        expect.objectContaining({ content: 'Some lyrics here' }),
+      );
     });
 
     // Unmount the component (simulates navigating away)
+    // No AbortError should be thrown; parse continues in AppShell
     unmount();
 
-    // The abort signal should have fired
-    expect(abortSpy).toHaveBeenCalled();
+    // onCancelParse was NOT called (parse survives navigation)
+    expect(props.onCancelParse).not.toHaveBeenCalled();
   });
 
   it('shows step 1 indicator in INPUT state', () => {
@@ -116,11 +127,11 @@ describe('RewriteTab', () => {
   });
 
   it('shows step 2 indicator in PARSED state', () => {
-    const props = makeProps();
+    const props = makeProps({
+      parseResult: { title: 'Test', artist: 'Test', original_content: 'content' } as ParseResult,
+      parsedContent: 'content',
+    });
     render(<RewriteTab {...props} />);
-
-    // Load sample to get into parsed state
-    fireEvent.click(screen.getByText('When the Saints Go Marching In'));
 
     expect(screen.getByText('Step 2: Edit your song')).toBeInTheDocument();
   });
@@ -364,23 +375,52 @@ describe('RewriteTab', () => {
     expect(api.updateSong).not.toHaveBeenCalled();
   });
 
-  it('shows sample song link and loads sample into parsed state on click', async () => {
-    const props = makeProps();
+  it('calls setParseResult when sample song is clicked', () => {
+    const setParseResult = vi.fn();
+    const setParsedContent = vi.fn();
+    const props = makeProps({ setParseResult, setParsedContent });
     render(<RewriteTab {...props} />);
 
-    // Sample link should be visible in the input state
+    // Sample link should be visible
     const sampleLink = screen.getByText('When the Saints Go Marching In');
     expect(sampleLink).toBeInTheDocument();
 
-    // Click the sample: should skip to parsed state (chat panel + content)
     fireEvent.click(sampleLink);
 
-    await waitFor(() => {
-      expect(screen.getByTestId('chat-panel')).toBeInTheDocument();
-    });
+    // Should have set parse result in AppShell context
+    expect(setParseResult).toHaveBeenCalledWith(expect.objectContaining({
+      title: expect.any(String),
+      original_content: expect.any(String),
+    }));
+    expect(setParsedContent).toHaveBeenCalled();
+  });
 
-    // The input textarea should no longer be visible (we're past the input state)
+  it('shows parsed state when parseResult is provided (e.g. after returning to tab)', () => {
+    const props = makeProps({
+      parseResult: {
+        title: 'Amazing Grace',
+        artist: 'John Newton',
+        original_content: '[G]Amazing grace how [C]sweet the [G]sound',
+      } as ParseResult,
+      parsedContent: '[G]Amazing grace how [C]sweet the [G]sound',
+    });
+    render(<RewriteTab {...props} />);
+
+    // Should be in parsed state (chat panel visible, input hidden)
+    expect(screen.getByTestId('chat-panel')).toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/Paste or drop lyrics/)).not.toBeInTheDocument();
+  });
+
+  it('shows loading state from context (parse in progress)', () => {
+    const props = makeProps({
+      parseLoading: true,
+      parseStreamText: 'partial output...',
+    });
+    render(<RewriteTab {...props} />);
+
+    // Should show loading indicator
+    expect(screen.getByText('Importing song...')).toBeInTheDocument();
+    expect(screen.getByText('partial output...')).toBeInTheDocument();
   });
 
   it('shows "Start with a sample" above textarea for first-time users', () => {
@@ -490,11 +530,11 @@ describe('RewriteTab', () => {
 
   describe('New Song button', () => {
     it('renders in PARSED state', () => {
-      // Load a sample to get into parsed state
-      const props = makeProps();
+      const props = makeProps({
+        parseResult: { title: 'Test', artist: 'Test', original_content: 'content' } as ParseResult,
+        parsedContent: 'content',
+      });
       render(<RewriteTab {...props} />);
-
-      fireEvent.click(screen.getByText('When the Saints Go Marching In'));
 
       // Should show "+ New Song" (desktop) and "+ New" (mobile)
       expect(screen.getByRole('button', { name: '+ New Song' })).toBeInTheDocument();
@@ -584,25 +624,25 @@ describe('RewriteTab', () => {
       expect(onNewRewrite).not.toHaveBeenCalledWith(null, null);
     });
 
-    it('clears directly without dialog in PARSED state with no chat messages', () => {
+    it('calls onClearParse when New Song is clicked in PARSED state', () => {
+      const onClearParse = vi.fn();
       const onNewRewrite = vi.fn();
-      const setChatMessages = vi.fn();
       const props = makeProps({
+        parseResult: { title: 'Test', artist: 'Test', original_content: 'content' } as ParseResult,
+        parsedContent: 'content',
         chatMessages: [],
+        onClearParse,
         onNewRewrite,
-        setChatMessages,
       });
       render(<RewriteTab {...props} />);
 
-      // Load sample to get into parsed state
-      fireEvent.click(screen.getByText('When the Saints Go Marching In'));
-
       fireEvent.click(screen.getByRole('button', { name: '+ New Song' }));
 
-      // Should not show dialog
+      // Should not show dialog (parsed state with no chat messages)
       expect(screen.queryByText('Start New Song')).not.toBeInTheDocument();
 
-      // Should have called onNewRewrite to clear
+      // Should have called onClearParse to clear parse state in AppShell
+      expect(onClearParse).toHaveBeenCalled();
       expect(onNewRewrite).toHaveBeenCalledWith(null, null);
     });
   });

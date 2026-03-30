@@ -52,8 +52,20 @@ interface RewriteTabProps {
   onChangeReasoningEffort: (value: string) => void;
   savedModels: SavedModel[];
   onOpenSettings: () => void;
-  /** When true, provider/model selection is managed by the platform. */
   isPremium?: boolean;
+  // Parse state (lifted to AppShell so it survives tab navigation)
+  parseLoading: boolean;
+  parseResult: ParseResult | null;
+  parsedContent: string;
+  setParsedContent: React.Dispatch<React.SetStateAction<string>>;
+  setParseResult: React.Dispatch<React.SetStateAction<ParseResult | null>>;
+  parseStreamText: string;
+  parseReasoningText: string;
+  parseError: string | null;
+  setParseError: React.Dispatch<React.SetStateAction<string | null>>;
+  onParse: (params: { content: string; instruction?: string }) => Promise<ParseResult | null>;
+  onCancelParse: () => void;
+  onClearParse: () => void;
 }
 
 export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
@@ -78,6 +90,19 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     savedModels,
     onOpenSettings,
     isPremium,
+    // Parse state from AppShell
+    parseLoading,
+    parseResult,
+    parsedContent,
+    setParsedContent,
+    setParseResult,
+    parseStreamText,
+    parseReasoningText,
+    parseError,
+    setParseError,
+    onParse,
+    onCancelParse,
+    onClearParse,
   } = { ...ctx, ...directProps } as RewriteTabProps;
   const [input, setInputRaw] = useState(
     () => sessionStorage.getItem(STORAGE_KEYS.DRAFT_INPUT) || ''
@@ -95,11 +120,8 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     setInstructionRaw(val);
     sessionStorage.setItem(STORAGE_KEYS.DRAFT_INSTRUCTION, val);
   }, []);
-  const [loading, setLoading] = useState(false);
-  const parseAbortRef = useRef<AbortController | null>(null);
   const handleSaveRef = useRef<() => Promise<void>>(async () => {});
   const [mobilePane, setMobilePane] = useState<'chat' | 'content'>('chat');
-  const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'saving' | 'saved' | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [songTitle, setSongTitle] = useState('');
@@ -108,6 +130,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const [newSongDialogOpen, setNewSongDialogOpen] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
   const [showHints, setShowHints] = useState(false);
+  const [parseReasoningExpanded, setParseReasoningExpanded] = useState(false);
   const [hasSongs, setHasSongs] = useState(
     () => !!localStorage.getItem(STORAGE_KEYS.HAS_REWRITTEN),
   );
@@ -126,18 +149,18 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
 
   const isFirstTime = !hasSongs;
 
-  // Parse state
-  const [parseResult, setParseResult] = useState<ParseResult | null>(null);
-  const [parsedContent, setParsedContent] = useState('');
-  const [parseStreamText, setParseStreamText] = useState('');
-  const [parseReasoningText, setParseReasoningText] = useState('');
-  const [parseReasoningExpanded, setParseReasoningExpanded] = useState(false);
-
-  // Abort in-flight parse when component unmounts (e.g. tab navigation)
-  // to avoid wasted LLM tokens/quota and lost results.
+  // Sync title/artist from parse result when it arrives (including after
+  // navigating away and returning while a parse was in progress).
+  const prevParseRef = useRef<ParseResult | null>(null);
   useEffect(() => {
-    return () => { parseAbortRef.current?.abort(); };
-  }, []);
+    const wasNull = prevParseRef.current === null;
+    if (wasNull && parseResult && !rewriteResult) {
+      setSongTitle(parseResult.title || '');
+      setSongArtist(parseResult.artist || '');
+      setMobilePane('content');
+    }
+    prevParseRef.current = parseResult;
+  }, [parseResult, rewriteResult]);
 
   useEffect(() => {
     if (rewriteMeta) {
@@ -180,7 +203,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
 
   const hasProfile = !!profile?.id;
   const hasModel = isPremium || (llmSettings.provider && llmSettings.model);
-  const canParse = hasProfile && hasModel && !loading && input.trim().length > 0;
+  const canParse = hasProfile && hasModel && !parseLoading && input.trim().length > 0;
 
   const parseBlocker = !hasModel
       ? 'Select a model'
@@ -201,7 +224,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   };
 
   // State derivation
-  const isInput = !loading && !parseResult && !rewriteResult;
+  const isInput = !parseLoading && !parseResult && !rewriteResult;
   const isParsed = !!parseResult && !rewriteResult;
   const isWorkshopping = !!rewriteResult;
 
@@ -209,53 +232,22 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     const trimmedInput = input.trim();
     if (!trimmedInput) return;
 
-    const controller = new AbortController();
-    parseAbortRef.current = controller;
-    setLoading(true);
-    setError(null);
-    setParseStreamText('');
-    setParseReasoningText('');
-    onNewRewrite(null, null);
-    setParseResult(null);
+    const result = await onParse({
+      content: trimmedInput,
+      ...(instruction.trim() && { instruction: instruction.trim() }),
+    });
 
-    let reasoningAccumulated = '';
-    try {
-      const result = await api.parseStream(
-        {
-          profile_id: profile!.id,
-          content: trimmedInput,
-          ...llmSettings,
-          ...(instruction.trim() && { instruction: instruction.trim() }),
-        },
-        (token: string) => {
-          setParseStreamText(prev => prev + token);
-        },
-        controller.signal,
-        (reasoningToken: string) => {
-          reasoningAccumulated += reasoningToken;
-          setParseReasoningText(reasoningAccumulated);
-        },
-      );
-
-      setParseResult(result);
-      setParsedContent(result.original_content);
+    // These only run if the component is still mounted (user stayed on tab)
+    if (result) {
       setSongTitle(result.title || '');
       setSongArtist(result.artist || '');
       setInstruction('');
       setMobilePane('content');
-    } catch (err) {
-      if ((err as Error).name !== 'AbortError') {
-        setError((err as Error).message);
-      }
-    } finally {
-      parseAbortRef.current = null;
-      setLoading(false);
-      setParseStreamText('');
     }
   };
 
   const handleCancelParse = () => {
-    parseAbortRef.current?.abort();
+    onCancelParse();
   };
 
   const handleLoadSample = (sample: SampleSong) => {
@@ -266,7 +258,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     setSongArtist(result.artist ?? '');
     setInput('');
     setInstruction('');
-    setError(null);
+    setParseError(null);
     onNewRewrite(null, null);
     setMobilePane('content');
   };
@@ -311,17 +303,12 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   }, [rewriteResult, parseResult, parsedContent, profile, songTitle, songArtist, llmSettings, onNewRewrite, onContentUpdated]);
 
   const handleNewSong = () => {
-    parseAbortRef.current?.abort();
+    onClearParse();
     onNewRewrite(null, null);
     setInput('');
-    setParseResult(null);
-    setParsedContent('');
-    setParseStreamText('');
-    setParseReasoningText('');
     setParseReasoningExpanded(false);
     setSaveStatus(null);
     setIsDirty(false);
-    setError(null);
     setSongTitle('');
     setSongArtist('');
     setChatMessages([]);
@@ -358,7 +345,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
       setSaveStatus('saved');
       setIsDirty(false);
     } catch (err) {
-      setError('Failed to save: ' + (err as Error).message);
+      setParseError('Failed to save: ' + (err as Error).message);
       setSaveStatus(null);
     }
   };
@@ -395,7 +382,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
       onOriginalContentUpdatedCtx(newOriginal);
       setIsDirty(true);
     }
-  }, [rewriteResult, parseResult, onOriginalContentUpdatedCtx]);
+  }, [rewriteResult, parseResult, setParsedContent, onOriginalContentUpdatedCtx]);
 
   const handleRewrittenChange = useCallback((newText: string) => {
     onContentUpdated(newText);
@@ -585,22 +572,22 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     <div className="flex flex-col flex-1 min-h-0">
       {isPremium && <QuotaBanner />}
 
-      {error && (
+      {parseError && (
         <Alert variant="error" className="mt-4 mb-4">
           <div className="flex-1">
-            <span>{error}</span>
-            {isQuotaError(error) && (
+            <span>{parseError}</span>
+            {isQuotaError(parseError) && (
               <QuotaUpgradeLink className="ml-2 font-semibold text-primary underline" />
             )}
           </div>
-          <Button variant="ghost" size="sm" className="text-error-text p-1 leading-none" onClick={() => setError(null)}>
+          <Button variant="ghost" size="sm" className="text-error-text p-1 leading-none" onClick={() => setParseError(null)}>
             &times;
           </Button>
         </Alert>
       )}
 
       {/* INPUT state */}
-      {isInput && !loading && (
+      {isInput && !parseLoading && (
         <OnboardingBanner>
           {!isPremium && modelControls()}
 
@@ -709,7 +696,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
       )}
 
       {/* PARSING state (loading, no parse result yet) */}
-      {loading && !parseResult && (
+      {parseLoading && !parseResult && (
         <Card className="flex flex-col text-muted-foreground">
           <div className="flex items-center justify-center gap-3 py-4">
             <Spinner size="sm" />

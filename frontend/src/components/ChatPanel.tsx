@@ -208,10 +208,10 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
     autoResize();
   }, [input, autoResize]);
 
-  // Abort any in-flight request on unmount
-  useEffect(() => {
-    return () => { abortRef.current?.abort(); };
-  }, []);
+  // Don't abort in-flight requests on unmount: if the user navigates
+  // away from the rewrite tab, the stream continues in the background
+  // and updates messages (which live in AppShell). When the user returns,
+  // they see the completed result.
 
   const handleCancel = () => {
     abortRef.current?.abort();

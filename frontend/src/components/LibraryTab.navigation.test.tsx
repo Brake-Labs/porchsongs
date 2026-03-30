@@ -70,6 +70,18 @@ const stubContext: AppShellContext = {
   onRemoveConnection: vi.fn(),
   onSaveProfile: vi.fn(),
   onLoadSong: vi.fn(),
+  parseLoading: false,
+  parseResult: null,
+  parsedContent: '',
+  setParsedContent: vi.fn(),
+  setParseResult: vi.fn(),
+  parseStreamText: '',
+  parseReasoningText: '',
+  parseError: null,
+  setParseError: vi.fn(),
+  onParse: vi.fn().mockResolvedValue(null),
+  onCancelParse: vi.fn(),
+  onClearParse: vi.fn(),
 };
 
 /** Layout wrapper that provides AppShellContext via Outlet */
