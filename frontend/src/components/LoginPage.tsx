@@ -119,7 +119,7 @@ export default function LoginPage() {
               We sent a sign-in link to <strong>{magicLinkEmail}</strong>. Click the link in the email to sign in.
             </p>
             <p className="text-xs text-muted-foreground mt-2">
-              The link expires in 10 minutes. Check your spam folder if you don't see it.
+              The link expires in 10 minutes. Check your spam folder if you don&apos;t see it.
             </p>
             <button
               type="button"
