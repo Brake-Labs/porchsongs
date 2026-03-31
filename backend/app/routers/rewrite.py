@@ -299,7 +299,10 @@ def _extract_pdf(file_bytes: bytes) -> FileExtractResponse:
     pages = reader.pages[:max_pages]
     text_parts: list[str] = []
     for page in pages:
-        text_parts.append(page.extract_text() or "")
+        try:
+            text_parts.append(page.extract_text() or "")
+        except Exception:
+            text_parts.append("")  # skip corrupted pages
 
     text = "\n".join(text_parts).strip()
 
@@ -354,7 +357,7 @@ async def parse_file(
     filename_lower = req.filename.lower()
 
     if filename_lower.endswith(".pdf"):
-        return _extract_pdf(file_bytes)
+        return await asyncio.to_thread(_extract_pdf, file_bytes)
     elif filename_lower.endswith((".txt", ".text")):
         return _extract_text(file_bytes)
     else:

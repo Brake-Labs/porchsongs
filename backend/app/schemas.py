@@ -114,7 +114,7 @@ class ImageExtractResponse(BaseModel):
 class FileExtractRequest(BaseModel):
     profile_id: int
     file_data: str = Field(max_length=15_000_000)  # base64-encoded file (~10MB)
-    filename: str  # for type detection via extension
+    filename: str = Field(max_length=255)  # for type detection via extension
 
 
 class FileExtractResponse(BaseModel):
