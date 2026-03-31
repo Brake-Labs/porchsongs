@@ -35,7 +35,7 @@ function ChatMessageBubble({ msg, isStreaming }: { msg: ChatMessage; isStreaming
       : 'bg-card text-foreground self-start rounded-bl-sm border border-border';
 
   return (
-    <div className={cn('px-3 py-2 rounded-md text-sm leading-normal max-w-[95%] sm:max-w-[85%] break-words', bubbleClass)}>
+    <div className={cn('px-3 py-2 rounded-md text-sm leading-normal max-w-[95%] sm:max-w-[85%] break-words', bubbleClass, msg.pending && 'opacity-60')}>
       {hasReasoning && (
         <>
           <Button
@@ -78,6 +78,9 @@ function ChatMessageBubble({ msg, isStreaming }: { msg: ChatMessage; isStreaming
       {msg.model && !isStreaming && (
         <div className="mt-1.5 text-[10px] text-muted-foreground opacity-70 text-right">{msg.model}</div>
       )}
+      {msg.pending && (
+        <div className="mt-1 text-[10px] opacity-70 italic">Queued</div>
+      )}
     </div>
   );
 }
@@ -113,6 +116,7 @@ export default function ChatPanel({ songId, profileId, messages, setMessages, ll
   const [fileLoading, setFileLoading] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const pendingQueue = useRef<Array<{ apiContent: string | Array<Record<string, unknown>>; text: string }>>([]);
 
   const processFiles = useCallback(async (files: FileList | File[]) => {
     const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB
@@ -250,6 +254,7 @@ export default function ChatPanel({ songId, profileId, messages, setMessages, ll
   // they see the completed result.
 
   const handleCancel = () => {
+    pendingQueue.current = [];
     abortRef.current?.abort();
   };
 
@@ -283,60 +288,7 @@ export default function ChatPanel({ songId, profileId, messages, setMessages, ll
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [input]);
 
-  const handleSend = async () => {
-    const text = input.trim();
-    const hasAttachments = attachments.length > 0;
-    if ((!text && !hasAttachments) || sending) return;
-
-    // Capture and clear attachments
-    const currentAttachments = [...attachments];
-    const imageDataUrls = currentAttachments.filter(a => a.type === 'image').map(a => a.content);
-
-    // Build display text and the content payload for the API
-    const displayText = text || (hasAttachments ? '[File attached]' : '');
-    let apiContent: string | Array<Record<string, unknown>>;
-    if (currentAttachments.length > 0) {
-      const parts: Array<Record<string, unknown>> = [];
-      if (text) parts.push({ type: 'text', text });
-      for (const attachment of currentAttachments) {
-        if (attachment.type === 'image') {
-          parts.push({ type: 'image_url', image_url: { url: attachment.content } });
-        } else {
-          parts.push({ type: 'text', text: `--- Attached file: ${attachment.name} ---\n${attachment.content}` });
-        }
-      }
-      apiContent = parts;
-    } else {
-      apiContent = text;
-    }
-
-    let effectiveSongId = songId;
-    if (!effectiveSongId && onBeforeSend) {
-      setInput('');
-      setAttachments([]);
-      inputRef.current?.focus();
-      const userMsg: ChatMessage = { role: 'user', content: displayText, images: imageDataUrls.length > 0 ? imageDataUrls : undefined };
-      setMessages(prev => [...prev, userMsg].slice(-MAX_MESSAGES));
-      setSending(true);
-      onStreamingChange?.(true);
-      try {
-        effectiveSongId = await onBeforeSend();
-      } catch (err) {
-        const errorMsg: ChatMessage = { role: 'assistant', content: 'Error: ' + (err as Error).message };
-        setMessages(prev => [...prev, errorMsg]);
-        setSending(false);
-        onStreamingChange?.(false);
-        return;
-      }
-    } else {
-      setInput('');
-      setAttachments([]);
-      inputRef.current?.focus();
-      const userMsg: ChatMessage = { role: 'user', content: displayText, images: imageDataUrls.length > 0 ? imageDataUrls : undefined };
-      setMessages(prev => [...prev, userMsg].slice(-MAX_MESSAGES));
-    }
-    if (!effectiveSongId) return;
-
+  const sendApiRequest = async (effectiveSongId: number, apiContent: string | Array<Record<string, unknown>>, text: string): Promise<void> => {
     const controller = new AbortController();
     abortRef.current = controller;
     if (!sending) {
@@ -428,20 +380,101 @@ export default function ChatPanel({ songId, profileId, messages, setMessages, ll
       setLastFailedInput(null);
     } catch (err) {
       if ((err as Error).name === 'AbortError') {
-        const cancelMsg: ChatMessage = { role: 'assistant', content: 'Cancelled.' };
-        setMessages(prev => [...prev, cancelMsg]);
+        pendingQueue.current = [];
+        setMessages(prev => [...prev.filter(m => !m.pending), { role: 'assistant' as const, content: 'Cancelled.' }]);
       } else {
+        pendingQueue.current = [];
         setLastFailedInput(text);
-        const errorMsg: ChatMessage = { role: 'assistant', content: 'Error: ' + (err as Error).message };
-        setMessages(prev => [...prev, errorMsg]);
+        setMessages(prev => [...prev.filter(m => !m.pending), { role: 'assistant' as const, content: 'Error: ' + (err as Error).message }]);
       }
     } finally {
       abortRef.current = null;
-      setSending(false);
       setStreaming(false);
-      onStreamingChange?.(false);
       setReasoningText('');
+
+      // Process next queued message or reset sending state
+      if (pendingQueue.current.length > 0) {
+        const next = pendingQueue.current.shift()!;
+        // Mark first pending message as active
+        setMessages(prev => {
+          const idx = prev.findIndex(m => m.pending);
+          if (idx >= 0) {
+            const updated = [...prev];
+            updated[idx] = { ...updated[idx]!, pending: false };
+            return updated;
+          }
+          return prev;
+        });
+        sendApiRequest(effectiveSongId, next.apiContent, next.text);
+      } else {
+        setSending(false);
+        onStreamingChange?.(false);
+      }
     }
+  };
+
+  const handleSend = async () => {
+    const text = input.trim();
+    const hasAttachments = attachments.length > 0;
+    if (!text && !hasAttachments) return;
+
+    // Capture and clear attachments
+    const currentAttachments = [...attachments];
+    const imageDataUrls = currentAttachments.filter(a => a.type === 'image').map(a => a.content);
+
+    // Build display text and the content payload for the API
+    const displayText = text || (hasAttachments ? '[File attached]' : '');
+    let apiContent: string | Array<Record<string, unknown>>;
+    if (currentAttachments.length > 0) {
+      const parts: Array<Record<string, unknown>> = [];
+      if (text) parts.push({ type: 'text', text });
+      for (const attachment of currentAttachments) {
+        if (attachment.type === 'image') {
+          parts.push({ type: 'image_url', image_url: { url: attachment.content } });
+        } else {
+          parts.push({ type: 'text', text: `--- Attached file: ${attachment.name} ---\n${attachment.content}` });
+        }
+      }
+      apiContent = parts;
+    } else {
+      apiContent = text;
+    }
+
+    // Clear input and refocus immediately
+    setInput('');
+    setAttachments([]);
+    inputRef.current?.focus();
+
+    if (sending) {
+      // Queue the message while LLM is busy
+      pendingQueue.current.push({ apiContent, text });
+      const userMsg: ChatMessage = { role: 'user', content: displayText, images: imageDataUrls.length > 0 ? imageDataUrls : undefined, pending: true };
+      setMessages(prev => [...prev, userMsg].slice(-MAX_MESSAGES));
+      return;
+    }
+
+    // Add user message to chat
+    const userMsg: ChatMessage = { role: 'user', content: displayText, images: imageDataUrls.length > 0 ? imageDataUrls : undefined };
+    setMessages(prev => [...prev, userMsg].slice(-MAX_MESSAGES));
+
+    // Resolve song ID (first message may need to create the song)
+    let effectiveSongId = songId;
+    if (!effectiveSongId && onBeforeSend) {
+      setSending(true);
+      onStreamingChange?.(true);
+      try {
+        effectiveSongId = await onBeforeSend();
+      } catch (err) {
+        const errorMsg: ChatMessage = { role: 'assistant', content: 'Error: ' + (err as Error).message };
+        setMessages(prev => [...prev, errorMsg]);
+        setSending(false);
+        onStreamingChange?.(false);
+        return;
+      }
+    }
+    if (!effectiveSongId) return;
+
+    await sendApiRequest(effectiveSongId, apiContent, text);
   };
 
   return (
@@ -541,7 +574,7 @@ export default function ChatPanel({ songId, profileId, messages, setMessages, ll
               }
             }}
             onPaste={handlePaste}
-            disabled={sending || initialLoading}
+            disabled={initialLoading}
             rows={1}
             className="w-full resize-none overflow-hidden bg-transparent px-3 pt-2.5 pb-1 sm:pt-2 text-sm text-foreground font-ui placeholder:text-muted-foreground focus:outline-none disabled:opacity-50 disabled:pointer-events-none"
           />
@@ -550,19 +583,20 @@ export default function ChatPanel({ songId, profileId, messages, setMessages, ll
               onClick={() => fileInputRef.current?.click()}
               className="p-1.5 text-muted-foreground can-hover:hover:text-foreground transition-colors disabled:opacity-50"
               aria-label="Attach file"
-              disabled={sending || initialLoading || fileLoading}
+              disabled={initialLoading || fileLoading}
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
             </button>
-            {sending ? (
-              <Button variant="danger-outline" size="sm" onClick={handleCancel}>
-                Cancel
-              </Button>
-            ) : (
+            <div className="flex gap-1.5 items-center">
+              {sending && (
+                <Button variant="danger-outline" size="sm" onClick={handleCancel}>
+                  Cancel
+                </Button>
+              )}
               <Button size="sm" onClick={handleSend} disabled={initialLoading || fileLoading || (!input.trim() && attachments.length === 0) || (!songId && !onBeforeSend)}>
                 Send
               </Button>
-            )}
+            </div>
           </div>
         </div>
       </div>
