@@ -971,6 +971,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
             left={
               <ChatPanel
                 songId={currentSongId}
+                profileId={profile?.id}
                 messages={chatMessages}
                 setMessages={setChatMessages}
                 llmSettings={llmSettings}

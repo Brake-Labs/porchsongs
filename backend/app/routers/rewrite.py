@@ -303,16 +303,16 @@ def _extract_pdf(file_bytes: bytes) -> FileExtractResponse:
 
     text = "\n".join(text_parts).strip()
 
-    if len(reader.pages) > max_pages:
-        text += (
-            f"\n\n[Note: Only the first {max_pages} of {len(reader.pages)} pages were extracted.]"
-        )
-
     if len(text) < 10:
         raise HTTPException(
             status_code=422,
             detail="This PDF appears to contain scanned images rather than text. "
             "Try Import from Photo instead.",
+        )
+
+    if len(reader.pages) > max_pages:
+        text += (
+            f"\n\n[Note: Only the first {max_pages} of {len(reader.pages)} pages were extracted.]"
         )
 
     return FileExtractResponse(text=text)
@@ -323,10 +323,8 @@ def _extract_text(file_bytes: bytes) -> FileExtractResponse:
     try:
         text = file_bytes.decode("utf-8")
     except UnicodeDecodeError:
-        try:
-            text = file_bytes.decode("latin-1")
-        except UnicodeDecodeError:
-            raise HTTPException(status_code=422, detail="Could not decode the text file.") from None
+        # latin-1 can decode any byte sequence, so this is a safe fallback
+        text = file_bytes.decode("latin-1")
     return FileExtractResponse(text=text.strip())
 
 

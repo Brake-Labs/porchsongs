@@ -84,6 +84,7 @@ function ChatMessageBubble({ msg, isStreaming }: { msg: ChatMessage; isStreaming
 
 interface ChatPanelProps {
   songId: number | null;
+  profileId?: number;
   messages: ChatMessage[];
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   llmSettings: LlmSettings;
@@ -97,7 +98,7 @@ interface ChatPanelProps {
   onStreamingChange?: (streaming: boolean) => void;
 }
 
-export default function ChatPanel({ songId, messages, setMessages, llmSettings, onContentUpdated, initialLoading, onBeforeSend, onContentStreaming, onOriginalContentUpdated, headerRight, flat, onStreamingChange }: ChatPanelProps) {
+export default function ChatPanel({ songId, profileId, messages, setMessages, llmSettings, onContentUpdated, initialLoading, onBeforeSend, onContentStreaming, onOriginalContentUpdated, headerRight, flat, onStreamingChange }: ChatPanelProps) {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
@@ -135,7 +136,7 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
         try {
           const dataUrl = await fileToBase64(file);
           const result = await api.extractFile({
-            profile_id: 0, // Profile check on server side
+            profile_id: profileId ?? 0,
             file_data: dataUrl,
             filename: file.name,
           });
@@ -165,7 +166,7 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
     if (newAttachments.length > 0) {
       setAttachments(prev => [...prev, ...newAttachments]);
     }
-  }, []);
+  }, [profileId]);
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
