@@ -16,12 +16,21 @@ function applyTheme(theme: Theme) {
   document.documentElement.setAttribute('data-theme', resolved);
 
   // Sync the theme-color meta tag for browser chrome / PWA status bar.
-  // The HTML has two tags with media queries for system preference, but when the
-  // user explicitly picks a theme we need to override both to the chosen color.
-  const color = THEME_COLORS[resolved];
-  document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((meta) => {
-    meta.setAttribute('content', color);
-  });
+  // When theme is 'system', the HTML media queries already handle it correctly,
+  // so restore the original per-scheme colors. When the user explicitly picks a
+  // theme, override both tags to force that color.
+  if (theme === 'system') {
+    document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((meta) => {
+      const media = meta.getAttribute('media');
+      if (media?.includes('light')) meta.setAttribute('content', THEME_COLORS.light);
+      else if (media?.includes('dark')) meta.setAttribute('content', THEME_COLORS.dark);
+    });
+  } else {
+    const color = THEME_COLORS[resolved];
+    document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((meta) => {
+      meta.setAttribute('content', color);
+    });
+  }
 }
 
 export default function useTheme() {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -14,19 +14,21 @@ type LoginView = 'sign-in' | 'sign-up' | 'magic-link';
  * The OAuth callback redirects here with #auth_error=<encoded message>
  * when sign-in fails.
  */
+/**
+ * Detect an auth_error hash fragment and clean the URL.
+ * Returns a generic error message to prevent phishing via attacker-crafted URLs
+ * (e.g. /login#auth_error=Your+account+is+locked.+Call+555-SCAM).
+ */
 function consumeAuthError(): string | null {
   const hash = window.location.hash;
   if (!hash.startsWith('#auth_error=')) return null;
-  const encoded = hash.slice('#auth_error='.length);
-  const message = decodeURIComponent(encoded);
   // Clean the hash so the error doesn't persist on refresh
   history.replaceState(null, '', window.location.pathname + window.location.search);
-  return message;
+  return 'Sign-in failed. Please try again.';
 }
 
 export default function LoginPage() {
   const { authConfig } = useAuth();
-  const navigate = useNavigate();
   const isStandalone = useIsStandalone();
   const magicLinkAvailable = authConfig?.magic_link_enabled ?? false;
   // In standalone PWA mode, prefer magic link to avoid OAuth opening the system browser
@@ -272,6 +274,5 @@ export default function LoginPage() {
   }
 
   // Fallback: redirect to app if no auth needed
-  navigate('/app', { replace: true });
-  return null;
+  return <Navigate to="/app" replace />;
 }

@@ -18,7 +18,11 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // Only intercept page navigations, not API calls or assets.
+  // Exclude /api/ paths so OAuth redirects and API errors aren't masked.
   if (event.request.mode !== 'navigate') return;
+  const url = new URL(event.request.url);
+  if (url.pathname.startsWith('/api/')) return;
 
   event.respondWith(
     fetch(event.request).catch(() =>

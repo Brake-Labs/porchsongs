@@ -7,7 +7,7 @@ import App from '@/App';
 import './index.css';
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch(() => {});
+  navigator.serviceWorker.register('/sw.js').catch((err) => console.warn('[SW]', err));
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
