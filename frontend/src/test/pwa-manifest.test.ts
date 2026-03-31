@@ -43,8 +43,9 @@ describe("index.html PWA meta tags", () => {
     expect(indexHtml).toContain('content="yes"');
   });
 
-  it("has apple-mobile-web-app-status-bar-style", () => {
+  it("has apple-mobile-web-app-status-bar-style black-translucent", () => {
     expect(indexHtml).toContain('name="apple-mobile-web-app-status-bar-style"');
+    expect(indexHtml).toContain('content="black-translucent"');
   });
 
   it("has apple-mobile-web-app-title", () => {
@@ -52,7 +53,8 @@ describe("index.html PWA meta tags", () => {
     expect(indexHtml).toContain('content="porchsongs"');
   });
 
-  it("has theme-color meta tag", () => {
-    expect(indexHtml).toContain('name="theme-color"');
+  it("has theme-color for light and dark modes", () => {
+    expect(indexHtml).toContain('content="#faf9f6" media="(prefers-color-scheme: light)"');
+    expect(indexHtml).toContain('content="#1c1917" media="(prefers-color-scheme: dark)"');
   });
 });
