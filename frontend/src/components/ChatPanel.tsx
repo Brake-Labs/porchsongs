@@ -9,14 +9,9 @@ import { Button } from '@/components/ui/button';
 import Spinner from '@/components/ui/spinner';
 import StreamingPre from '@/components/ui/streaming-pre';
 import { StreamParser } from '@/lib/streamParser';
-import type { ChatMessage, LlmSettings, TokenUsage } from '@/types';
+import type { AttachedFile, ChatMessage, LlmSettings, TokenUsage } from '@/types';
 
 const MAX_MESSAGES = 20;
-
-interface AttachedImage {
-  dataUrl: string;
-  name: string;
-}
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -89,6 +84,7 @@ function ChatMessageBubble({ msg, isStreaming }: { msg: ChatMessage; isStreaming
 
 interface ChatPanelProps {
   songId: number | null;
+  profileId?: number;
   messages: ChatMessage[];
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   llmSettings: LlmSettings;
@@ -102,36 +98,75 @@ interface ChatPanelProps {
   onStreamingChange?: (streaming: boolean) => void;
 }
 
-export default function ChatPanel({ songId, messages, setMessages, llmSettings, onContentUpdated, initialLoading, onBeforeSend, onContentStreaming, onOriginalContentUpdated, headerRight, flat, onStreamingChange }: ChatPanelProps) {
+export default function ChatPanel({ songId, profileId, messages, setMessages, llmSettings, onContentUpdated, initialLoading, onBeforeSend, onContentStreaming, onOriginalContentUpdated, headerRight, flat, onStreamingChange }: ChatPanelProps) {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [reasoningText, setReasoningText] = useState('');
   const [lastFailedInput, setLastFailedInput] = useState<string | null>(null);
   const [tokenUsage, setTokenUsage] = useState<TokenUsage>({ input_tokens: 0, output_tokens: 0 });
-  const [images, setImages] = useState<AttachedImage[]>([]);
+  const [attachments, setAttachments] = useState<AttachedFile[]>([]);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const dragCounterRef = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [fileLoading, setFileLoading] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const processFiles = useCallback(async (files: FileList | File[]) => {
     const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB
-    const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
-    const newImages: AttachedImage[] = [];
-    for (const file of imageFiles) {
-      if (file.size > MAX_IMAGE_SIZE) {
-        toast.error(`Image "${file.name}" is too large (max 5 MB)`);
-        continue;
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+    const newAttachments: AttachedFile[] = [];
+
+    for (const file of Array.from(files)) {
+      if (file.type.startsWith('image/')) {
+        if (file.size > MAX_IMAGE_SIZE) {
+          toast.error(`Image "${file.name}" is too large (max 5 MB)`);
+          continue;
+        }
+        const dataUrl = await fileToBase64(file);
+        newAttachments.push({ type: 'image', name: file.name, content: dataUrl });
+      } else if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+        if (file.size > MAX_FILE_SIZE) {
+          toast.error(`File "${file.name}" is too large (max 10 MB)`);
+          continue;
+        }
+        setFileLoading(true);
+        try {
+          const dataUrl = await fileToBase64(file);
+          const result = await api.extractFile({
+            profile_id: profileId ?? 0,
+            file_data: dataUrl,
+            filename: file.name,
+          });
+          newAttachments.push({ type: 'pdf', name: file.name, content: result.text });
+        } catch (err) {
+          toast.error(`Failed to extract "${file.name}": ${(err as Error).message}`);
+        } finally {
+          setFileLoading(false);
+        }
+      } else if (file.type === 'text/plain' || file.name.toLowerCase().endsWith('.txt')) {
+        if (file.size > 1 * 1024 * 1024) {
+          toast.error(`File "${file.name}" is too large (max 1 MB)`);
+          continue;
+        }
+        const text = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsText(file);
+        });
+        newAttachments.push({ type: 'text', name: file.name, content: text });
+      } else {
+        toast.error('Unsupported file type. Try images, PDFs, or text files.');
       }
-      const dataUrl = await fileToBase64(file);
-      newImages.push({ dataUrl, name: file.name });
     }
-    if (newImages.length > 0) {
-      setImages(prev => [...prev, ...newImages]);
+
+    if (newAttachments.length > 0) {
+      setAttachments(prev => [...prev, ...newAttachments]);
     }
-  }, []);
+  }, [profileId]);
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -182,8 +217,8 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
     }
   }, [processFiles]);
 
-  const removeImage = useCallback((index: number) => {
-    setImages(prev => prev.filter((_, i) => i !== index));
+  const removeAttachment = useCallback((index: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
   }, []);
 
   // Use scrollTo instead of scrollIntoView to avoid iOS Safari viewport zoom bug
@@ -250,21 +285,25 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
 
   const handleSend = async () => {
     const text = input.trim();
-    const hasImages = images.length > 0;
-    if ((!text && !hasImages) || sending) return;
+    const hasAttachments = attachments.length > 0;
+    if ((!text && !hasAttachments) || sending) return;
 
-    // Capture and clear attached images
-    const attachedImages = [...images];
-    const attachedDataUrls = attachedImages.map(img => img.dataUrl);
+    // Capture and clear attachments
+    const currentAttachments = [...attachments];
+    const imageDataUrls = currentAttachments.filter(a => a.type === 'image').map(a => a.content);
 
     // Build display text and the content payload for the API
-    const displayText = text || (hasImages ? '[Image attached]' : '');
+    const displayText = text || (hasAttachments ? '[File attached]' : '');
     let apiContent: string | Array<Record<string, unknown>>;
-    if (attachedImages.length > 0) {
+    if (currentAttachments.length > 0) {
       const parts: Array<Record<string, unknown>> = [];
       if (text) parts.push({ type: 'text', text });
-      for (const img of attachedImages) {
-        parts.push({ type: 'image_url', image_url: { url: img.dataUrl } });
+      for (const attachment of currentAttachments) {
+        if (attachment.type === 'image') {
+          parts.push({ type: 'image_url', image_url: { url: attachment.content } });
+        } else {
+          parts.push({ type: 'text', text: `--- Attached file: ${attachment.name} ---\n${attachment.content}` });
+        }
       }
       apiContent = parts;
     } else {
@@ -274,9 +313,9 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
     let effectiveSongId = songId;
     if (!effectiveSongId && onBeforeSend) {
       setInput('');
-      setImages([]);
+      setAttachments([]);
       inputRef.current?.focus();
-      const userMsg: ChatMessage = { role: 'user', content: displayText, images: attachedDataUrls.length > 0 ? attachedDataUrls : undefined };
+      const userMsg: ChatMessage = { role: 'user', content: displayText, images: imageDataUrls.length > 0 ? imageDataUrls : undefined };
       setMessages(prev => [...prev, userMsg].slice(-MAX_MESSAGES));
       setSending(true);
       onStreamingChange?.(true);
@@ -291,9 +330,9 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
       }
     } else {
       setInput('');
-      setImages([]);
+      setAttachments([]);
       inputRef.current?.focus();
-      const userMsg: ChatMessage = { role: 'user', content: displayText, images: attachedDataUrls.length > 0 ? attachedDataUrls : undefined };
+      const userMsg: ChatMessage = { role: 'user', content: displayText, images: imageDataUrls.length > 0 ? imageDataUrls : undefined };
       setMessages(prev => [...prev, userMsg].slice(-MAX_MESSAGES));
     }
     if (!effectiveSongId) return;
@@ -453,20 +492,33 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
         )}
       </div>
       <UsageFooter tokenUsage={tokenUsage} />
-      {images.length > 0 && (
+      {attachments.length > 0 && (
         <div className="flex flex-wrap gap-2 px-4 py-2 border-t border-border">
-          {images.map((img, idx) => (
+          {attachments.map((attachment, idx) => (
             <div key={idx} className="relative group">
-              <img src={img.dataUrl} alt={img.name} className="h-12 w-12 rounded object-cover border border-border" />
+              {attachment.type === 'image' ? (
+                <img src={attachment.content} alt={attachment.name} className="h-12 w-12 rounded object-cover border border-border" />
+              ) : (
+                <div className="h-12 px-3 rounded border border-border bg-card flex items-center gap-1.5 text-xs text-foreground">
+                  <span className="opacity-60">{attachment.type === 'pdf' ? '\ud83d\udcc4' : '\ud83d\udcdd'}</span>
+                  <span className="max-w-[120px] truncate">{attachment.name}</span>
+                </div>
+              )}
               <button
                 className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-danger text-white text-[10px] leading-none flex items-center justify-center opacity-0 can-hover:group-hover:opacity-100 transition-opacity"
-                onClick={() => removeImage(idx)}
-                aria-label={`Remove ${img.name}`}
+                onClick={() => removeAttachment(idx)}
+                aria-label={`Remove ${attachment.name}`}
               >
                 &times;
               </button>
             </div>
           ))}
+          {fileLoading && (
+            <div className="h-12 px-3 rounded border border-border bg-card flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Spinner size="sm" />
+              <span>Extracting...</span>
+            </div>
+          )}
         </div>
       )}
       <div
@@ -481,7 +533,7 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
             ref={inputRef}
             value={input}
             onChange={e => setInput(e.target.value)}
-            placeholder={dragging ? 'Drop image here...' : messages.length === 0 ? 'Your song is ready. How would you like to change it?' : 'Tell the AI how to change the song...'}
+            placeholder={dragging ? 'Drop file here...' : messages.length === 0 ? 'Your song is ready. How would you like to change it?' : 'Tell the AI how to change the song...'}
             onKeyDown={e => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -493,19 +545,37 @@ export default function ChatPanel({ songId, messages, setMessages, llmSettings, 
             rows={1}
             className="w-full resize-none overflow-hidden bg-transparent px-3 pt-2.5 pb-1 sm:pt-2 text-sm text-foreground font-ui placeholder:text-muted-foreground focus:outline-none disabled:opacity-50 disabled:pointer-events-none"
           />
-          <div className="flex justify-end px-2 pb-2">
+          <div className="flex justify-between items-center px-2 pb-2">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="p-1.5 text-muted-foreground can-hover:hover:text-foreground transition-colors disabled:opacity-50"
+              aria-label="Attach file"
+              disabled={sending || initialLoading || fileLoading}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+            </button>
             {sending ? (
               <Button variant="danger-outline" size="sm" onClick={handleCancel}>
                 Cancel
               </Button>
             ) : (
-              <Button size="sm" onClick={handleSend} disabled={initialLoading || (!input.trim() && images.length === 0) || (!songId && !onBeforeSend)}>
+              <Button size="sm" onClick={handleSend} disabled={initialLoading || fileLoading || (!input.trim() && attachments.length === 0) || (!songId && !onBeforeSend)}>
                 Send
               </Button>
             )}
           </div>
         </div>
       </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,.pdf,.txt,text/plain,application/pdf"
+        className="hidden"
+        onChange={e => {
+          if (e.target.files) processFiles(e.target.files);
+          e.target.value = '';
+        }}
+      />
     </Card>
   );
 }

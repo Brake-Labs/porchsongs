@@ -1,7 +1,9 @@
 """Tests for endpoints that call the LLM, using mocked amessages/list_models."""
 
 import asyncio
+import base64
 from collections.abc import AsyncIterator
+from io import BytesIO
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -9,7 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models import ChatMessage as ChatMessageModel
-from app.models import Profile, Song, SongRevision
+from app.models import Song, SongRevision
 
 
 def _fake_message_response(text: str) -> MagicMock:
@@ -166,9 +168,7 @@ def test_parse_image_endpoint(mock_amessages: MagicMock, client: TestClient) -> 
     """Image extract endpoint returns extracted text."""
     profile = client.post("/api/profiles", json={"name": "Test"}).json()
 
-    mock_amessages.return_value = _fake_message_response(
-        "G  Am\nHello world\nDm  G\nGoodbye moon"
-    )
+    mock_amessages.return_value = _fake_message_response("G  Am\nHello world\nDm  G\nGoodbye moon")
 
     resp = client.post(
         "/api/parse/image",
@@ -818,9 +818,7 @@ def test_chat_after_image_preserves_multimodal_for_llm(
 # --- Background stream completion (client disconnect recovery) ---
 
 
-def test_finish_chat_in_background_persists_result(
-    client: TestClient, db_session: Session
-) -> None:
+def test_finish_chat_in_background_persists_result(client: TestClient, db_session: Session) -> None:
     """When a client disconnects mid-stream, _finish_chat_in_background should
     consume remaining tokens and persist the result to the database."""
     from app.routers.rewrite import _finish_chat_in_background
@@ -1044,3 +1042,157 @@ def test_chat_uses_system_parameter(mock_amessages: MagicMock, client: TestClien
     # Messages should not contain system role
     messages = call_kwargs["messages"]
     assert all(m["role"] != "system" for m in messages)
+
+
+# --- POST /api/parse/file ---
+
+
+def _make_test_pdf(text: str = "G  Am\nHello world\nDm  G\nGoodbye moon") -> str:
+    """Create a minimal PDF with text content and return base64-encoded string."""
+    from fpdf import FPDF
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", size=12)
+    for line in text.split("\n"):
+        pdf.cell(0, 10, text=line, new_x="LMARGIN", new_y="NEXT")
+    buf = BytesIO()
+    pdf.output(buf)
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def _make_blank_pdf() -> str:
+    """Create a blank PDF (no text content) and return base64-encoded string."""
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=612, height=792)
+    buf = BytesIO()
+    writer.write(buf)
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def test_parse_file_pdf_happy_path(client: TestClient) -> None:
+    """PDF with text content should be extracted successfully."""
+    profile = client.post("/api/profiles", json={"name": "Test"}).json()
+
+    file_data = _make_test_pdf("G  Am\nHello world\nDm  G\nGoodbye moon")
+    resp = client.post(
+        "/api/parse/file",
+        json={
+            "profile_id": profile["id"],
+            "file_data": file_data,
+            "filename": "test_song.pdf",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "Hello world" in data["text"]
+    assert "Goodbye moon" in data["text"]
+
+
+def test_parse_file_text_happy_path(client: TestClient) -> None:
+    """Plain text file should be extracted successfully."""
+    profile = client.post("/api/profiles", json={"name": "Test"}).json()
+
+    text_content = "G  Am\nHello world\nDm  G\nGoodbye moon"
+    file_data = base64.b64encode(text_content.encode()).decode()
+    resp = client.post(
+        "/api/parse/file",
+        json={
+            "profile_id": profile["id"],
+            "file_data": file_data,
+            "filename": "test.txt",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "Hello world" in data["text"]
+    assert "Goodbye moon" in data["text"]
+
+
+def test_parse_file_corrupted_pdf(client: TestClient) -> None:
+    """Corrupted PDF (non-PDF bytes with .pdf extension) should return 422."""
+    profile = client.post("/api/profiles", json={"name": "Test"}).json()
+
+    garbled = base64.b64encode(b"this is not a valid pdf file at all").decode()
+    resp = client.post(
+        "/api/parse/file",
+        json={
+            "profile_id": profile["id"],
+            "file_data": garbled,
+            "filename": "bad.pdf",
+        },
+    )
+    assert resp.status_code == 422
+    assert (
+        "corrupted" in resp.json()["detail"].lower()
+        or "could not read" in resp.json()["detail"].lower()
+    )
+
+
+def test_parse_file_empty_pdf(client: TestClient) -> None:
+    """PDF with no text content (blank pages) should return 422 with scanned images hint."""
+    profile = client.post("/api/profiles", json={"name": "Test"}).json()
+
+    file_data = _make_blank_pdf()
+    resp = client.post(
+        "/api/parse/file",
+        json={
+            "profile_id": profile["id"],
+            "file_data": file_data,
+            "filename": "blank.pdf",
+        },
+    )
+    assert resp.status_code == 422
+    assert "scanned images" in resp.json()["detail"].lower()
+
+
+def test_parse_file_unsupported_type(client: TestClient) -> None:
+    """Unsupported file type (.docx) should return 422."""
+    profile = client.post("/api/profiles", json={"name": "Test"}).json()
+
+    file_data = base64.b64encode(b"fake docx content").decode()
+    resp = client.post(
+        "/api/parse/file",
+        json={
+            "profile_id": profile["id"],
+            "file_data": file_data,
+            "filename": "test.docx",
+        },
+    )
+    assert resp.status_code == 422
+    assert "Unsupported file type" in resp.json()["detail"]
+
+
+def test_parse_file_too_large(client: TestClient) -> None:
+    """File larger than 10MB should return 422."""
+    profile = client.post("/api/profiles", json={"name": "Test"}).json()
+
+    # Create data that decodes to >10MB
+    large_bytes = b"x" * (10 * 1024 * 1024 + 1)
+    file_data = base64.b64encode(large_bytes).decode()
+    resp = client.post(
+        "/api/parse/file",
+        json={
+            "profile_id": profile["id"],
+            "file_data": file_data,
+            "filename": "big.txt",
+        },
+    )
+    assert resp.status_code == 422
+    assert "too large" in resp.json()["detail"].lower()
+
+
+def test_parse_file_profile_not_found(client: TestClient) -> None:
+    """Missing profile should return 404."""
+    file_data = base64.b64encode(b"some content").decode()
+    resp = client.post(
+        "/api/parse/file",
+        json={
+            "profile_id": 9999,
+            "file_data": file_data,
+            "filename": "test.txt",
+        },
+    )
+    assert resp.status_code == 404

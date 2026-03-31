@@ -37,7 +37,7 @@ test.describe('OSS Rewrite Flow', () => {
     await waitForAppReady(page);
 
     // Fill lyrics textarea
-    const textarea = page.getByPlaceholder('Paste or drop lyrics');
+    const textarea = page.getByPlaceholder(/Paste lyrics/);
     await expect(textarea).toBeVisible();
     await textarea.fill(RAW_LYRICS);
 
@@ -75,7 +75,7 @@ test.describe('OSS Rewrite Flow', () => {
     await page.goto('/');
     await waitForAppReady(page);
 
-    const textarea = page.getByPlaceholder('Paste or drop lyrics');
+    const textarea = page.getByPlaceholder(/Paste lyrics/);
     await textarea.fill(RAW_LYRICS);
     await page.getByRole('button', { name: 'Import Song' }).click();
 
@@ -83,7 +83,7 @@ test.describe('OSS Rewrite Flow', () => {
     // return to input state. Verify we can see the input area again.
     // The partial response without a done event triggers the error path.
     await expect(
-      page.getByPlaceholder('Paste or drop lyrics').or(page.getByText(/error|failed/i))
+      page.getByPlaceholder(/Paste lyrics/).or(page.getByText(/error|failed/i))
     ).toBeVisible({ timeout: 10_000 });
   });
 
@@ -95,7 +95,7 @@ test.describe('OSS Rewrite Flow', () => {
     await page.goto('/');
     await waitForAppReady(page);
 
-    const textarea = page.getByPlaceholder('Paste or drop lyrics');
+    const textarea = page.getByPlaceholder(/Paste lyrics/);
     await textarea.fill(RAW_LYRICS);
     await page.getByRole('button', { name: 'Import Song' }).click();
 

@@ -13,6 +13,7 @@ dependencies = [
     "requests==2.32.3",
     "any-llm-sdk[all]>=1.13.0",
     "fpdf2>=2.8.0",
+    "pypdf>=4.0.0",
     "psycopg2-binary>=2.9.9",
     "alembic>=1.14.0",
     "pyjwt[crypto]>=2.9.0",

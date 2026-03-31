@@ -51,6 +51,12 @@ export interface ChatMessage {
   images?: string[];  // base64 data URLs for display in bubbles
 }
 
+export interface AttachedFile {
+  type: 'image' | 'pdf' | 'text';
+  name: string;
+  content: string; // base64 data URL for images, extracted text for pdf/text
+}
+
 export interface LlmSettings {
   provider: string;
   model: string;

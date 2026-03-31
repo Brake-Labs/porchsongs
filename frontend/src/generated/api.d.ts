@@ -346,6 +346,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/parse/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Parse File
+         * @description Extract text from an uploaded PDF or text file.
+         */
+        post: operations["parse_file_api_parse_file_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/chat": {
         parameters: {
             query?: never;
@@ -662,6 +682,21 @@ export interface components {
             parse: string;
             /** Chat */
             chat: string;
+        };
+        /** FileExtractRequest */
+        FileExtractRequest: {
+            /** Profile Id */
+            profile_id: number;
+            /** File Data */
+            file_data: string;
+            /** Filename */
+            filename: string;
+        };
+        /** FileExtractResponse */
+        FileExtractResponse: {
+            /** Text */
+            text: string;
+            usage?: components["schemas"]["TokenUsage"] | null;
         };
         /** FolderRename */
         FolderRename: {
@@ -1892,6 +1927,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ImageExtractResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    parse_file_api_parse_file_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FileExtractRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileExtractResponse"];
                 };
             };
             /** @description Validation Error */

@@ -1,7 +1,9 @@
 import asyncio
+import base64
 import json
 import logging
 from collections.abc import AsyncIterator, Awaitable
+from io import BytesIO
 from typing import TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -18,6 +20,8 @@ from ..schemas import (
     ChatRequest,
     ChatResponse,
     DefaultPromptsResponse,
+    FileExtractRequest,
+    FileExtractResponse,
     ImageExtractRequest,
     ImageExtractResponse,
     ParseRequest,
@@ -272,6 +276,95 @@ async def parse_image(
     usage = TokenUsage(**usage_data) if usage_data else None
 
     return ImageExtractResponse(text=result["text"], usage=usage)
+
+
+def _extract_pdf(file_bytes: bytes) -> FileExtractResponse:
+    """Extract text from a PDF using pypdf."""
+    from pypdf import PdfReader
+    from pypdf.errors import FileNotDecryptedError, PdfReadError
+
+    try:
+        reader = PdfReader(BytesIO(file_bytes))
+    except FileNotDecryptedError:
+        raise HTTPException(
+            status_code=422,
+            detail="This PDF is password-protected. Please unlock it first.",
+        ) from None
+    except PdfReadError:
+        raise HTTPException(
+            status_code=422, detail="Could not read this PDF. The file may be corrupted."
+        ) from None
+
+    max_pages = 10
+    pages = reader.pages[:max_pages]
+    text_parts: list[str] = []
+    for page in pages:
+        try:
+            text_parts.append(page.extract_text() or "")
+        except Exception:
+            text_parts.append("")  # skip corrupted pages
+
+    text = "\n".join(text_parts).strip()
+
+    if len(text) < 10:
+        raise HTTPException(
+            status_code=422,
+            detail="This PDF appears to contain scanned images rather than text. "
+            "Try Import from Photo instead.",
+        )
+
+    if len(reader.pages) > max_pages:
+        text += (
+            f"\n\n[Note: Only the first {max_pages} of {len(reader.pages)} pages were extracted.]"
+        )
+
+    return FileExtractResponse(text=text)
+
+
+def _extract_text(file_bytes: bytes) -> FileExtractResponse:
+    """Extract text from a plain text file."""
+    try:
+        text = file_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        # latin-1 can decode any byte sequence, so this is a safe fallback
+        text = file_bytes.decode("latin-1")
+    return FileExtractResponse(text=text.strip())
+
+
+@router.post("/parse/file", response_model=FileExtractResponse)
+async def parse_file(
+    req: FileExtractRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> FileExtractResponse:
+    """Extract text from an uploaded PDF or text file."""
+    get_user_profile(db, current_user, req.profile_id)
+
+    # Decode base64 file data
+    try:
+        # Strip data URL prefix if present (e.g. "data:application/pdf;base64,...")
+        raw = req.file_data
+        if "," in raw and raw.index(",") < 200:
+            raw = raw.split(",", 1)[1]
+        file_bytes = base64.b64decode(raw)
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid base64 file data.") from None
+
+    # File size check (10 MB)
+    if len(file_bytes) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=422, detail="File too large. Maximum size is 10 MB.")
+
+    filename_lower = req.filename.lower()
+
+    if filename_lower.endswith(".pdf"):
+        return await asyncio.to_thread(_extract_pdf, file_bytes)
+    elif filename_lower.endswith((".txt", ".text")):
+        return _extract_text(file_bytes)
+    else:
+        raise HTTPException(
+            status_code=422,
+            detail="Unsupported file type. Supported formats: PDF, TXT.",
+        )
 
 
 def _deserialize_content(raw: str) -> str | list[dict[str, object]]:

@@ -15,6 +15,7 @@ vi.mock('@/api', () => ({
   default: {
     parseStream: vi.fn(),
     parseImage: vi.fn().mockResolvedValue({ text: '' }),
+    extractFile: vi.fn().mockResolvedValue({ text: '' }),
     listSongs: vi.fn().mockResolvedValue([]),
     updateSong: vi.fn().mockResolvedValue({}),
   },
@@ -98,7 +99,7 @@ describe('RewriteTab', () => {
     const { unmount } = render(<RewriteTab {...props} />);
 
     // Type some input so the Parse button is enabled
-    const textarea = screen.getByPlaceholderText(/Paste or drop lyrics/);
+    const textarea = screen.getByPlaceholderText(/Paste lyrics/);
     fireEvent.change(textarea, { target: { value: 'Some lyrics here' } });
 
     // Click Parse to start the streaming request
@@ -142,7 +143,7 @@ describe('RewriteTab', () => {
     render(<RewriteTab {...props} />);
 
     // The Card wrapping the textareas should use flex-1 to fill space
-    const lyricsTextarea = screen.getByPlaceholderText(/Paste or drop lyrics/);
+    const lyricsTextarea = screen.getByPlaceholderText(/Paste lyrics/);
     const card = lyricsTextarea.closest('.shadow-sm');
     expect(card).toBeTruthy();
     expect(card!.className).toContain('flex-1');
@@ -409,7 +410,7 @@ describe('RewriteTab', () => {
 
     // Should be in parsed state (chat panel visible, input hidden)
     expect(screen.getByTestId('chat-panel')).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText(/Paste or drop lyrics/)).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/Paste lyrics/)).not.toBeInTheDocument();
   });
 
   it('shows loading state from context (parse in progress)', () => {
@@ -429,7 +430,7 @@ describe('RewriteTab', () => {
     render(<RewriteTab {...props} />);
 
     const sampleText = screen.getByText(/Start with a sample/);
-    const textarea = screen.getByPlaceholderText(/Paste or drop lyrics/);
+    const textarea = screen.getByPlaceholderText(/Paste lyrics/);
 
     // Sample prompt should appear before the textarea in the DOM
     expect(sampleText.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -441,7 +442,7 @@ describe('RewriteTab', () => {
     render(<RewriteTab {...props} />);
 
     const sampleText = screen.getByText(/Or try a sample/);
-    const textarea = screen.getByPlaceholderText(/Paste or drop lyrics/);
+    const textarea = screen.getByPlaceholderText(/Paste lyrics/);
 
     // Sample prompt should appear after the textarea in the DOM
     expect(sampleText.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
@@ -463,7 +464,7 @@ describe('RewriteTab', () => {
 
     expect(screen.getByRole('button', { name: 'Paste from clipboard' })).toBeInTheDocument();
 
-    const textarea = screen.getByPlaceholderText(/Paste or drop lyrics/);
+    const textarea = screen.getByPlaceholderText(/Paste lyrics/);
     fireEvent.change(textarea, { target: { value: 'Some lyrics' } });
 
     expect(screen.queryByRole('button', { name: 'Paste from clipboard' })).not.toBeInTheDocument();
@@ -483,7 +484,7 @@ describe('RewriteTab', () => {
     fireEvent.click(pasteBtn);
 
     await waitFor(() => {
-      const textarea = screen.getByPlaceholderText(/Paste or drop lyrics/) as HTMLTextAreaElement;
+      const textarea = screen.getByPlaceholderText(/Paste lyrics/) as HTMLTextAreaElement;
       expect(textarea.value).toBe(clipboardText);
     });
 
@@ -525,7 +526,7 @@ describe('RewriteTab', () => {
     });
 
     const sampleText = screen.getByText(/Or try a sample/);
-    const textarea = screen.getByPlaceholderText(/Paste or drop lyrics/);
+    const textarea = screen.getByPlaceholderText(/Paste lyrics/);
     expect(sampleText.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
   });
 
@@ -718,5 +719,38 @@ describe('RewriteTab', () => {
     render(<RewriteTab />);
     const photoBtn = screen.getByText('Import from Photo');
     expect(photoBtn.closest('button')).toBeDisabled();
+  });
+
+  describe('Import from File', () => {
+    it('renders alongside Import from Photo in INPUT state', () => {
+      const props = makeProps();
+      render(<RewriteTab {...props} />);
+
+      expect(screen.getByText('Import from Photo')).toBeInTheDocument();
+      expect(screen.getByText('Import from File')).toBeInTheDocument();
+    });
+
+    it('is disabled when no profile exists', () => {
+      const props = makeProps({ profile: null });
+      render(<RewriteTab {...props} />);
+
+      const fileBtn = screen.getByText('Import from File');
+      expect(fileBtn.closest('button')).toBeDisabled();
+    });
+
+    it('has a hidden file input with correct accept attribute for PDFs and text files', () => {
+      const props = makeProps();
+      const { container } = render(<RewriteTab {...props} />);
+
+      // Find the doc file input (the one that accepts .pdf,.txt)
+      const fileInputs = container.querySelectorAll('input[type="file"]');
+      const docInput = Array.from(fileInputs).find(
+        input => (input as HTMLInputElement).accept.includes('.pdf'),
+      ) as HTMLInputElement | undefined;
+
+      expect(docInput).toBeTruthy();
+      expect(docInput!.accept).toContain('.pdf');
+      expect(docInput!.accept).toContain('.txt');
+    });
   });
 });

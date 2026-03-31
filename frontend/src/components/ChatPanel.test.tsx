@@ -70,7 +70,7 @@ describe('ChatPanel', () => {
 
     fireEvent.dragEnter(inputRow, { dataTransfer: { types: ['Files'], files: [] } });
 
-    expect(screen.getByPlaceholderText(/Drop image here/)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Drop file here/)).toBeInTheDocument();
   });
 
   it('renders multiple image thumbnails on a single message', () => {
@@ -136,5 +136,45 @@ describe('ChatPanel', () => {
     });
 
     expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('too large'));
+  });
+
+  describe('file attachments', () => {
+    it('renders attach button with correct aria-label', () => {
+      render(<ChatPanel {...defaults} />);
+      const attachBtn = screen.getByRole('button', { name: 'Attach file' });
+      expect(attachBtn).toBeInTheDocument();
+    });
+
+    it('hidden file input has correct accept attribute', () => {
+      const { container } = render(<ChatPanel {...defaults} />);
+      const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+      expect(fileInput).toBeInTheDocument();
+      expect(fileInput.accept).toBe('image/*,.pdf,.txt,text/plain,application/pdf');
+      expect(fileInput.className).toContain('hidden');
+    });
+
+    it('attach button click triggers file input click', () => {
+      const { container } = render(<ChatPanel {...defaults} />);
+      const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+      const clickSpy = vi.spyOn(fileInput, 'click');
+
+      const attachBtn = screen.getByRole('button', { name: 'Attach file' });
+      fireEvent.click(attachBtn);
+
+      expect(clickSpy).toHaveBeenCalled();
+      clickSpy.mockRestore();
+    });
+
+    it('send button is disabled when no input and no attachments', () => {
+      render(<ChatPanel {...defaults} />);
+      const sendBtn = screen.getByRole('button', { name: 'Send' });
+      expect(sendBtn).toBeDisabled();
+    });
+
+    it('attach button is disabled when initialLoading is true', () => {
+      render(<ChatPanel {...defaults} initialLoading={true} />);
+      const attachBtn = screen.getByRole('button', { name: 'Attach file' });
+      expect(attachBtn).toBeDisabled();
+    });
   });
 });

@@ -62,7 +62,7 @@ test.describe('Song Lifecycle', () => {
     await page.goto('/');
     await waitForAppReady(page);
 
-    const textarea = page.getByPlaceholder(/Paste or drop lyrics/);
+    const textarea = page.getByPlaceholder(/Paste lyrics/);
     await textarea.fill(RAW_LYRICS);
     await page.getByRole('button', { name: 'Import Song' }).click();
 

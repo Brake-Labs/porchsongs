@@ -134,6 +134,10 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const [showHints, setShowHints] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const docFileInputRef = useRef<HTMLInputElement>(null);
+  const [fileLoading, setFileLoading] = useState(false);
+  const [inputDragging, setInputDragging] = useState(false);
+  const inputDragCounterRef = useRef(0);
   const [parseReasoningExpanded, setParseReasoningExpanded] = useState(false);
   const [hasSongs, setHasSongs] = useState(
     () => !!localStorage.getItem(STORAGE_KEYS.HAS_REWRITTEN),
@@ -265,6 +269,113 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
       setImageLoading(false);
     }
   };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !profile?.id) return;
+    e.target.value = '';
+
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    const isText = file.type === 'text/plain' || file.name.toLowerCase().endsWith('.txt');
+
+    if (!isPdf && !isText) {
+      setParseError('Please select a PDF or text file.');
+      return;
+    }
+    if (isPdf && file.size > 10 * 1024 * 1024) {
+      setParseError('PDF must be under 10 MB.');
+      return;
+    }
+    if (isText && file.size > 1 * 1024 * 1024) {
+      setParseError('Text file must be under 1 MB.');
+      return;
+    }
+
+    setFileLoading(true);
+    setParseError(null);
+    try {
+      if (isText) {
+        const text = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => reject(new Error('Failed to read file'));
+          reader.readAsText(file);
+        });
+        setInput(text);
+      } else {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => reject(new Error('Failed to read file'));
+          reader.readAsDataURL(file);
+        });
+        const result = await api.extractFile({
+          profile_id: profile.id,
+          file_data: dataUrl,
+          filename: file.name,
+        });
+        setInput(result.text);
+      }
+    } catch (err) {
+      setParseError('File extraction failed: ' + (err as Error).message);
+    } finally {
+      setFileLoading(false);
+    }
+  };
+
+  const handleInputDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    inputDragCounterRef.current++;
+    if (e.dataTransfer.types.includes('Files')) {
+      setInputDragging(true);
+    }
+  }, []);
+
+  const handleInputDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    inputDragCounterRef.current--;
+    if (inputDragCounterRef.current === 0) {
+      setInputDragging(false);
+    }
+  }, []);
+
+  const handleInputDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleInputDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    inputDragCounterRef.current = 0;
+    setInputDragging(false);
+    if (e.dataTransfer.files.length === 0) return;
+
+    const file = e.dataTransfer.files[0]!;
+    if (file.type.startsWith('image/')) {
+      // Trigger the existing image upload path
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      const input = fileInputRef.current;
+      if (input) {
+        input.files = dt.files;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    } else if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf') ||
+               file.type === 'text/plain' || file.name.toLowerCase().endsWith('.txt')) {
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      const input = docFileInputRef.current;
+      if (input) {
+        input.files = dt.files;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    } else {
+      setParseError('Unsupported file type. Try images, PDFs, or text files.');
+    }
+  }, [setParseError]);
 
   // State derivation
   const isInput = !parseLoading && !parseResult && !rewriteResult;
@@ -634,7 +745,13 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
         <OnboardingBanner>
           {!isPremium && modelControls()}
 
-          <Card className="flex-1 min-h-0 flex flex-col">
+          <Card
+            className={cn('flex-1 min-h-0 flex flex-col', inputDragging && 'ring-2 ring-primary/30 border-primary')}
+            onDragEnter={handleInputDragEnter}
+            onDragLeave={handleInputDragLeave}
+            onDragOver={handleInputDragOver}
+            onDrop={handleInputDrop}
+          >
             <CardContent className="pt-6 flex-1 flex flex-col min-h-0">
               {hasProfile && hasModel && isFirstTime && (
                 <p className="mb-3 text-sm text-muted-foreground">
@@ -673,7 +790,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 className="flex-1 min-h-0 resize-none"
                 value={input}
                 onChange={e => setInput(e.target.value)}
-                placeholder="Paste or drop lyrics here..."
+                placeholder="Paste lyrics, or drop a file here..."
                 onKeyDown={e => {
                   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canParse) {
                     e.preventDefault();
@@ -714,6 +831,13 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 className="hidden"
                 onChange={handleImageUpload}
               />
+              <input
+                ref={docFileInputRef}
+                type="file"
+                accept=".pdf,.txt,text/plain,application/pdf"
+                className="hidden"
+                onChange={handleFileUpload}
+              />
               <div className="flex items-center gap-3 mt-3">
                 <Button onClick={handleParse} disabled={!canParse}>
                   Import Song
@@ -724,6 +848,13 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                   onClick={() => fileInputRef.current?.click()}
                 >
                   {imageLoading ? <><Spinner size="sm" className="mr-1.5" /> Extracting...</> : 'Import from Photo'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={!hasProfile || fileLoading}
+                  onClick={() => docFileInputRef.current?.click()}
+                >
+                  {fileLoading ? <><Spinner size="sm" className="mr-1.5" /> Extracting...</> : 'Import from File'}
                 </Button>
                 <span className="text-xs text-muted-foreground">
                   {parseBlocker ?? shortcutHint}
@@ -840,6 +971,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
             left={
               <ChatPanel
                 songId={currentSongId}
+                profileId={profile?.id}
                 messages={chatMessages}
                 setMessages={setChatMessages}
                 llmSettings={llmSettings}

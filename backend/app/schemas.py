@@ -111,6 +111,17 @@ class ImageExtractResponse(BaseModel):
     usage: TokenUsage | None = None
 
 
+class FileExtractRequest(BaseModel):
+    profile_id: int
+    file_data: str = Field(max_length=15_000_000)  # base64-encoded file (~10MB)
+    filename: str = Field(max_length=255)  # for type detection via extension
+
+
+class FileExtractResponse(BaseModel):
+    text: str
+    usage: TokenUsage | None = None  # always None (no LLM call), shape consistency
+
+
 class ParseResponse(BaseModel):
     original_content: str
     title: str | None = None
