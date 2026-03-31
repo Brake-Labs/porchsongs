@@ -383,13 +383,16 @@ async def _finish_chat_in_background(
     Uses its own DB session since the request session may be closed.
     """
     try:
-        async for kind, text in stream:
-            if kind == "reasoning":
-                reasoning_accumulated += text
-            elif kind == "usage":
-                pass  # usage stats not needed for persistence
-            else:
-                accumulated += text
+        async with asyncio.timeout(120):  # 2 min guard against hung streams
+            async for kind, text in stream:
+                if kind == "reasoning":
+                    reasoning_accumulated += text
+                elif kind == "usage":
+                    pass  # usage stats not needed for persistence
+                else:
+                    accumulated += text
+    except TimeoutError:
+        logger.warning("Background chat stream timed out after 120s, persisting partial result")
     except Exception:
         logger.exception("Background chat stream completion error (LLM)")
         return
@@ -520,6 +523,12 @@ async def chat_stream(
             )
             async for kind, text in stream:
                 if await request.is_disconnected():
+                    # Process the current token before handing off —
+                    # async for already consumed it from the iterator.
+                    if kind == "reasoning":
+                        reasoning_accumulated += text
+                    elif kind != "usage":
+                        accumulated += text
                     # Client gone (e.g. mobile tab suspended).
                     # Finish the LLM call in a background task so the
                     # result is persisted and available when they return.
