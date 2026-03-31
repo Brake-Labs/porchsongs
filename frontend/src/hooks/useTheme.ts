@@ -8,9 +8,29 @@ function getSystemTheme(): 'light' | 'dark' {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
+// Colors must match index.css @theme tokens and DESIGN.md
+const THEME_COLORS = { light: '#faf9f6', dark: '#1c1917' } as const;
+
 function applyTheme(theme: Theme) {
   const resolved = theme === 'system' ? getSystemTheme() : theme;
   document.documentElement.setAttribute('data-theme', resolved);
+
+  // Sync the theme-color meta tag for browser chrome / PWA status bar.
+  // When theme is 'system', the HTML media queries already handle it correctly,
+  // so restore the original per-scheme colors. When the user explicitly picks a
+  // theme, override both tags to force that color.
+  if (theme === 'system') {
+    document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((meta) => {
+      const media = meta.getAttribute('media');
+      if (media?.includes('light')) meta.setAttribute('content', THEME_COLORS.light);
+      else if (media?.includes('dark')) meta.setAttribute('content', THEME_COLORS.dark);
+    });
+  } else {
+    const color = THEME_COLORS[resolved];
+    document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((meta) => {
+      meta.setAttribute('content', color);
+    });
+  }
 }
 
 export default function useTheme() {

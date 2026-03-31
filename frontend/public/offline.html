@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>porchsongs - Offline</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      background: #faf9f6;
+      color: #2b2825;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      text-align: center;
+    }
+    @media (prefers-color-scheme: dark) {
+      body { background: #1c1917; color: #e7e5e4; }
+      .card { background: #292524; border-color: #44403c; }
+      .retry { background: #d4773e; }
+      .retry:hover { background: #e08a52; }
+    }
+    .card {
+      max-width: 400px;
+      background: #fff;
+      border: 1px solid #e6e3dc;
+      border-radius: 12px;
+      padding: 2.5rem 2rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .icon { font-size: 3rem; margin-bottom: 1rem; }
+    h1 {
+      font-family: 'Instrument Serif', Georgia, serif;
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+    }
+    p { color: #7a756d; line-height: 1.5; margin-bottom: 1.5rem; }
+    .retry {
+      display: inline-block;
+      background: #b85c2c;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 0.625rem 1.5rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .retry:hover { background: #9e4e24; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">&#127925;</div>
+    <h1>You're offline</h1>
+    <p>porchsongs needs an internet connection to load your songs and talk to the AI. Check your connection and try again.</p>
+    <button class="retry" onclick="location.reload()">Try again</button>
+  </div>
+</body>
+</html>
