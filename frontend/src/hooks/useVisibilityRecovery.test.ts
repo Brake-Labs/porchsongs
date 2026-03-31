@@ -1,5 +1,5 @@
 import { renderHook, act } from '@testing-library/react';
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach, type Mock } from 'vitest';
 import useVisibilityRecovery from './useVisibilityRecovery';
 
 // Mock the API module
@@ -15,13 +15,21 @@ vi.mock('sonner', () => ({
   toast: { info: vi.fn() },
 }));
 
+// Mock chat-utils
+vi.mock('@/lib/chat-utils', () => ({
+  chatHistoryToMessages: vi.fn((rows: unknown[]) => rows),
+}));
+
 import api from '@/api';
 import { toast } from 'sonner';
+import type { SetStateAction } from 'react';
 import type { RewriteResult, ChatMessage } from '@/types';
 
+type MockDispatch<T> = Mock<(value: SetStateAction<T>) => void>;
+
 describe('useVisibilityRecovery', () => {
-  let setRewriteResult: ReturnType<typeof vi.fn>;
-  let setChatMessages: ReturnType<typeof vi.fn>;
+  let setRewriteResult: MockDispatch<RewriteResult | null>;
+  let setChatMessages: MockDispatch<ChatMessage[]>;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -76,6 +84,11 @@ describe('useVisibilityRecovery', () => {
 
     vi.mocked(api.getSong).mockResolvedValue(mockSong as never);
     vi.mocked(api.getChatHistory).mockResolvedValue(mockHistory as never);
+
+    // Make setRewriteResult invoke the updater so `changed` gets set
+    setRewriteResult.mockImplementation((updater: SetStateAction<RewriteResult | null>) => {
+      if (typeof updater === 'function') updater(null);
+    });
 
     // Start with streaming active
     const { rerender } = renderHook(
@@ -142,7 +155,8 @@ describe('useVisibilityRecovery', () => {
     vi.mocked(api.getChatHistory).mockResolvedValue([] as never);
 
     // Simulate setRewriteResult to test the identity check
-    setRewriteResult.mockImplementation((updater: (prev: RewriteResult | null) => RewriteResult | null) => {
+    setRewriteResult.mockImplementation((updater: SetStateAction<RewriteResult | null>) => {
+      if (typeof updater !== 'function') return;
       const prev: RewriteResult = {
         original_content: 'original',
         rewritten_content: 'same content',

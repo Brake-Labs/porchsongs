@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Outlet, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import api, { STORAGE_KEYS } from '@/api';
-import { stripXmlTags } from '@/lib/utils';
+import { chatHistoryToMessages } from '@/lib/chat-utils';
 import useLocalStorage from '@/hooks/useLocalStorage';
 import useProviderConnections from '@/hooks/useProviderConnections';
 import useSavedModels from '@/hooks/useSavedModels';
@@ -13,26 +13,7 @@ import MobileNav from '@/components/MobileNav';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { getFeatureRequestUrl, getReportIssueUrl } from '@/extensions';
-import type { Profile, RewriteResult, RewriteMeta, ChatMessage, ChatHistoryRow, Song, ParseResult } from '@/types';
-
-function chatHistoryToMessages(rows: ChatHistoryRow[]): ChatMessage[] {
-  return rows.map(row => {
-    const role = row.role as 'user' | 'assistant';
-    if (role === 'assistant' && !row.is_note) {
-      const stripped = stripXmlTags(row.content);
-      const hadXml = stripped !== row.content;
-      return {
-        role,
-        content: hadXml ? (stripped || 'Chat edit applied.') : stripped,
-        rawContent: hadXml ? row.content : undefined,
-        isNote: row.is_note,
-        reasoning: row.reasoning ?? undefined,
-        model: row.model ?? undefined,
-      };
-    }
-    return { role, content: row.content, isNote: row.is_note };
-  });
-}
+import type { Profile, RewriteResult, RewriteMeta, ChatMessage, Song, ParseResult } from '@/types';
 
 /** Context value provided to child routes via useOutletContext(). */
 export interface AppShellContext {

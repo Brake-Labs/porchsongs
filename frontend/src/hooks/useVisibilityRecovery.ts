@@ -1,31 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import api from '@/api';
+import { chatHistoryToMessages } from '@/lib/chat-utils';
 import type { ChatMessage, ChatHistoryRow, RewriteResult, Song } from '@/types';
-import { stripXmlTags } from '@/lib/utils';
 
 /** Delay (ms) after tab becomes visible before re-fetching, giving the
  *  backend time to finish persisting if the LLM call was still running. */
 const RECOVERY_DELAY_MS = 2500;
-
-function chatHistoryToMessages(rows: ChatHistoryRow[]): ChatMessage[] {
-  return rows.map(row => {
-    const role = row.role as 'user' | 'assistant';
-    if (role === 'assistant' && !row.is_note) {
-      const stripped = stripXmlTags(row.content);
-      const hadXml = stripped !== row.content;
-      return {
-        role,
-        content: hadXml ? (stripped || 'Chat edit applied.') : stripped,
-        rawContent: hadXml ? row.content : undefined,
-        isNote: row.is_note,
-        reasoning: row.reasoning ?? undefined,
-        model: row.model ?? undefined,
-      };
-    }
-    return { role, content: row.content, isNote: row.is_note };
-  });
-}
 
 interface RecoveryDeps {
   songUuid: string | null;
@@ -51,6 +32,7 @@ export default function useVisibilityRecovery({
 }: RecoveryDeps): void {
   // Track whether a stream was active when the tab was hidden.
   const wasStreamingRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const onVisibilityChange = () => {
@@ -63,12 +45,14 @@ export default function useVisibilityRecovery({
         const uuid = songUuid;
 
         // Wait for the backend to finish persisting, then re-fetch.
-        const timer = setTimeout(async () => {
+        timerRef.current = setTimeout(async () => {
+          timerRef.current = null;
           try {
             const [song, history]: [Song, ChatHistoryRow[]] = await Promise.all([
               api.getSong(uuid),
               api.getChatHistory(uuid),
             ]);
+            let changed = false;
             setRewriteResult(prev => {
               // Only update if the song actually changed (backend persisted
               // a new version while we were away).
@@ -79,6 +63,7 @@ export default function useVisibilityRecovery({
               ) {
                 return prev;
               }
+              changed = true;
               return {
                 original_content: song.original_content,
                 rewritten_content: song.rewritten_content,
@@ -86,17 +71,23 @@ export default function useVisibilityRecovery({
               };
             });
             setChatMessages(chatHistoryToMessages(history));
-            toast.info('Restored latest changes');
+            if (changed) {
+              toast.info('Restored latest changes');
+            }
           } catch {
             // Silently ignore — the user can manually refresh.
           }
         }, RECOVERY_DELAY_MS);
-
-        return () => clearTimeout(timer);
       }
     };
 
     document.addEventListener('visibilitychange', onVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
   }, [songUuid, isStreaming, setRewriteResult, setChatMessages]);
 }
