@@ -179,6 +179,19 @@ describe('ChatPanel', () => {
     });
   });
 
+  it('does not truncate messages regardless of count (issue #215)', () => {
+    const messages: ChatMessage[] = Array.from({ length: 30 }, (_, i) => ({
+      role: i % 2 === 0 ? 'user' as const : 'assistant' as const,
+      content: `Message ${i + 1}`,
+    }));
+    render(<ChatPanel {...defaults} messages={messages} />);
+    // All 30 messages should be rendered without truncation
+    expect(screen.getByText('Message 1')).toBeInTheDocument();
+    expect(screen.getByText('Message 30')).toBeInTheDocument();
+    // No warning banner about message limits
+    expect(screen.queryByText(/limit reached/i)).not.toBeInTheDocument();
+  });
+
   describe('message queue (issue #214)', () => {
     // Mock chatStream to hang (never resolve) so sending state stays true
     beforeEach(() => {

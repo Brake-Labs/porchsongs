@@ -11,8 +11,6 @@ import StreamingPre from '@/components/ui/streaming-pre';
 import { StreamParser } from '@/lib/streamParser';
 import type { AttachedFile, ChatMessage, LlmSettings, TokenUsage } from '@/types';
 
-const MAX_MESSAGES = 20;
-
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -330,7 +328,7 @@ export default function ChatPanel({ songId, profileId, messages, setMessages, ll
           if (!streamStarted) {
             streamStarted = true;
             setStreaming(true);
-            setMessages(prev => [...prev, { role: 'assistant' as const, content: bubbleContent }].slice(-MAX_MESSAGES));
+            setMessages(prev => [...prev, { role: 'assistant' as const, content: bubbleContent }]);
           } else {
             setMessages(prev => {
               const updated = [...prev];
@@ -363,7 +361,7 @@ export default function ChatPanel({ songId, profileId, messages, setMessages, ll
         });
       } else {
         // No tokens were streamed (unlikely but handle it)
-        setMessages(prev => [...prev, finalMsg].slice(-MAX_MESSAGES));
+        setMessages(prev => [...prev, finalMsg]);
       }
       if (result.rewritten_content != null) {
         onContentUpdated(result.rewritten_content);
@@ -449,13 +447,13 @@ export default function ChatPanel({ songId, profileId, messages, setMessages, ll
       // Queue the message while LLM is busy
       pendingQueue.current.push({ apiContent, text });
       const userMsg: ChatMessage = { role: 'user', content: displayText, images: imageDataUrls.length > 0 ? imageDataUrls : undefined, pending: true };
-      setMessages(prev => [...prev, userMsg].slice(-MAX_MESSAGES));
+      setMessages(prev => [...prev, userMsg]);
       return;
     }
 
     // Add user message to chat
     const userMsg: ChatMessage = { role: 'user', content: displayText, images: imageDataUrls.length > 0 ? imageDataUrls : undefined };
-    setMessages(prev => [...prev, userMsg].slice(-MAX_MESSAGES));
+    setMessages(prev => [...prev, userMsg]);
 
     // Resolve song ID (first message may need to create the song)
     let effectiveSongId = songId;
@@ -486,11 +484,6 @@ export default function ChatPanel({ songId, profileId, messages, setMessages, ll
           <div className="flex items-center gap-1.5">{headerRight}</div>
         )}
       </CardHeader>
-      {messages.length >= MAX_MESSAGES && (
-        <div className="px-4 py-2 bg-warning-bg border-b border-warning-border text-warning-text text-xs">
-          Chat history limit reached ({MAX_MESSAGES} messages). Older messages will be dropped.
-        </div>
-      )}
       <div ref={scrollContainerRef} className={cn('flex-1 overflow-y-auto overscroll-y-contain p-4 flex flex-col gap-2', flat && 'md:bg-panel md:shadow-[inset_0_1px_4px_rgba(0,0,0,0.04)] md:rounded-md')}>
         {messages.map((msg, i) => (
           <div key={i} className={cn('flex flex-col', msg.role === 'user' ? 'items-end' : 'items-start')}>
