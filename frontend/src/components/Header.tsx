@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import useWakeLock from '@/hooks/useWakeLock';
 import useTheme from '@/hooks/useTheme';
 import { cn } from '@/lib/utils';
 import type { AuthUser } from '@/types';
+import TunerDialog from '@/components/TunerDialog';
 
 interface HeaderProps {
   user: AuthUser | null;
@@ -15,6 +17,7 @@ interface HeaderProps {
 export default function Header({ user, authRequired, onLogout, isPremium, leftSlot }: HeaderProps) {
   const wakeLock = useWakeLock();
   const { resolved: currentTheme, toggle: toggleTheme } = useTheme();
+  const [tunerOpen, setTunerOpen] = useState(false);
   const logoTo = isPremium ? '/' : '/app/rewrite';
 
   return (
@@ -32,6 +35,18 @@ export default function Header({ user, authRequired, onLogout, isPremium, leftSl
         <span className="text-sm opacity-70 ml-4 hidden md:inline">Make every song yours</span>
       </div>
       <div className="flex items-center gap-2 shrink-0">
+        <button
+          className="bg-black/5 border border-border text-header-text p-1.5 rounded-full cursor-pointer hover:bg-black/10 transition-colors"
+          onClick={() => setTunerOpen(true)}
+          aria-label="Open tuner"
+          title="Open tuner"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M9 18V5l12-2v13" />
+            <circle cx="6" cy="18" r="3" />
+            <circle cx="18" cy="16" r="3" />
+          </svg>
+        </button>
         <button
           className="bg-black/5 border border-border text-header-text p-1.5 rounded-full cursor-pointer hover:bg-black/10 transition-colors"
           onClick={toggleTheme}
@@ -70,6 +85,7 @@ export default function Header({ user, authRequired, onLogout, isPremium, leftSl
           </button>
         )}
       </div>
+        <TunerDialog open={tunerOpen} onOpenChange={setTunerOpen} />
       </div>
     </header>
   );

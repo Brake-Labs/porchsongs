@@ -36,6 +36,10 @@
   --color-selected-bg: #fdf8f4;
   --color-focus-bg: #fdfcfa;
 
+  --color-tuner-intune: #6b8f71;
+  --color-tuner-close: #d4a04a;
+  --color-tuner-off: #c45c4c;
+
   --text-code: 0.82rem;
   --text-badge: 0.7rem;
 
@@ -153,6 +157,9 @@
     --color-danger-hover: #4a2020;
     --color-selected-bg: #292524;
     --color-focus-bg: #1c1917;
+    --color-tuner-intune: #7fa885;
+    --color-tuner-close: #dbb062;
+    --color-tuner-off: #d47268;
     --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
     --shadow-md: 0 4px 24px rgba(0, 0, 0, 0.4);
     --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
