@@ -534,6 +534,10 @@ async def chat(
     api_base = _lookup_api_base(db, song.profile_id, req.provider, req.model)
     profile = db.query(Profile).filter(Profile.id == song.profile_id).first()
 
+    # Extract ORM values before commit (commit expires cached attributes).
+    system_prompt = profile.system_prompt_chat if profile else None
+    original_content = song.original_content
+
     # Persist the user message before the LLM call so it survives cancellation
     _persist_user_message(db, song.id, req.messages)
     db.commit()
@@ -542,13 +546,13 @@ async def chat(
         result = await _cancellable(
             request,
             llm_service.chat_edit_content(
-                original_content=song.original_content,
+                original_content=original_content,
                 messages=messages,
                 provider=req.provider,
                 model=req.model,
                 api_base=api_base,
                 reasoning_effort=req.reasoning_effort,
-                system_prompt=profile.system_prompt_chat if profile else None,
+                system_prompt=system_prompt,
                 max_tokens=req.max_tokens,
                 api_key=req.api_key,
                 history_len=history_len,
@@ -673,6 +677,7 @@ async def chat_stream(
         try:
             fresh_song = persist_db.query(Song).filter(Song.id == song_id).first()
             if fresh_song:
+                version = fresh_song.current_version
                 _persist_chat_result(
                     persist_db,
                     fresh_song,
