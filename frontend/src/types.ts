@@ -49,6 +49,7 @@ export interface ChatMessage {
   reasoning?: string;
   model?: string;
   images?: string[];  // base64 data URLs for display in bubbles
+  pending?: boolean;  // queued while LLM is busy, awaiting delivery
 }
 
 export interface AttachedFile {

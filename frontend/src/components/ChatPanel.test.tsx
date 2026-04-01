@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { toast } from 'sonner';
 import ChatPanel from '@/components/ChatPanel';
+import api from '@/api';
 import type { ChatMessage } from '@/types';
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }));
@@ -175,6 +176,142 @@ describe('ChatPanel', () => {
       render(<ChatPanel {...defaults} initialLoading={true} />);
       const attachBtn = screen.getByRole('button', { name: 'Attach file' });
       expect(attachBtn).toBeDisabled();
+    });
+  });
+
+  describe('message queue (issue #214)', () => {
+    // Mock chatStream to hang (never resolve) so sending state stays true
+    beforeEach(() => {
+      vi.spyOn(api, 'chatStream').mockReturnValue(new Promise(() => {}) as ReturnType<typeof api.chatStream>);
+    });
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('textarea stays enabled while sending', async () => {
+      render(<ChatPanel {...defaults} />);
+      const input = screen.getByPlaceholderText(/How would you like to change/) as HTMLTextAreaElement;
+
+      // Type and send a message to put component in sending state
+      fireEvent.change(input, { target: { value: 'First request' } });
+      await act(async () => {
+        fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+      });
+
+      // Input should NOT be disabled while LLM is processing
+      expect(input).not.toBeDisabled();
+    });
+
+    it('shows Send button alongside Cancel while sending', async () => {
+      render(<ChatPanel {...defaults} />);
+      const input = screen.getByPlaceholderText(/How would you like to change/) as HTMLTextAreaElement;
+
+      fireEvent.change(input, { target: { value: 'First request' } });
+      await act(async () => {
+        fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+      });
+
+      // Both Cancel and Send buttons should be visible
+      expect(screen.getByText('Cancel')).toBeInTheDocument();
+      expect(screen.getByText('Send')).toBeInTheDocument();
+    });
+
+    it('queues a second message while sending and marks it as pending', async () => {
+      const setMessages = vi.fn();
+      render(<ChatPanel {...defaults} setMessages={setMessages} />);
+      const input = screen.getByPlaceholderText(/How would you like to change/) as HTMLTextAreaElement;
+
+      // Send first message
+      fireEvent.change(input, { target: { value: 'First request' } });
+      await act(async () => {
+        fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+      });
+
+      // Send second message while first is in flight
+      fireEvent.change(input, { target: { value: 'Second request' } });
+      await act(async () => {
+        fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+      });
+
+      // Second message should be added with pending: true
+      const pendingCall = setMessages.mock.calls.find(call => {
+        if (typeof call[0] === 'function') {
+          const result = call[0]([]);
+          return result.some((m: ChatMessage) => m.pending === true && m.content === 'Second request');
+        }
+        return false;
+      });
+      expect(pendingCall).toBeDefined();
+    });
+
+    it('renders pending messages with Queued label', () => {
+      const messages: ChatMessage[] = [
+        { role: 'user', content: 'First request' },
+        { role: 'user', content: 'Queued request', pending: true },
+      ];
+      render(<ChatPanel {...defaults} messages={messages} />);
+      expect(screen.getByText('Queued')).toBeInTheDocument();
+    });
+
+    it('pending messages have reduced opacity', () => {
+      const messages: ChatMessage[] = [
+        { role: 'user', content: 'Queued request', pending: true },
+      ];
+      const { container } = render(<ChatPanel {...defaults} messages={messages} />);
+      const bubble = container.querySelector('.opacity-60');
+      expect(bubble).toBeInTheDocument();
+      expect(bubble!.textContent).toContain('Queued request');
+    });
+
+    it('clears queue and pending messages when onBeforeSend fails', async () => {
+      const setMessages = vi.fn();
+      const onBeforeSend = vi.fn().mockRejectedValue(new Error('Song creation failed'));
+      render(
+        <ChatPanel
+          {...defaults}
+          songId={undefined as unknown as number}
+          setMessages={setMessages}
+          onBeforeSend={onBeforeSend}
+        />,
+      );
+      const input = screen.getByPlaceholderText(/How would you like to change/) as HTMLTextAreaElement;
+
+      // Send first message (triggers onBeforeSend which will fail)
+      fireEvent.change(input, { target: { value: 'First request' } });
+      await act(async () => {
+        fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+      });
+
+      // The error message should be added and pending messages filtered out
+      const errorCall = setMessages.mock.calls.find(call => {
+        if (typeof call[0] === 'function') {
+          const result = call[0]([{ role: 'user', content: 'Queued', pending: true }]);
+          return result.some((m: ChatMessage) => m.content.includes('Song creation failed')) &&
+                 !result.some((m: ChatMessage) => m.pending === true);
+        }
+        return false;
+      });
+      expect(errorCall).toBeDefined();
+    });
+
+    it('clears input after queuing a message', async () => {
+      render(<ChatPanel {...defaults} />);
+      const input = screen.getByPlaceholderText(/How would you like to change/) as HTMLTextAreaElement;
+
+      // Send first message
+      fireEvent.change(input, { target: { value: 'First request' } });
+      await act(async () => {
+        fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+      });
+
+      // Queue second message
+      fireEvent.change(input, { target: { value: 'Second request' } });
+      await act(async () => {
+        fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+      });
+
+      // Input should be cleared after queuing
+      expect(input.value).toBe('');
     });
   });
 });
