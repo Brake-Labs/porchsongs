@@ -83,7 +83,10 @@ def test_image_extract_prompt_identifies_as_extraction_tool() -> None:
 
 def test_image_extract_prompt_preserves_formatting() -> None:
     """IMAGE_EXTRACT_SYSTEM_PROMPT should instruct preserving formatting."""
-    assert "preserving" in IMAGE_EXTRACT_SYSTEM_PROMPT.lower() or "preserve" in IMAGE_EXTRACT_SYSTEM_PROMPT.lower()
+    assert (
+        "preserving" in IMAGE_EXTRACT_SYSTEM_PROMPT.lower()
+        or "preserve" in IMAGE_EXTRACT_SYSTEM_PROMPT.lower()
+    )
 
 
 # --- extract_text_from_image ---
@@ -94,8 +97,10 @@ def test_extract_text_from_image_sends_multimodal_message(mock_amessages: AsyncM
     """extract_text_from_image should send image_url content to the LLM."""
     text_block = SimpleNamespace(type="text", text="G Am\nHello world", thinking=None)
     usage = SimpleNamespace(
-        input_tokens=100, output_tokens=50,
-        cache_creation_input_tokens=None, cache_read_input_tokens=None,
+        input_tokens=100,
+        output_tokens=50,
+        cache_creation_input_tokens=None,
+        cache_read_input_tokens=None,
     )
     mock_amessages.return_value = SimpleNamespace(content=[text_block], usage=usage)
 
@@ -230,7 +235,7 @@ def test_build_chat_params_system_prompt() -> None:
         {"role": "user", "content": "make it sadder"},
         {"role": "assistant", "content": "ok"},
     ]
-    params = _build_chat_params(song, messages, "openai", "gpt-4o")  # type: ignore[arg-type]
+    params = _build_chat_params(song.original_content, messages, "openai", "gpt-4o")
 
     assert isinstance(params, LLMCallParams)
     assert "ORIGINAL SONG" in params.system
@@ -250,7 +255,9 @@ def test_build_chat_params_reasoning_effort_none_value() -> None:
         rewritten_content="G  Am\nHello changed world",
     )
     messages = [{"role": "user", "content": "make it sadder"}]
-    params = _build_chat_params(song, messages, "openai", "gpt-4o", reasoning_effort="none")  # type: ignore[arg-type]
+    params = _build_chat_params(
+        song.original_content, messages, "openai", "gpt-4o", reasoning_effort="none"
+    )
     assert params.thinking == {"type": "disabled"}
     assert params.output_config is None
 
@@ -262,7 +269,9 @@ def test_build_chat_params_reasoning_effort_high() -> None:
         rewritten_content="G  Am\nHello changed world",
     )
     messages = [{"role": "user", "content": "make it sadder"}]
-    params = _build_chat_params(song, messages, "openai", "gpt-4o", reasoning_effort="high")  # type: ignore[arg-type]
+    params = _build_chat_params(
+        song.original_content, messages, "openai", "gpt-4o", reasoning_effort="high"
+    )
     assert params.thinking == {"type": "adaptive"}
     assert params.output_config == {"effort": "high"}
 
@@ -289,8 +298,8 @@ def test_build_chat_params_reasoning_effort_xhigh() -> None:
     )
     messages: list[dict[str, object]] = [{"role": "user", "content": "make it sadder"}]
     params = _build_chat_params(
-        song, messages, "anthropic", "claude-opus-4-6", reasoning_effort="xhigh"
-    )  # type: ignore[arg-type]
+        song.original_content, messages, "anthropic", "claude-opus-4-6", reasoning_effort="xhigh"
+    )
     assert params.thinking == {"type": "adaptive"}
     assert params.output_config == {"effort": "max"}
 
@@ -312,8 +321,8 @@ def test_build_chat_params_reasoning_effort_auto_no_thinking() -> None:
     )
     messages: list[dict[str, object]] = [{"role": "user", "content": "test"}]
     params = _build_chat_params(
-        song, messages, "anthropic", "claude-opus-4-6", reasoning_effort="auto"
-    )  # type: ignore[arg-type]
+        song.original_content, messages, "anthropic", "claude-opus-4-6", reasoning_effort="auto"
+    )
     assert params.thinking is None
     assert params.output_config is None
 
@@ -325,7 +334,7 @@ def test_build_chat_params_no_reasoning_effort() -> None:
         rewritten_content="G  Am\nHello changed world",
     )
     messages: list[dict[str, object]] = [{"role": "user", "content": "test"}]
-    params = _build_chat_params(song, messages, "anthropic", "claude-opus-4-6")  # type: ignore[arg-type]
+    params = _build_chat_params(song.original_content, messages, "anthropic", "claude-opus-4-6")
     assert params.thinking is None
     assert params.output_config is None
 
@@ -521,17 +530,14 @@ def test_chat_stream_text_deltas(mock_amessages: AsyncMock) -> None:
     async def _run() -> list[tuple[str, str]]:
         events = _make_stream_events(["<content>", "\nHi", "\n</content>"])
         mock_amessages.return_value = _async_iter(events)
-        song = SimpleNamespace(
-            original_content="G  Am\nHello world",
-            rewritten_content="G  Am\nHello changed world",
-        )
+        original_content = "G  Am\nHello world"
         messages: list[dict[str, object]] = [{"role": "user", "content": "make it sadder"}]
         results = []
         async for kind, text in chat_edit_content_stream(
-            song,
+            original_content,
             messages,
             "openai",
-            "gpt-4o",  # type: ignore[arg-type]
+            "gpt-4o",
         ):
             results.append((kind, text))
         return results
@@ -549,17 +555,14 @@ def test_chat_stream_thinking_deltas(mock_amessages: AsyncMock) -> None:
     async def _run() -> list[tuple[str, str]]:
         events = _make_stream_events(["result"], thinking_chunks=["hmm"])
         mock_amessages.return_value = _async_iter(events)
-        song = SimpleNamespace(
-            original_content="G  Am\nHello world",
-            rewritten_content="G  Am\nHello changed world",
-        )
+        original_content = "G  Am\nHello world"
         messages: list[dict[str, object]] = [{"role": "user", "content": "test"}]
         results = []
         async for kind, text in chat_edit_content_stream(
-            song,
+            original_content,
             messages,
             "openai",
-            "gpt-4o",  # type: ignore[arg-type]
+            "gpt-4o",
         ):
             results.append((kind, text))
         return results

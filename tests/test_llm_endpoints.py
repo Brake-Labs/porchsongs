@@ -4,8 +4,9 @@ import asyncio
 import base64
 from collections.abc import AsyncIterator
 from io import BytesIO
+from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -1196,3 +1197,145 @@ def test_parse_file_profile_not_found(client: TestClient) -> None:
         },
     )
     assert resp.status_code == 404
+
+
+# --- SSE streaming regression tests (DetachedInstanceError fix) ---
+
+
+def _make_stream_events(text_chunks: list[str]) -> list[SimpleNamespace]:
+    """Build minimal stream events for SSE endpoint tests."""
+    events: list[SimpleNamespace] = []
+    events.append(
+        SimpleNamespace(
+            type="message_start",
+            message=SimpleNamespace(
+                usage=SimpleNamespace(
+                    input_tokens=10,
+                    cache_creation_input_tokens=None,
+                    cache_read_input_tokens=None,
+                ),
+            ),
+            delta=None,
+            usage=None,
+        )
+    )
+    for chunk in text_chunks:
+        events.append(
+            SimpleNamespace(
+                type="content_block_delta",
+                delta=SimpleNamespace(type="text_delta", text=chunk),
+                message=None,
+                usage=None,
+            )
+        )
+    events.append(
+        SimpleNamespace(
+            type="message_delta",
+            usage=SimpleNamespace(output_tokens=20),
+            message=None,
+            delta=None,
+        )
+    )
+    return events
+
+
+async def _async_iter(items: list[Any]) -> AsyncIterator[Any]:
+    for item in items:
+        yield item
+
+
+@patch("app.services.llm_service.amessages", new_callable=AsyncMock)
+def test_chat_stream_no_detached_error(mock_amessages: AsyncMock, client: TestClient) -> None:
+    """chat/stream must not raise DetachedInstanceError on profile/song access.
+
+    Regression test for GH-232: the SSE generator accessed ORM objects after
+    the DB session was closed, causing DetachedInstanceError.
+    """
+    _, song = _make_profile_and_song(client)
+
+    events = _make_stream_events(["<content>", "\nHi there world", "\n</content>", "\nChanged it."])
+    mock_amessages.return_value = _async_iter(events)
+
+    resp = client.post(
+        "/api/chat/stream",
+        json={
+            "song_id": song["id"],
+            "messages": [{"role": "user", "content": "Change something"}],
+            **LLM_SETTINGS,
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.text
+    assert "event: token" in body
+    assert "event: done" in body
+    # Verify no error events were emitted
+    assert "event: error" not in body
+
+
+@patch("app.services.llm_service.amessages", new_callable=AsyncMock)
+def test_chat_stream_custom_system_prompt(mock_amessages: AsyncMock, client: TestClient) -> None:
+    """chat/stream should use the profile's custom system_prompt_chat."""
+    profile = client.post(
+        "/api/profiles",
+        json={"name": "Custom"},
+    ).json()
+    client.put(
+        f"/api/profiles/{profile['id']}",
+        json={"name": "Custom", "system_prompt_chat": "You are a blues expert."},
+    )
+    song = client.post(
+        "/api/songs",
+        json={
+            "profile_id": profile["id"],
+            "original_content": "Hello world",
+            "rewritten_content": "Hi world",
+        },
+    ).json()
+
+    events = _make_stream_events(["<content>", "\nHi", "\n</content>"])
+    mock_amessages.return_value = _async_iter(events)
+
+    resp = client.post(
+        "/api/chat/stream",
+        json={
+            "song_id": song["id"],
+            "messages": [{"role": "user", "content": "Make it bluesy"}],
+            **LLM_SETTINGS,
+        },
+    )
+    assert resp.status_code == 200
+    assert "event: error" not in resp.text
+    # Verify the custom prompt was passed to the LLM
+    system_arg = mock_amessages.call_args.kwargs["system"]
+    assert "blues expert" in system_arg
+
+
+@patch("app.services.llm_service.amessages", new_callable=AsyncMock)
+def test_parse_stream_no_detached_error(mock_amessages: AsyncMock, client: TestClient) -> None:
+    """parse/stream must not raise DetachedInstanceError on profile access.
+
+    Regression test for the same class of bug as GH-232.
+    """
+    profile = client.post("/api/profiles", json={"name": "Test"}).json()
+
+    events = _make_stream_events(
+        [
+            "<meta>\nTitle: Test\nArtist: Artist\n</meta>",
+            "\n<original>\nG Am\nHello\n</original>",
+        ]
+    )
+    mock_amessages.return_value = _async_iter(events)
+
+    resp = client.post(
+        "/api/parse/stream",
+        json={
+            "profile_id": profile["id"],
+            "content": "Hello world",
+            **LLM_SETTINGS,
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.text
+    assert "event: token" in body
+    assert "event: done" in body
+    assert "event: error" not in body

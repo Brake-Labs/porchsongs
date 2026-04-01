@@ -193,6 +193,10 @@ async def parse_stream(
     profile = get_user_profile(db, current_user, req.profile_id)
     api_base = _lookup_api_base(db, req.profile_id, req.provider, req.model)
 
+    # Extract ORM value before the generator runs — the DB session may be
+    # closed by then, making ORM attribute access raise DetachedInstanceError.
+    system_prompt = profile.system_prompt_parse
+
     async def event_generator() -> AsyncIterator[str]:
         accumulated = ""
         reasoning_accumulated = ""
@@ -205,7 +209,7 @@ async def parse_stream(
                 api_base=api_base,
                 reasoning_effort=req.reasoning_effort,
                 instruction=req.instruction,
-                system_prompt=profile.system_prompt_parse,
+                system_prompt=system_prompt,
                 max_tokens=req.max_tokens,
                 api_key=req.api_key,
             )
@@ -538,7 +542,7 @@ async def chat(
         result = await _cancellable(
             request,
             llm_service.chat_edit_content(
-                song=song,
+                original_content=song.original_content,
                 messages=messages,
                 provider=req.provider,
                 model=req.model,
@@ -593,6 +597,13 @@ async def chat_stream(
     api_base = _lookup_api_base(db, song.profile_id, req.provider, req.model)
     profile = db.query(Profile).filter(Profile.id == song.profile_id).first()
 
+    # Extract ORM values before commit.  commit() expires all cached attributes
+    # and the DB session may close before the SSE generator runs, making ORM
+    # attribute access raise DetachedInstanceError.
+    system_prompt = profile.system_prompt_chat if profile else None
+    original_content = song.original_content
+    song_id = song.id
+
     # Persist the user message before streaming so it survives cancellation
     _persist_user_message(db, song.id, req.messages)
     db.commit()
@@ -603,13 +614,13 @@ async def chat_stream(
         usage_data: dict[str, int] | None = None
         try:
             stream = llm_service.chat_edit_content_stream(
-                song=song,
+                original_content=original_content,
                 messages=messages,
                 provider=req.provider,
                 model=req.model,
                 api_base=api_base,
                 reasoning_effort=req.reasoning_effort,
-                system_prompt=profile.system_prompt_chat if profile else None,
+                system_prompt=system_prompt,
                 max_tokens=req.max_tokens,
                 api_key=req.api_key,
                 history_len=history_len,
@@ -630,7 +641,7 @@ async def chat_stream(
                             stream,
                             accumulated,
                             reasoning_accumulated,
-                            song.id,
+                            song_id,
                             req.model,
                         )
                     )
@@ -655,22 +666,32 @@ async def chat_stream(
         parsed = llm_service._parse_chat_response(accumulated)
         changes_summary = parsed["explanation"] or "Chat edit applied."
 
-        # Persist to DB (wrapped so a DB error doesn't lose the result)
+        # Persist to DB using a fresh session.  The request session may be
+        # closed by the time this generator runs (FastAPI dependency cleanup).
+        persist_db = SessionLocal()
+        version: int | None = None
         try:
-            _persist_chat_result(
-                db,
-                song,
-                rewritten_content=parsed["content"],
-                changes_summary=changes_summary,
-                assistant_content=accumulated,
-                original_content=parsed.get("original_content"),
-                reasoning=reasoning_accumulated or None,
-                model=req.model,
-            )
-            db.commit()
+            fresh_song = persist_db.query(Song).filter(Song.id == song_id).first()
+            if fresh_song:
+                _persist_chat_result(
+                    persist_db,
+                    fresh_song,
+                    rewritten_content=parsed["content"],
+                    changes_summary=changes_summary,
+                    assistant_content=accumulated,
+                    original_content=parsed.get("original_content"),
+                    reasoning=reasoning_accumulated or None,
+                    model=req.model,
+                )
+                persist_db.commit()
+                version = fresh_song.current_version
+            else:
+                logger.warning("Chat stream persist: song %s not found", song_id)
         except Exception:
             logger.exception("Chat stream DB persist error")
-            db.rollback()
+            persist_db.rollback()
+        finally:
+            persist_db.close()
 
         # Send final result
         done_data: dict[str, object] = {
@@ -678,7 +699,7 @@ async def chat_stream(
             "original_content": parsed.get("original_content"),
             "assistant_message": accumulated,
             "changes_summary": changes_summary,
-            "version": song.current_version,
+            "version": version,
             "reasoning": reasoning_accumulated or None,
             "usage": usage_data,
         }

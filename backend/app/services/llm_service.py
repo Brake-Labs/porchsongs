@@ -11,7 +11,6 @@ from any_llm import LLMProvider, alist_models, amessages
 from any_llm.types.messages import MessageResponse, MessageStreamEvent
 
 if TYPE_CHECKING:
-    from ..models import Song
     from ..schemas import ProviderInfo
 
 # Map reasoning_effort values to Anthropic's thinking/output_config format.
@@ -523,7 +522,7 @@ def _parse_chat_response(raw: str) -> dict[str, str | None]:
 
 
 def _build_chat_params(
-    song: Song,
+    original_content: str,
     messages: list[dict[str, object]],
     provider: str,
     model: str,
@@ -536,7 +535,7 @@ def _build_chat_params(
 ) -> LLMCallParams:
     """Build typed parameters for chat LLM calls."""
     system_content = system_prompt or CHAT_SYSTEM_PROMPT
-    system_content += "\n\nORIGINAL SONG:\n" + song.original_content
+    system_content += "\n\nORIGINAL SONG:\n" + original_content
 
     llm_messages: list[dict[str, Any]] = []
     for msg in messages:
@@ -575,7 +574,7 @@ def _build_chat_params(
 
 
 async def chat_edit_content(
-    song: Song,
+    original_content: str,
     messages: list[dict[str, object]],
     provider: str,
     model: str,
@@ -595,7 +594,7 @@ async def chat_edit_content(
     without ``<content>`` tags.
     """
     params = _build_chat_params(
-        song,
+        original_content,
         messages,
         provider,
         model,
@@ -627,7 +626,7 @@ async def chat_edit_content(
 
 
 async def chat_edit_content_stream(
-    song: Song,
+    original_content: str,
     messages: list[dict[str, object]],
     provider: str,
     model: str,
@@ -644,7 +643,7 @@ async def chat_edit_content_stream(
     ``"usage"`` for final token usage JSON.
     """
     params = _build_chat_params(
-        song,
+        original_content,
         messages,
         provider,
         model,
