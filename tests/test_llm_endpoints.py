@@ -812,8 +812,9 @@ def test_chat_after_image_preserves_multimodal_for_llm(
     # First user message should be the deserialized multimodal content
     assert isinstance(user_msgs[0]["content"], list)
     assert user_msgs[0]["content"][0]["type"] == "image_url"
-    # Second user message is plain text
-    assert user_msgs[1]["content"] == "Now improve the chorus"
+    # Second user message is plain text (with rewritten_content prepended since
+    # the song's rewritten_content differs from original_content).
+    assert "Now improve the chorus" in user_msgs[1]["content"]
 
 
 # --- Background stream completion (client disconnect recovery) ---
