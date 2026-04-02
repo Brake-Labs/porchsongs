@@ -193,7 +193,8 @@ If the user is purely asking a question or brainstorming without implying any sp
 respond conversationally WITHOUT <content> tags.
 
 The song is provided in the system prompt. When you make changes and emit <content> tags, \
-that becomes the new current version for subsequent turns."""
+that becomes the new current version for subsequent turns. If the user tells you the song \
+has been manually edited and provides a current version, base your edits on that version."""
 
 _LOCAL_PROVIDERS = {"ollama", "llamafile", "llamacpp", "lmstudio", "vllm"}
 
@@ -532,6 +533,7 @@ def _build_chat_params(
     max_tokens: int | None = None,
     api_key: str | None = None,
     history_len: int = 0,
+    rewritten_content: str | None = None,
 ) -> LLMCallParams:
     """Build typed parameters for chat LLM calls."""
     system_content = system_prompt or CHAT_SYSTEM_PROMPT
@@ -546,6 +548,19 @@ def _build_chat_params(
         if isinstance(content, list) and not content:
             continue
         llm_messages.append({"role": msg["role"], "content": content})
+
+    # Prepend the current version to the final user message so the LLM sees
+    # manual edits without changing the (cacheable) system prompt or history.
+    # Skipped for multimodal messages (list content) since those are image/PDF
+    # payloads where prepending plain text would break the content structure.
+    if rewritten_content and rewritten_content != original_content and llm_messages:
+        last = llm_messages[-1]
+        if last["role"] == "user" and isinstance(last["content"], str):
+            last["content"] = (
+                f"[The song has been manually edited. Current version:]\n"
+                f"{rewritten_content}\n\n"
+                f"{last['content']}"
+            )
 
     # Add prompt caching breakpoints for providers that support it.
     # Mark the last history message so the provider caches everything up to it.
@@ -584,6 +599,7 @@ async def chat_edit_content(
     max_tokens: int | None = None,
     api_key: str | None = None,
     history_len: int = 0,
+    rewritten_content: str | None = None,
 ) -> dict[str, Any]:
     """Process a chat-based content edit (non-streaming).
 
@@ -604,6 +620,7 @@ async def chat_edit_content(
         max_tokens,
         api_key,
         history_len=history_len,
+        rewritten_content=rewritten_content,
     )
     response = cast("MessageResponse", await params.send())
 
@@ -636,6 +653,7 @@ async def chat_edit_content_stream(
     max_tokens: int | None = None,
     api_key: str | None = None,
     history_len: int = 0,
+    rewritten_content: str | None = None,
 ) -> AsyncIterator[tuple[str, str]]:
     """Stream a chat-based content edit token by token as ``(type, text)`` tuples.
 
@@ -653,6 +671,7 @@ async def chat_edit_content_stream(
         max_tokens,
         api_key,
         history_len=history_len,
+        rewritten_content=rewritten_content,
     )
     response = cast(
         "AsyncIterator[MessageStreamEvent]",

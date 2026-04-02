@@ -537,6 +537,12 @@ async def chat(
     # Extract ORM values before commit (commit expires cached attributes).
     system_prompt = profile.system_prompt_chat if profile else None
     original_content = song.original_content
+    # Use frontend-provided rewritten_content (avoids autosave race), else DB value.
+    # Explicit None check so an empty string from the client doesn't silently
+    # fall through to the DB value.
+    rewritten_content = (
+        req.rewritten_content if req.rewritten_content is not None else song.rewritten_content
+    )
 
     # Persist the user message before the LLM call so it survives cancellation
     _persist_user_message(db, song.id, req.messages)
@@ -556,6 +562,7 @@ async def chat(
                 max_tokens=req.max_tokens,
                 api_key=req.api_key,
                 history_len=history_len,
+                rewritten_content=rewritten_content,
             ),
         )
     except HTTPException:
@@ -606,6 +613,12 @@ async def chat_stream(
     # attribute access raise DetachedInstanceError.
     system_prompt = profile.system_prompt_chat if profile else None
     original_content = song.original_content
+    # Use frontend-provided rewritten_content (avoids autosave race), else DB value.
+    # Explicit None check so an empty string from the client doesn't silently
+    # fall through to the DB value.
+    rewritten_content = (
+        req.rewritten_content if req.rewritten_content is not None else song.rewritten_content
+    )
     song_id = song.id
 
     # Persist the user message before streaming so it survives cancellation
@@ -628,6 +641,7 @@ async def chat_stream(
                 max_tokens=req.max_tokens,
                 api_key=req.api_key,
                 history_len=history_len,
+                rewritten_content=rewritten_content,
             )
             async for kind, text in stream:
                 if await request.is_disconnected():

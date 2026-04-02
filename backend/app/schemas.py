@@ -234,6 +234,7 @@ class ChatRequest(BaseModel):
     reasoning_effort: str | None = None
     max_tokens: int | None = None
     api_key: str | None = None
+    rewritten_content: str | None = None
 
 
 class ChatResponse(BaseModel):

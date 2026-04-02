@@ -980,6 +980,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 {...(isParsed ? { onBeforeSend: handleBeforeSend } : { onContentStreaming: handleChatUpdate })}
                 onOriginalContentUpdated={handleOriginalContentUpdated}
                 onStreamingChange={onChatStreamingChange}
+                rewrittenContent={rewriteResult?.rewritten_content}
                 flat
                 headerRight={
                   <>

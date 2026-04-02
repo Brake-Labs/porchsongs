@@ -226,7 +226,7 @@ def test_llm_call_params_has_expected_fields() -> None:
 
 
 def test_build_chat_params_system_prompt() -> None:
-    """System prompt contains ORIGINAL SONG but NOT EDITED SONG."""
+    """System prompt contains ORIGINAL SONG."""
     song = SimpleNamespace(
         original_content="G  Am\nHello world",
         rewritten_content="G  Am\nHello changed world",
@@ -240,12 +240,46 @@ def test_build_chat_params_system_prompt() -> None:
     assert isinstance(params, LLMCallParams)
     assert "ORIGINAL SONG" in params.system
     assert song.original_content in params.system
-    assert "EDITED SONG" not in params.system
 
     # Messages should only contain user/assistant messages, no system role
     assert all(m["role"] != "system" for m in params.messages)
     assert params.messages[0] == {"role": "user", "content": "make it sadder"}
     assert params.messages[1] == {"role": "assistant", "content": "ok"}
+
+
+def test_build_chat_params_includes_rewritten_in_user_message() -> None:
+    """When rewritten_content differs from original, it is prepended to the last user message."""
+    original = "G  Am\nHello world"
+    rewritten = "G  Am\nHello changed world"
+    messages = [{"role": "user", "content": "make it sadder"}]
+    params = _build_chat_params(
+        original, messages, "openai", "gpt-4o", rewritten_content=rewritten
+    )
+    last_msg = params.messages[-1]["content"]
+    assert rewritten in last_msg
+    assert "make it sadder" in last_msg
+    # System prompt should NOT contain the rewritten content (caching).
+    assert rewritten not in params.system
+
+
+def test_build_chat_params_no_rewritten_prefix_when_same_as_original() -> None:
+    """When rewritten_content matches original, user message is unchanged."""
+    original = "G  Am\nHello world"
+    messages = [{"role": "user", "content": "make it sadder"}]
+    params = _build_chat_params(
+        original, messages, "openai", "gpt-4o", rewritten_content=original
+    )
+    assert params.messages[-1]["content"] == "make it sadder"
+
+
+def test_build_chat_params_no_rewritten_prefix_when_none() -> None:
+    """When rewritten_content is None, user message is unchanged."""
+    original = "G  Am\nHello world"
+    messages = [{"role": "user", "content": "make it sadder"}]
+    params = _build_chat_params(
+        original, messages, "openai", "gpt-4o", rewritten_content=None
+    )
+    assert params.messages[-1]["content"] == "make it sadder"
 
 
 def test_build_chat_params_reasoning_effort_none_value() -> None:
