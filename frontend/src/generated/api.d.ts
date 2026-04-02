@@ -659,6 +659,8 @@ export interface components {
             max_tokens?: number | null;
             /** Api Key */
             api_key?: string | null;
+            /** Rewritten Content */
+            rewritten_content?: string | null;
         };
         /** ChatResponse */
         ChatResponse: {

@@ -97,9 +97,10 @@ interface ChatPanelProps {
   headerRight?: ReactNode;
   flat?: boolean;
   onStreamingChange?: (streaming: boolean) => void;
+  rewrittenContent?: string;
 }
 
-export default function ChatPanel({ songId, profileId, messages, setMessages, llmSettings, onContentUpdated, initialLoading, onBeforeSend, onContentStreaming, onOriginalContentUpdated, headerRight, flat, onStreamingChange }: ChatPanelProps) {
+export default function ChatPanel({ songId, profileId, messages, setMessages, llmSettings, onContentUpdated, initialLoading, onBeforeSend, onContentStreaming, onOriginalContentUpdated, headerRight, flat, onStreamingChange, rewrittenContent }: ChatPanelProps) {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
@@ -307,6 +308,7 @@ export default function ChatPanel({ songId, profileId, messages, setMessages, ll
           song_id: effectiveSongId,
           messages: apiMessages,
           ...llmSettings,
+          ...(rewrittenContent ? { rewritten_content: rewrittenContent } : {}),
         },
         (token: string) => {
           const { contentDelta, originalSongDelta } = parser.processToken(token);

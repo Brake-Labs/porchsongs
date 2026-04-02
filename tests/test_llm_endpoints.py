@@ -1045,6 +1045,56 @@ def test_chat_uses_system_parameter(mock_amessages: MagicMock, client: TestClien
     assert all(m["role"] != "system" for m in messages)
 
 
+@patch("app.services.llm_service.amessages")
+def test_chat_propagates_manual_edits(mock_amessages: MagicMock, client: TestClient) -> None:
+    """Chat should prepend frontend-provided rewritten_content to the user message."""
+    _, song = _make_profile_and_song(client)
+
+    mock_amessages.return_value = _fake_message_response("Got it.")
+
+    manual_edit = "G  Am\nMy manually edited lyrics\nDm  G\nGoodbye moon"
+    client.post(
+        "/api/chat",
+        json={
+            "song_id": song["id"],
+            "messages": [{"role": "user", "content": "make it happier"}],
+            "rewritten_content": manual_edit,
+            **LLM_SETTINGS,
+        },
+    )
+
+    call_kwargs = mock_amessages.call_args.kwargs
+    last_user_msg = call_kwargs["messages"][-1]["content"]
+    assert manual_edit in last_user_msg
+    assert "make it happier" in last_user_msg
+    # System prompt should stay cacheable (no rewritten content there).
+    assert manual_edit not in call_kwargs["system"]
+
+
+@patch("app.services.llm_service.amessages")
+def test_chat_no_edit_prefix_when_content_matches_original(
+    mock_amessages: MagicMock, client: TestClient
+) -> None:
+    """When rewritten_content matches original, user message is not prefixed."""
+    _, song = _make_profile_and_song(client)
+
+    mock_amessages.return_value = _fake_message_response("Got it.")
+
+    client.post(
+        "/api/chat",
+        json={
+            "song_id": song["id"],
+            "messages": [{"role": "user", "content": "make it happier"}],
+            "rewritten_content": song["original_content"],
+            **LLM_SETTINGS,
+        },
+    )
+
+    call_kwargs = mock_amessages.call_args.kwargs
+    last_user_msg = call_kwargs["messages"][-1]["content"]
+    assert last_user_msg == "make it happier"
+
+
 # --- POST /api/parse/file ---
 
 

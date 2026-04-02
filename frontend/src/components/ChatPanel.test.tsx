@@ -327,4 +327,45 @@ describe('ChatPanel', () => {
       expect(input.value).toBe('');
     });
   });
+
+  describe('rewrittenContent propagation (issue #221)', () => {
+    let chatStreamSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      chatStreamSpy = vi.spyOn(api, 'chatStream').mockReturnValue(new Promise(() => {}) as ReturnType<typeof api.chatStream>);
+    });
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('sends rewritten_content in the API payload when provided', async () => {
+      const editedContent = 'G Am\nEdited lyrics';
+      render(<ChatPanel {...defaults} rewrittenContent={editedContent} />);
+      const input = screen.getByPlaceholderText(/How would you like to change/) as HTMLTextAreaElement;
+
+      fireEvent.change(input, { target: { value: 'make it sadder' } });
+      await act(async () => {
+        fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+      });
+
+      expect(chatStreamSpy).toHaveBeenCalledTimes(1);
+      const payload = chatStreamSpy.mock.calls[0]![0] as Record<string, unknown>;
+      expect(payload).toHaveProperty('rewritten_content');
+      expect(payload['rewritten_content']).toBe(editedContent);
+    });
+
+    it('omits rewritten_content from payload when not provided', async () => {
+      render(<ChatPanel {...defaults} />);
+      const input = screen.getByPlaceholderText(/How would you like to change/) as HTMLTextAreaElement;
+
+      fireEvent.change(input, { target: { value: 'make it sadder' } });
+      await act(async () => {
+        fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+      });
+
+      expect(chatStreamSpy).toHaveBeenCalledTimes(1);
+      const payload = chatStreamSpy.mock.calls[0]![0] as Record<string, unknown>;
+      expect(payload).not.toHaveProperty('rewritten_content');
+    });
+  });
 });
