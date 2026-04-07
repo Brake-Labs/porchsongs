@@ -18,6 +18,7 @@ vi.mock('@/api', () => ({
     extractFile: vi.fn().mockResolvedValue({ text: '' }),
     listSongs: vi.fn().mockResolvedValue([]),
     updateSong: vi.fn().mockResolvedValue({}),
+    saveSong: vi.fn().mockResolvedValue({ id: 99, uuid: 'uuid-99', profile_id: 1 }),
   },
   STORAGE_KEYS: {
     DRAFT_INPUT: 'test_draft_input',
@@ -751,6 +752,136 @@ describe('RewriteTab', () => {
       expect(docInput).toBeTruthy();
       expect(docInput!.accept).toContain('.pdf');
       expect(docInput!.accept).toContain('.txt');
+    });
+  });
+
+  describe('save after import (issue #223)', () => {
+    it('saves song to library immediately after parse completes', async () => {
+      const parseResult = {
+        title: 'Amazing Grace',
+        artist: 'John Newton',
+        original_content: '[G]Amazing grace',
+      } as ParseResult;
+      const onParse = vi.fn().mockResolvedValue(parseResult);
+      const onSongSaved = vi.fn();
+      vi.mocked(api.saveSong).mockResolvedValue({ id: 42, uuid: 'uuid-42', profile_id: 1 } as never);
+
+      const props = makeProps({ onParse, onSongSaved });
+      render(<RewriteTab {...props} />);
+
+      // Type input and click Import
+      const textarea = screen.getByPlaceholderText(/Paste lyrics/);
+      fireEvent.change(textarea, { target: { value: 'Amazing grace' } });
+      fireEvent.click(screen.getByText('Import Song'));
+
+      await waitFor(() => {
+        expect(api.saveSong).toHaveBeenCalledWith(expect.objectContaining({
+          profile_id: 1,
+          title: 'Amazing Grace',
+          artist: 'John Newton',
+          original_content: '[G]Amazing grace',
+          rewritten_content: '[G]Amazing grace',
+        }));
+      });
+
+      expect(onSongSaved).toHaveBeenCalledWith(expect.objectContaining({ id: 42, uuid: 'uuid-42' }));
+      expect(localStorage.getItem(STORAGE_KEYS.HAS_REWRITTEN)).toBe('1');
+    });
+
+    it('saves sample song to library when sample is clicked', async () => {
+      const onSongSaved = vi.fn();
+      vi.mocked(api.saveSong).mockResolvedValue({ id: 50, uuid: 'uuid-50', profile_id: 1 } as never);
+
+      const props = makeProps({ onSongSaved });
+      render(<RewriteTab {...props} />);
+
+      // Click a sample song
+      fireEvent.click(screen.getByText('When the Saints Go Marching In'));
+
+      await waitFor(() => {
+        expect(api.saveSong).toHaveBeenCalledWith(expect.objectContaining({
+          profile_id: 1,
+          title: 'When the Saints Go Marching In',
+        }));
+      });
+
+      expect(onSongSaved).toHaveBeenCalledWith(expect.objectContaining({ id: 50 }));
+    });
+
+    it('handleBeforeSend returns existing song ID without creating a duplicate', async () => {
+      const onSongSaved = vi.fn();
+      vi.mocked(api.saveSong).mockClear();
+
+      const props = makeProps({
+        parseResult: { title: 'Test', artist: 'A', original_content: 'content' } as ParseResult,
+        parsedContent: 'content',
+        currentSongId: 42,
+        onSongSaved,
+      });
+      render(<RewriteTab {...props} />);
+
+      // Access the onBeforeSend callback passed to ChatPanel
+      const onBeforeSend = capturedChatPanelProps.onBeforeSend as (() => Promise<number>) | undefined;
+      expect(onBeforeSend).toBeDefined();
+
+      const result = await onBeforeSend!();
+      expect(result).toBe(42);
+
+      // saveSong should NOT have been called (song already exists)
+      expect(api.saveSong).not.toHaveBeenCalled();
+    });
+
+    it('prevents duplicate saves from rapid sample clicks', async () => {
+      const onSongSaved = vi.fn();
+      let resolveFirst: (v: unknown) => void;
+      const slowSave = new Promise(r => { resolveFirst = r; });
+      vi.mocked(api.saveSong)
+        .mockReturnValueOnce(slowSave as never)
+        .mockResolvedValueOnce({ id: 51, uuid: 'uuid-51', profile_id: 1 } as never);
+
+      const props = makeProps({ onSongSaved });
+      render(<RewriteTab {...props} />);
+
+      // Click first sample
+      fireEvent.click(screen.getByText('When the Saints Go Marching In'));
+
+      // Click second sample while first save is still in-flight
+      // (the guard should prevent the second save from starting)
+      fireEvent.click(screen.getByText('When the Saints Go Marching In'));
+
+      // Resolve the first save
+      await act(async () => { resolveFirst!({ id: 50, uuid: 'uuid-50', profile_id: 1 }); });
+
+      // Only one saveSong call should have been made
+      expect(api.saveSong).toHaveBeenCalledTimes(1);
+    });
+
+    it('autosaves title edits in PARSED state after song is created', async () => {
+      vi.useFakeTimers();
+      vi.mocked(api.updateSong).mockResolvedValue({} as never);
+
+      const props = makeProps({
+        parseResult: { title: 'Test', artist: 'A', original_content: 'content' } as ParseResult,
+        parsedContent: 'content',
+        currentSongId: 42,
+        currentSongUuid: 'uuid-42',
+      });
+      render(<RewriteTab {...props} />);
+
+      // Edit title in parsed state
+      const titleInput = screen.getAllByLabelText('Song title')[0]!;
+      fireEvent.change(titleInput, { target: { value: 'Edited Title' } });
+
+      // Advance past debounce
+      await act(async () => { vi.advanceTimersByTime(1600); });
+
+      expect(api.updateSong).toHaveBeenCalledWith('uuid-42', expect.objectContaining({
+        title: 'Edited Title',
+        rewritten_content: 'content',
+        original_content: 'content',
+      }));
+
+      vi.useRealTimers();
     });
   });
 });

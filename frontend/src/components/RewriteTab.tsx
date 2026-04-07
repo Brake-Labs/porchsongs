@@ -139,6 +139,9 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const [inputDragging, setInputDragging] = useState(false);
   const inputDragCounterRef = useRef(0);
   const [parseReasoningExpanded, setParseReasoningExpanded] = useState(false);
+  // Synchronous ref for the saved song, avoids stale-closure race between
+  // onSongSaved (async state update) and callbacks that need the song ID.
+  const savedSongRef = useRef<{ id: number; uuid: string } | null>(null);
   const [hasSongs, setHasSongs] = useState(
     () => !!localStorage.getItem(STORAGE_KEYS.HAS_REWRITTEN),
   );
@@ -156,6 +159,15 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   }, [hasSongs, profile?.id]);
 
   const isFirstTime = !hasSongs;
+
+  // Keep the synchronous ref in sync with prop changes (e.g. loading a song from library)
+  useEffect(() => {
+    if (currentSongId && currentSongUuid) {
+      savedSongRef.current = { id: currentSongId, uuid: currentSongUuid };
+    } else if (!currentSongId && !currentSongUuid) {
+      savedSongRef.current = null;
+    }
+  }, [currentSongId, currentSongUuid]);
 
   // Sync title/artist from parse result when it arrives (including after
   // navigating away and returning while a parse was in progress).
@@ -200,7 +212,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
       handleSaveRef.current();
     }, 1500);
     return () => clearTimeout(timer);
-  }, [isDirty, songTitle, songArtist, rewriteResult?.rewritten_content, rewriteResult?.original_content]);
+  }, [isDirty, songTitle, songArtist, rewriteResult?.rewritten_content, rewriteResult?.original_content, parsedContent]);
 
   // Auto-clear "Saved" indicator after 2s
   useEffect(() => {
@@ -397,6 +409,27 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
       setSongArtist(result.artist || '');
       setInstruction('');
       setMobilePane('content');
+
+      // Save song to library immediately after import
+      if (profile?.id) {
+        try {
+          const song = await api.saveSong({
+            profile_id: profile.id,
+            title: result.title || null,
+            artist: result.artist || null,
+            original_content: result.original_content,
+            rewritten_content: result.original_content,
+            llm_provider: llmSettings.provider,
+            llm_model: llmSettings.model,
+          });
+          localStorage.setItem(STORAGE_KEYS.HAS_REWRITTEN, '1');
+          setHasSongs(true);
+          savedSongRef.current = { id: song.id, uuid: song.uuid };
+          onSongSaved(song);
+        } catch (err) {
+          setParseError('Failed to save song. Your edits won\'t be saved until you send a chat message. Error: ' + (err as Error).message);
+        }
+      }
     }
   };
 
@@ -404,7 +437,9 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     onCancelParse();
   };
 
-  const handleLoadSample = (sample: SampleSong) => {
+  const sampleSavingRef = useRef(false);
+  const handleLoadSample = async (sample: SampleSong) => {
+    if (sampleSavingRef.current) return;
     const result = sampleToParseResult(sample);
     setParseResult(result);
     setParsedContent(result.original_content);
@@ -415,9 +450,37 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     setParseError(null);
     onNewRewrite(null, null);
     setMobilePane('content');
+
+    // Save sample song to library immediately
+    if (profile?.id) {
+      sampleSavingRef.current = true;
+      try {
+        const song = await api.saveSong({
+          profile_id: profile.id,
+          title: result.title || null,
+          artist: result.artist || null,
+          original_content: result.original_content,
+          rewritten_content: result.original_content,
+          llm_provider: llmSettings.provider,
+          llm_model: llmSettings.model,
+        });
+        localStorage.setItem(STORAGE_KEYS.HAS_REWRITTEN, '1');
+        setHasSongs(true);
+        savedSongRef.current = { id: song.id, uuid: song.uuid };
+        onSongSaved(song);
+      } catch {
+        // Non-critical: sample still works locally, handleBeforeSend provides recovery
+      } finally {
+        sampleSavingRef.current = false;
+      }
+    }
   };
 
   const handleBeforeSend = useCallback(async (): Promise<number> => {
+    // Song should already exist after import; check both prop and ref to
+    // avoid duplicate creation during the React re-render cycle.
+    if (currentSongId) return currentSongId;
+    if (savedSongRef.current) return savedSongRef.current.id;
     const song = await api.saveSong({
       profile_id: profile!.id,
       title: songTitle || null,
@@ -431,7 +494,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     setHasSongs(true);
     onSongSaved(song);
     return song.id;
-  }, [profile, songTitle, songArtist, parsedContent, llmSettings, onSongSaved]);
+  }, [currentSongId, profile, songTitle, songArtist, parsedContent, llmSettings, onSongSaved]);
 
   const handleChatUpdate = useCallback((newContent: string) => {
     if (!rewriteResult && parseResult) {
@@ -487,14 +550,19 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   };
 
   const handleSave = async () => {
-    if (!currentSongUuid || !rewriteResult || !isDirty) return;
+    const songUuid = currentSongUuid || savedSongRef.current?.uuid;
+    if (!songUuid || !isDirty) return;
+    if (!rewriteResult && !parseResult) return;
+    const content = rewriteResult?.rewritten_content ?? parsedContent;
+    const original = rewriteResult?.original_content ?? parsedContent;
+    if (!content && !original) return;
     setSaveStatus('saving');
     try {
-      await api.updateSong(currentSongUuid, {
+      await api.updateSong(songUuid, {
         title: songTitle || null,
         artist: songArtist || null,
-        rewritten_content: rewriteResult.rewritten_content,
-        original_content: rewriteResult.original_content,
+        rewritten_content: content,
+        original_content: original,
       } as Partial<Song>);
       setSaveStatus('saved');
       setIsDirty(false);
@@ -529,6 +597,8 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     if (!rewriteResult && parseResult) {
       // PARSED state: update the editable parsed content
       setParsedContent(newOriginal);
+      // Use ref to avoid stale-closure race after save completes but before re-render
+      if (currentSongUuid || savedSongRef.current) setIsDirty(true);
     } else {
       // WORKSHOPPING state: use functional updater to avoid stale closure.
       // Spreading rewriteResult here would clobber concurrent rewritten_content
@@ -536,7 +606,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
       onOriginalContentUpdatedCtx(newOriginal);
       setIsDirty(true);
     }
-  }, [rewriteResult, parseResult, setParsedContent, onOriginalContentUpdatedCtx]);
+  }, [rewriteResult, parseResult, currentSongUuid, setParsedContent, onOriginalContentUpdatedCtx]);
 
   const handleRewrittenChange = useCallback((newText: string) => {
     onContentUpdated(newText);
