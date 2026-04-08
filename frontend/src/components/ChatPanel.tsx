@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback, type ReactNode } from 'react'
 import Markdown from 'react-markdown';
 import { toast } from 'sonner';
 import { cn, stripXmlTags } from '@/lib/utils';
-import api from '@/api';
+import api, { isProviderError } from '@/api';
 import { isQuotaError, QuotaUpgradeLink, UsageFooter } from '@/extensions/quota';
 import { Card, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -385,7 +385,8 @@ export default function ChatPanel({ songId, profileId, messages, setMessages, ll
       } else {
         pendingQueue.current = [];
         setLastFailedInput(text);
-        setMessages(prev => [...prev.filter(m => !m.pending), { role: 'assistant' as const, content: 'Error: ' + (err as Error).message }]);
+        const errorType = (err as Error & { errorType?: string }).errorType;
+        setMessages(prev => [...prev.filter(m => !m.pending), { role: 'assistant' as const, content: 'Error: ' + (err as Error).message, errorType }]);
       }
     } finally {
       abortRef.current = null;
@@ -491,14 +492,19 @@ export default function ChatPanel({ songId, profileId, messages, setMessages, ll
           <div key={i} className={cn('flex flex-col', msg.role === 'user' ? 'items-end' : 'items-start')}>
             <ChatMessageBubble msg={msg} isStreaming={streaming && i === messages.length - 1} />
             {lastFailedInput && i === messages.length - 1 && msg.role === 'assistant' && msg.content.startsWith('Error:') && (
-              <div className="flex items-center gap-2 mt-1">
-                <Button variant="secondary" size="sm" onClick={handleRetry}>
-                  Retry
-                </Button>
-                {isQuotaError(msg.content) && (
-                  <QuotaUpgradeLink className="text-sm font-semibold text-primary underline" />
+              <>
+                {isProviderError(msg) && (
+                  <span className="text-xs text-muted-foreground mt-0.5">Issue with the AI provider</span>
                 )}
-              </div>
+                <div className="flex items-center gap-2 mt-1">
+                  <Button variant="secondary" size="sm" onClick={handleRetry}>
+                    Retry
+                  </Button>
+                  {isQuotaError(msg.content) && (
+                    <QuotaUpgradeLink className="text-sm font-semibold text-primary underline" />
+                  )}
+                </div>
+              </>
             )}
           </div>
         ))}

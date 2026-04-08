@@ -58,6 +58,7 @@ export interface AppShellContext {
   parseStreamText: string;
   parseReasoningText: string;
   parseError: string | null;
+  parseErrorType: string | undefined;
   setParseError: React.Dispatch<React.SetStateAction<string | null>>;
   onParse: (params: { content: string; instruction?: string }) => Promise<ParseResult | null>;
   onCancelParse: () => void;
@@ -95,6 +96,7 @@ export default function AppShell() {
   const [parseStreamText, setParseStreamText] = useState('');
   const [parseReasoningText, setParseReasoningText] = useState('');
   const [parseError, setParseError] = useState<string | null>(null);
+  const [parseErrorType, setParseErrorType] = useState<string | undefined>();
   const parseAbortRef = useRef<AbortController | null>(null);
 
   // Chat streaming state (reported by ChatPanel for visibility recovery)
@@ -220,6 +222,7 @@ export default function AppShell() {
     parseAbortRef.current = controller;
     setParseLoading(true);
     setParseError(null);
+    setParseErrorType(undefined);
     setParseStreamText('');
     setParseReasoningText('');
     handleNewRewrite(null, null);
@@ -249,6 +252,7 @@ export default function AppShell() {
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {
         setParseError((err as Error).message);
+        setParseErrorType((err as Error & { errorType?: string }).errorType);
       }
       return null;
     } finally {
@@ -270,6 +274,7 @@ export default function AppShell() {
     setParseReasoningText('');
     setParseLoading(false);
     setParseError(null);
+    setParseErrorType(undefined);
   }, []);
 
   const handleSongSaved = useCallback((song: Song) => {
@@ -379,6 +384,7 @@ export default function AppShell() {
     parseStreamText,
     parseReasoningText,
     parseError,
+    parseErrorType,
     setParseError,
     onParse: handleParse,
     onCancelParse: handleCancelParse,

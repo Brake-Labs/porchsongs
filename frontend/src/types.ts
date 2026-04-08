@@ -50,6 +50,7 @@ export interface ChatMessage {
   model?: string;
   images?: string[];  // base64 data URLs for display in bubbles
   pending?: boolean;  // queued while LLM is busy, awaiting delivery
+  errorType?: string; // error classification from backend (e.g. "provider_rate_limit")
 }
 
 export interface AttachedFile {

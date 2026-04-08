@@ -6,6 +6,16 @@ from collections.abc import AsyncIterator, Awaitable
 from io import BytesIO
 from typing import TypeVar
 
+from any_llm import (
+    AnyLLMError,
+    ContentFilterError,
+    ContextLengthExceededError,
+    MissingApiKeyError,
+    ModelNotFoundError,
+    ProviderError,
+    RateLimitError,
+)
+from any_llm import AuthenticationError as LLMAuthError
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -52,28 +62,67 @@ _PROVIDER_KEY_ENV_VARS: dict[str, str] = {
 }
 
 
-def _format_llm_error(e: Exception, provider: str | None = None) -> str:
-    """Turn raw SDK errors into user-friendly messages with setup instructions.
+def _format_llm_error(e: Exception, provider: str | None = None) -> dict[str, str]:
+    """Turn raw SDK errors into user-friendly messages with error classification.
 
-    Auth-related errors get a specific hint (these are operator-facing anyway).
-    All other errors return a generic message — the full details are logged
-    server-side so they don't leak to the frontend.
+    Returns ``{"detail": "...", "error_type": "..."}`` so the frontend can
+    distinguish provider issues from internal errors.
     """
-    msg = str(e).lower()
-    if "api key" in msg or "apikey" in msg or "authentication" in msg or "unauthorized" in msg:
+    if isinstance(e, RateLimitError):
+        return {
+            "detail": "The AI provider is currently rate-limited. "
+            "Please wait a moment and try again.",
+            "error_type": "provider_rate_limit",
+        }
+    if isinstance(e, ProviderError):
+        return {
+            "detail": "The AI provider is experiencing issues. "
+            "This is not a PorchSongs problem. Please try again shortly.",
+            "error_type": "provider_error",
+        }
+    if isinstance(e, ContentFilterError):
+        return {
+            "detail": "The AI provider blocked this request due to content filtering.",
+            "error_type": "content_filter",
+        }
+    if isinstance(e, ContextLengthExceededError):
+        return {
+            "detail": "The input is too long for this model. "
+            "Try shortening your text or choosing a model "
+            "with a larger context window.",
+            "error_type": "context_length",
+        }
+    if isinstance(e, (LLMAuthError, MissingApiKeyError)):
         env_var = _PROVIDER_KEY_ENV_VARS.get(provider or "")
         if env_var:
-            return (
+            detail = (
                 f"No API key configured for {provider}. "
-                f"Set the {env_var} environment variable on the server and restart. "
-                f"Example: export {env_var}=sk-..."
+                f"Set the {env_var} environment variable on the server "
+                f"and restart. Example: export {env_var}=sk-..."
             )
-        return (
-            f"No API key configured for {provider or 'this provider'}. "
-            "Set the appropriate API key environment variable on the server and restart."
-        )
+        else:
+            detail = (
+                f"No API key configured for {provider or 'this provider'}. "
+                "Set the appropriate API key environment variable "
+                "on the server and restart."
+            )
+        return {"detail": detail, "error_type": "auth_error"}
+    if isinstance(e, ModelNotFoundError):
+        return {
+            "detail": "The selected model is not available. Please choose a different model.",
+            "error_type": "model_not_found",
+        }
+    if isinstance(e, AnyLLMError):
+        logger.exception("LLM call failed (provider=%s)", provider)
+        return {
+            "detail": "The AI provider returned an unexpected error. Please try again.",
+            "error_type": "provider_unknown",
+        }
     logger.exception("LLM call failed (provider=%s)", provider)
-    return "Something went wrong while processing your request. Please try again."
+    return {
+        "detail": "Something went wrong while processing your request. Please try again.",
+        "error_type": "internal_error",
+    }
 
 
 T = TypeVar("T")
@@ -226,8 +275,7 @@ async def parse_stream(
                     yield f"event: token\ndata: {json.dumps(text)}\n\n"
         except Exception as e:
             logger.exception("Parse stream LLM error")
-            detail = _format_llm_error(e, req.provider)
-            yield f"event: error\ndata: {json.dumps({'detail': detail})}\n\n"
+            yield f"event: error\ndata: {json.dumps(_format_llm_error(e, req.provider))}\n\n"
             return
 
         # Parse the accumulated response
@@ -676,8 +724,7 @@ async def chat_stream(
                     yield f"event: token\ndata: {json.dumps(text)}\n\n"
         except Exception as e:
             logger.exception("Chat stream LLM error")
-            detail = _format_llm_error(e, req.provider)
-            yield f"event: error\ndata: {json.dumps({'detail': detail})}\n\n"
+            yield f"event: error\ndata: {json.dumps(_format_llm_error(e, req.provider))}\n\n"
             return
 
         # Parse the accumulated response

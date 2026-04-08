@@ -62,6 +62,7 @@ interface RewriteTabProps {
   parseStreamText: string;
   parseReasoningText: string;
   parseError: string | null;
+  parseErrorType: string | undefined;
   setParseError: React.Dispatch<React.SetStateAction<string | null>>;
   onParse: (params: { content: string; instruction?: string }) => Promise<ParseResult | null>;
   onCancelParse: () => void;
@@ -100,6 +101,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     parseStreamText,
     parseReasoningText,
     parseError,
+    parseErrorType,
     setParseError,
     onParse,
     onCancelParse,
@@ -802,6 +804,9 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
             <span>{parseError}</span>
             {isQuotaError(parseError) && (
               <QuotaUpgradeLink className="ml-2 font-semibold text-primary underline" />
+            )}
+            {parseErrorType?.startsWith('provider_') && (
+              <span className="block text-xs text-muted-foreground mt-1">Issue with the AI provider</span>
             )}
           </div>
           <Button variant="ghost" size="sm" className="text-error-text p-1 leading-none" onClick={() => setParseError(null)}>

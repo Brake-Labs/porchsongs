@@ -78,6 +78,7 @@ const stubContext: AppShellContext = {
   parseStreamText: '',
   parseReasoningText: '',
   parseError: null,
+  parseErrorType: undefined,
   setParseError: vi.fn(),
   onParse: vi.fn().mockResolvedValue(null),
   onCancelParse: vi.fn(),
