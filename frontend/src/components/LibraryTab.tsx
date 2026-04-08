@@ -482,7 +482,7 @@ function SongCard({
   return (
     <Card
       className={cn(
-        'group cursor-pointer transition-colors',
+        'group cursor-pointer transition-colors overflow-hidden min-w-0',
         isDragging && 'opacity-40',
         isSelected && 'border-primary bg-selected-bg'
       )}
@@ -583,17 +583,22 @@ export default function LibraryTab() {
   // - Column width matches the original responsive breakpoints (2 at lg, 3 at 2xl)
   // - Row count fills the available viewport height
   const CARD_HEIGHT_PX = 76; // approximate height of a song card + gap
-  const FOOTER_HEIGHT_PX = 44; // approximate footer height
   const [gridHeight, setGridHeight] = useState<number>(400);
   const [colWidth, setColWidth] = useState<number>(400);
   const measureGrid = useCallback(() => {
     const el = gridRef.current;
     if (!el) return;
+    // Measure from grid top to bottom of the <main> container (excludes footer + main padding)
+    const mainEl = el.closest('main');
+    const bottomEdge = mainEl
+      ? mainEl.getBoundingClientRect().bottom - parseFloat(getComputedStyle(mainEl).paddingBottom)
+      : window.innerHeight;
     const top = el.getBoundingClientRect().top;
-    const available = window.innerHeight - top - FOOTER_HEIGHT_PX;
+    const available = bottomEdge - top;
     const clamped = Math.max(200, available);
     setGridHeight(clamped);
     setVisibleRows(Math.max(1, Math.floor(clamped / CARD_HEIGHT_PX)));
+    // Width: match the original responsive column count (2 at lg, 3 at 2xl)
     const containerWidth = el.parentElement?.clientWidth ?? window.innerWidth;
     const vw = window.innerWidth;
     const cols = vw >= 1536 ? 3 : vw >= 1024 ? 2 : 1;
