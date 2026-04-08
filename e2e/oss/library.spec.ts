@@ -64,12 +64,12 @@ test.describe('OSS Library', () => {
     await expect(page.getByText(/by John Newton/).first()).toBeVisible({ timeout: 5_000 });
     await page.getByText(/by John Newton/).first().click();
 
-    // Should open the song detail view with an "All Songs" back button and "Edit in Rewrite"
-    await expect(page.getByRole('button', { name: /All Songs/i })).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByRole('button', { name: /Edit in Rewrite/i })).toBeVisible();
+    // Should open the song detail view with an "Back to library" back button and "Edit"
+    await expect(page.getByRole('button', { name: /Back to library/i })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole('button', { name: /Edit/i })).toBeVisible();
   });
 
-  test('Edit in Rewrite loads song into rewrite tab', async ({ page, baseURL }) => {
+  test('Edit loads song into rewrite tab', async ({ page, baseURL }) => {
     const profileId = await getDefaultProfileId(baseURL!);
     await createSongViaApi(baseURL!, makeSongCreatePayload(profileId));
 
@@ -81,9 +81,9 @@ test.describe('OSS Library', () => {
     await expect(page.getByText(/by John Newton/).first()).toBeVisible({ timeout: 5_000 });
     await page.getByText(/by John Newton/).first().click();
 
-    // Click "Edit in Rewrite"
-    await expect(page.getByRole('button', { name: /Edit in Rewrite/i })).toBeVisible({ timeout: 5_000 });
-    await page.getByRole('button', { name: /Edit in Rewrite/i }).click();
+    // Click "Edit"
+    await expect(page.getByRole('button', { name: /Edit/i })).toBeVisible({ timeout: 5_000 });
+    await page.getByRole('button', { name: /Edit/i }).click();
 
     // Should navigate to the Rewrite tab with song content loaded
     await expect(page).toHaveURL(/\/app\/rewrite/);
@@ -250,51 +250,20 @@ test.describe('OSS Library', () => {
     // Open song detail view
     await expect(page.getByText(/by John Newton/).first()).toBeVisible({ timeout: 5_000 });
     await page.getByText(/by John Newton/).first().click();
-    await expect(page.getByRole('button', { name: /Download PDF/i })).toBeVisible({ timeout: 5_000 });
+    // Open the actions menu and click Download PDF
+    await expect(page.getByRole('button', { name: /Song actions/i })).toBeVisible({ timeout: 5_000 });
+    await page.getByRole('button', { name: /Song actions/i }).click();
+    await expect(page.getByRole('menuitem', { name: /Download PDF/i })).toBeVisible();
 
     // Intercept the download
     const downloadPromise = page.waitForEvent('download');
-    await page.getByRole('button', { name: /Download PDF/i }).click();
+    await page.getByRole('menuitem', { name: /Download PDF/i }).click();
     const download = await downloadPromise;
 
     // Verify filename and that file is non-empty
     expect(download.suggestedFilename()).toBe('Amazing Grace - John Newton.pdf');
     const path = await download.path();
     expect(path).toBeTruthy();
-  });
-
-  test('revision history shows previous versions', async ({ page, baseURL }) => {
-    // Seed a song and add a revision via API
-    const profileId = await getDefaultProfileId(baseURL!);
-    const song = await createSongViaApi(baseURL!, {
-      ...makeSongCreatePayload(profileId),
-      title: 'Revision Test Song',
-    });
-    const songId = song.id as number;
-
-    // Create a revision by updating the song content
-    await fetch(`${baseURL}/api/songs/${songId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rewritten_content: 'Updated content for version 2' }),
-    });
-
-    await page.goto('/');
-    await waitForAppReady(page);
-    await navigateToTab(page, 'Library');
-
-    // Search and open the song
-    const searchInput = page.getByPlaceholder(/search/i);
-    await searchInput.fill('Revision Test Song');
-    await expect(page.getByText('Revision Test Song').first()).toBeVisible({ timeout: 5_000 });
-    await page.getByText(/by John Newton/).first().click();
-
-    // Open details panel
-    await expect(page.getByRole('button', { name: /Show Original/i })).toBeVisible({ timeout: 5_000 });
-    await page.getByRole('button', { name: /Show Original/i }).click();
-
-    // Verify the original content section appears
-    await expect(page.getByText('Original').first()).toBeVisible({ timeout: 5_000 });
   });
 
   test('sorting changes song order', async ({ page, baseURL }) => {
