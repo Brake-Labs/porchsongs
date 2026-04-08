@@ -601,7 +601,8 @@ export default function LibraryTab() {
     setGridHeight(clamped);
     setVisibleRows(Math.max(1, Math.floor(clamped / CARD_HEIGHT_PX)));
     // Width: match the original responsive column count (2 at lg, 3 at 2xl)
-    const containerWidth = el.parentElement?.clientWidth ?? window.innerWidth;
+    // Use the grid's own clientWidth (includes the negative margin bleed)
+    const containerWidth = el.clientWidth;
     const vw = window.innerWidth;
     const cols = vw >= 1536 ? 3 : vw >= 1024 ? 2 : 1;
     const gap = 12; // 0.75rem gap
@@ -1177,7 +1178,7 @@ export default function LibraryTab() {
         <div
           ref={setGridRef}
           data-testid="horizontal-grid"
-          className="overflow-x-auto overflow-y-hidden"
+          className="overflow-x-auto overflow-y-hidden -mx-2 sm:-mx-4 px-2 sm:px-4"
           style={{
             height: `${gridHeight}px`,
             display: 'grid',
