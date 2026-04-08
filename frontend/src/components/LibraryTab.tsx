@@ -451,6 +451,89 @@ type DialogState =
 
 const SONGS_PER_PAGE = 20;
 
+interface SongCardProps {
+  song: Song;
+  selectMode: boolean;
+  isSelected: boolean;
+  isDragging: boolean;
+  onView: (song: Song) => void;
+  onToggleSelect: (uuid: string) => void;
+  onDragStart: (e: DragEvent<HTMLDivElement>, uuid: string) => void;
+  onDragEnd: () => void;
+  onSongUpdated: (song: Song) => void;
+  onDelete: (uuid: string) => void;
+  onRename: (song: Song) => void;
+  onEdit: (song: Song) => void;
+  folders: string[];
+  onMoveToFolder: (song: Song, folder: string) => void;
+  onMoveToNewFolder: (song: Song) => void;
+}
+
+function SongCard({
+  song, selectMode, isSelected, isDragging,
+  onView, onToggleSelect, onDragStart, onDragEnd,
+  onSongUpdated, onDelete, onRename, onEdit,
+  folders, onMoveToFolder, onMoveToNewFolder,
+}: SongCardProps) {
+  const date = new Date(song.created_at).toLocaleDateString();
+  const artist = song.artist ? ` by ${song.artist}` : '';
+  const preview = lyricsPreview(song.rewritten_content);
+
+  return (
+    <Card
+      className={cn(
+        'group cursor-pointer transition-colors',
+        isDragging && 'opacity-40',
+        isSelected && 'border-primary bg-selected-bg'
+      )}
+      onClick={() => selectMode ? onToggleSelect(song.uuid) : onView(song)}
+      draggable={!selectMode || undefined}
+      onDragStart={!selectMode ? (e) => onDragStart(e, song.uuid) : undefined}
+      onDragEnd={!selectMode ? onDragEnd : undefined}
+    >
+      <div className="flex justify-between items-center p-4 hover:bg-panel transition-colors">
+        <label
+          className={cn(
+            'flex items-center pr-2 cursor-pointer shrink-0 transition-opacity',
+            selectMode || isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          )}
+          onClick={e => e.stopPropagation()}
+        >
+          <Checkbox
+            checked={isSelected}
+            onChange={() => onToggleSelect(song.uuid)}
+          />
+        </label>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-sm sm:text-base mb-0.5 leading-snug">
+            <EditableTitle song={song} onSaved={onSongUpdated} />
+            {artist}
+          </h3>
+          {preview && (
+            <p className="text-xs text-muted-foreground truncate mt-0.5">{preview}</p>
+          )}
+          <span className="text-xs text-muted-foreground font-[family-name:var(--font-data)] tabular-nums">
+            {date}
+            {song.current_version > 1 ? ` \u00B7 v${song.current_version}` : ''}
+            {song.folder ? ` \u00B7 ${song.folder}` : ''}
+          </span>
+        </div>
+        <div className="flex gap-2" onClick={e => e.stopPropagation()}>
+          <SongMenu
+            song={song}
+            onDelete={onDelete}
+            onRename={onRename}
+            onEdit={onEdit}
+            folders={folders}
+            onMoveToFolder={onMoveToFolder}
+            onMoveToNewFolder={onMoveToNewFolder}
+          />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 export function lyricsPreview(content: string): string {
   const lines = content.split('\n').filter(l => l.trim() && !/^\[.*\]$/.test(l.trim()));
   const preview = lines.slice(0, 2).join(' \u2022 ');
@@ -479,19 +562,38 @@ export default function LibraryTab() {
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [page, setPage] = useState(0);
   const [dialogState, setDialogState] = useState<DialogState>({ kind: 'none' });
-  const [layoutWidth, setLayoutWidth] = useState<'default' | 'wide'>(() => {
-    return (localStorage.getItem(STORAGE_KEYS.LIBRARY_LAYOUT) as 'default' | 'wide') || 'default';
+  const [scrollDir, setScrollDir] = useState<'vertical' | 'horizontal'>(() => {
+    const stored = localStorage.getItem(STORAGE_KEYS.LIBRARY_LAYOUT);
+    return stored === 'horizontal' ? 'horizontal' : 'vertical';
   });
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [visibleRows, setVisibleRows] = useState(5);
 
-  const toggleLayoutWidth = useCallback(() => {
-    setLayoutWidth(prev => {
-      const next = prev === 'default' ? 'wide' : 'default';
+  const toggleScrollDir = useCallback(() => {
+    setScrollDir(prev => {
+      const next = prev === 'vertical' ? 'horizontal' : 'vertical';
       localStorage.setItem(STORAGE_KEYS.LIBRARY_LAYOUT, next);
       return next;
     });
   }, []);
 
-  const containerClass = layoutWidth === 'wide' ? 'w-full' : 'max-w-[1120px] mx-auto w-full';
+  const containerClass = scrollDir === 'horizontal' ? 'w-full' : 'max-w-[1120px] mx-auto w-full';
+
+  // Measure available height to calculate how many card rows fit
+  const CARD_HEIGHT_PX = 76; // approximate height of a song card + gap
+  useEffect(() => {
+    if (scrollDir !== 'horizontal' || !gridRef.current) return;
+    const measure = () => {
+      const rect = gridRef.current?.getBoundingClientRect();
+      if (rect) {
+        const rows = Math.max(1, Math.floor(rect.height / CARD_HEIGHT_PX));
+        setVisibleRows(rows);
+      }
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [scrollDir]);
 
   useEffect(() => {
     api.listSongs().then(data => {
@@ -910,7 +1012,7 @@ export default function LibraryTab() {
   const hasFolders = folders.length > 0;
 
   return (
-    <div className={cn('flex flex-col gap-4', containerClass)}>
+    <div className={cn('flex flex-col gap-4', containerClass, scrollDir === 'horizontal' && 'h-full min-h-0')}>
       <div className="flex flex-col gap-2">
         <div className="flex gap-2">
           <Input
@@ -941,12 +1043,12 @@ export default function LibraryTab() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={toggleLayoutWidth}
-            title={layoutWidth === 'default' ? 'Switch to wide layout' : 'Switch to compact layout'}
-            aria-label={layoutWidth === 'default' ? 'Switch to wide layout' : 'Switch to compact layout'}
+            onClick={toggleScrollDir}
+            title={scrollDir === 'vertical' ? 'Switch to horizontal scroll' : 'Switch to vertical scroll'}
+            aria-label={scrollDir === 'vertical' ? 'Switch to horizontal scroll' : 'Switch to vertical scroll'}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-              {layoutWidth === 'default' ? (
+              {scrollDir === 'vertical' ? (
                 <>
                   <rect x="2" y="3" width="12" height="10" rx="1" />
                   <line x1="5" y1="3" x2="5" y2="13" />
@@ -954,7 +1056,7 @@ export default function LibraryTab() {
                 </>
               ) : (
                 <>
-                  <rect x="1" y="3" width="14" height="10" rx="1" />
+                  <rect x="2" y="3" width="12" height="10" rx="1" />
                   <line x1="4" y1="6" x2="12" y2="6" />
                   <line x1="4" y1="8" x2="12" y2="8" />
                   <line x1="4" y1="10" x2="9" y2="10" />
@@ -1046,103 +1148,109 @@ export default function LibraryTab() {
         </div>
       )}
 
-      <div className={cn('gap-3', layoutWidth === 'wide' ? 'grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3' : 'flex flex-col')}>
-        {pagedSongs.map(song => {
-          const date = new Date(song.created_at).toLocaleDateString();
-          const artist = song.artist ? ` by ${song.artist}` : '';
-          const isSelected = selectedUuids.has(song.uuid);
-          const preview = lyricsPreview(song.rewritten_content);
-
-          return (
-            <Card
+      {scrollDir === 'horizontal' ? (
+        <div
+          ref={gridRef}
+          className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden scroll-snap-x-mandatory"
+          style={{
+            display: 'grid',
+            gridTemplateRows: `repeat(${visibleRows}, minmax(0, 1fr))`,
+            gridAutoFlow: 'column',
+            gridAutoColumns: 'minmax(320px, 1fr)',
+            gap: '0.75rem',
+            scrollSnapType: 'x mandatory',
+          }}
+        >
+          {sortedSongs.map(song => (
+            <SongCard
               key={song.uuid}
-              className={cn(
-                'group cursor-pointer transition-colors',
-                draggingSongUuid === song.uuid && 'opacity-40',
-                isSelected && 'border-primary bg-selected-bg'
+              song={song}
+              selectMode={selectMode}
+              isSelected={selectedUuids.has(song.uuid)}
+              isDragging={draggingSongUuid === song.uuid}
+              onView={handleView}
+              onToggleSelect={toggleSelect}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+              onSongUpdated={handleSongUpdated}
+              onDelete={handleDeleteRequest}
+              onRename={handleRenameRequest}
+              onEdit={onLoadSong}
+              folders={folders}
+              onMoveToFolder={handleMoveToFolder}
+              onMoveToNewFolder={handleMoveToNewFolder}
+            />
+          ))}
+          {sortedSongs.length === 0 && songs.length > 0 && (
+            <div className="text-center py-16 px-8 text-muted-foreground col-span-full">
+              {activeFolder && !searchQuery ? (
+                <p>No songs in this folder yet. Drag songs onto the folder tab or use the song menu to move them here.</p>
+              ) : (
+                <p>No songs match your search.</p>
               )}
-              onClick={() => selectMode ? toggleSelect(song.uuid) : handleView(song)}
-              draggable={!selectMode || undefined}
-              onDragStart={!selectMode ? (e) => handleDragStart(e, song.uuid) : undefined}
-              onDragEnd={!selectMode ? handleDragEnd : undefined}
-            >
-              <div className="flex justify-between items-center p-4 hover:bg-panel transition-colors">
-                <label
-                  className={cn(
-                    'flex items-center pr-2 cursor-pointer shrink-0 transition-opacity',
-                    selectMode || isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                  )}
-                  onClick={e => e.stopPropagation()}
-                >
-                  <Checkbox
-                    checked={isSelected}
-                    onChange={() => toggleSelect(song.uuid)}
-                  />
-                </label>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-sm sm:text-base mb-0.5 leading-snug">
-                    <EditableTitle song={song} onSaved={handleSongUpdated} />
-                    {artist}
-                  </h3>
-                  {preview && (
-                    <p className="text-xs text-muted-foreground truncate mt-0.5">{preview}</p>
-                  )}
-                  <span className="text-xs text-muted-foreground font-[family-name:var(--font-data)] tabular-nums">
-                    {date}
-                    {song.current_version > 1 ? ` \u00B7 v${song.current_version}` : ''}
-                    {song.folder ? ` \u00B7 ${song.folder}` : ''}
-                  </span>
-                </div>
-                <div className="flex gap-2" onClick={e => e.stopPropagation()}>
-                  <SongMenu
-                    song={song}
-                    onDelete={handleDeleteRequest}
-                    onRename={handleRenameRequest}
-                    onEdit={onLoadSong}
-                    folders={folders}
-                    onMoveToFolder={handleMoveToFolder}
-                    onMoveToNewFolder={handleMoveToNewFolder}
-                  />
-                </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-col gap-3">
+            {pagedSongs.map(song => (
+              <SongCard
+                key={song.uuid}
+                song={song}
+                selectMode={selectMode}
+                isSelected={selectedUuids.has(song.uuid)}
+                isDragging={draggingSongUuid === song.uuid}
+                onView={handleView}
+                onToggleSelect={toggleSelect}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                onSongUpdated={handleSongUpdated}
+                onDelete={handleDeleteRequest}
+                onRename={handleRenameRequest}
+                onEdit={onLoadSong}
+                folders={folders}
+                onMoveToFolder={handleMoveToFolder}
+                onMoveToNewFolder={handleMoveToNewFolder}
+              />
+            ))}
+            {sortedSongs.length === 0 && songs.length > 0 && (
+              <div className="text-center py-16 px-8 text-muted-foreground">
+                {activeFolder && !searchQuery ? (
+                  <p>No songs in this folder yet. Drag songs onto the folder tab or use the song menu to move them here.</p>
+                ) : (
+                  <p>No songs match your search.</p>
+                )}
               </div>
-            </Card>
-          );
-        })}
-        {sortedSongs.length === 0 && songs.length > 0 && (
-          <div className="text-center py-16 px-8 text-muted-foreground">
-            {activeFolder && !searchQuery ? (
-              <p>No songs in this folder yet. Drag songs onto the folder tab or use the song menu to move them here.</p>
-            ) : (
-              <p>No songs match your search.</p>
             )}
           </div>
-        )}
-      </div>
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2 pt-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={page === 0}
-            onClick={() => setPage(p => p - 1)}
-            aria-label="Previous page"
-          >
-            &larr; Prev
-          </Button>
-          <span className="text-sm text-muted-foreground">
-            Page {page + 1} of {totalPages}
-          </span>
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={page >= totalPages - 1}
-            onClick={() => setPage(p => p + 1)}
-            aria-label="Next page"
-          >
-            Next &rarr;
-          </Button>
-        </div>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={page === 0}
+                onClick={() => setPage(p => p - 1)}
+                aria-label="Previous page"
+              >
+                &larr; Prev
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                Page {page + 1} of {totalPages}
+              </span>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={page >= totalPages - 1}
+                onClick={() => setPage(p => p + 1)}
+                aria-label="Next page"
+              >
+                Next &rarr;
+              </Button>
+            </div>
+          )}
+        </>
       )}
 
       <ConfirmDialog
