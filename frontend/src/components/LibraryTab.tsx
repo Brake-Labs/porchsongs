@@ -456,6 +456,7 @@ interface SongCardProps {
   selectMode: boolean;
   isSelected: boolean;
   isDragging: boolean;
+  stretch?: boolean;
   onView: (song: Song) => void;
   onToggleSelect: (uuid: string) => void;
   onDragStart: (e: DragEvent<HTMLDivElement>, uuid: string) => void;
@@ -470,7 +471,7 @@ interface SongCardProps {
 }
 
 function SongCard({
-  song, selectMode, isSelected, isDragging,
+  song, selectMode, isSelected, isDragging, stretch,
   onView, onToggleSelect, onDragStart, onDragEnd,
   onSongUpdated, onDelete, onRename, onEdit,
   folders, onMoveToFolder, onMoveToNewFolder,
@@ -483,6 +484,7 @@ function SongCard({
     <Card
       className={cn(
         'group cursor-pointer transition-colors overflow-hidden min-w-0',
+        stretch && 'h-full',
         isDragging && 'opacity-40',
         isSelected && 'border-primary bg-selected-bg'
       )}
@@ -1190,6 +1192,7 @@ export default function LibraryTab() {
             <SongCard
               key={song.uuid}
               song={song}
+              stretch
               selectMode={selectMode}
               isSelected={selectedUuids.has(song.uuid)}
               isDragging={draggingSongUuid === song.uuid}

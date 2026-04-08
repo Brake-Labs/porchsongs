@@ -272,17 +272,95 @@ LYRICS
 post_song "Working Man's Blues" "Coal Creek" "$MED4" "Originals"
 
 # A few more short ones to get a good count
-post_song "Dusty Road" "The Drifters" \
-"[Verse]\nEm  G\nDusty road ahead\nC   D\nNowhere left to go\n\n[Chorus]\nG  C\nKeep on walking\nD  Em\nKeep on walking home"
+read -r -d '' DUSTY << 'LYRICS' || true
+[Verse]
+Em  G
+Dusty road ahead
+C   D
+Nowhere left to go
 
-post_song "Last Call" "Barstool Prophets" \
-"[Verse 1]\nA       D\nNeon sign says open\nE       A\nBut the crowd has gone\nA       D\nJukebox playing softly\nE       A\nOne more sad old song\n\n[Chorus]\nD       A\nLast call for the lonely\nE       A\nLast call for the night\nD       A    E    A\nLast call for the light"
+[Chorus]
+G  C
+Keep on walking
+D  Em
+Keep on walking home
+LYRICS
 
-post_song "Paper Moon" "Luna Grey" \
-"[Verse]\nG       Em\nCut it from a magazine\nC       D\nHang it where the stars have been\nG       Em\nPaper moon above the bed\nC       D\nDreaming everything you said\n\n[Chorus]\nC       G\nNot real but close enough\nD       Em\nPaper moon and paper love"
+post_song "Dusty Road" "The Drifters" "$DUSTY"
 
-post_song "Copper Line" "River Bend" \
-"[Verse 1]\nBm       G\nDown along the copper line\nD        A\nWhere the water meets the vine\nBm       G\nOld man said the fish still bite\nD        A\nIf you get there before first light\n\n[Verse 2]\nBm       G\nBucket full of crawdad shells\nD        A\nStories only grandpa tells\nBm       G\nSunburn and a cane pole bend\nD        A\nDays like this don't ever end\n\n[Chorus]\nG        D\nCopper line, copper line\nA        Bm\nTake me back one more time\nG        D    A\nCopper line"
+read -r -d '' LASTCALL << 'LYRICS' || true
+[Verse 1]
+A       D
+Neon sign says open
+E       A
+But the crowd has gone
+A       D
+Jukebox playing softly
+E       A
+One more sad old song
+
+[Chorus]
+D       A
+Last call for the lonely
+E       A
+Last call for the night
+D       A    E    A
+Last call for the light
+LYRICS
+
+post_song "Last Call" "Barstool Prophets" "$LASTCALL"
+
+read -r -d '' PAPERMOON << 'LYRICS' || true
+[Verse]
+G       Em
+Cut it from a magazine
+C       D
+Hang it where the stars have been
+G       Em
+Paper moon above the bed
+C       D
+Dreaming everything you said
+
+[Chorus]
+C       G
+Not real but close enough
+D       Em
+Paper moon and paper love
+LYRICS
+
+post_song "Paper Moon" "Luna Grey" "$PAPERMOON"
+
+read -r -d '' COPPER << 'LYRICS' || true
+[Verse 1]
+Bm       G
+Down along the copper line
+D        A
+Where the water meets the vine
+Bm       G
+Old man said the fish still bite
+D        A
+If you get there before first light
+
+[Verse 2]
+Bm       G
+Bucket full of crawdad shells
+D        A
+Stories only grandpa tells
+Bm       G
+Sunburn and a cane pole bend
+D        A
+Days like this don't ever end
+
+[Chorus]
+G        D
+Copper line, copper line
+A        Bm
+Take me back one more time
+G        D    A
+Copper line
+LYRICS
+
+post_song "Copper Line" "River Bend" "$COPPER"
 
 echo ""
 echo "Done! Seeded 10 songs (1 big, 1 small, 8 medium). Visit $BASE/app/library to see them."
