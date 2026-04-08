@@ -33,6 +33,7 @@ const STORAGE_KEYS = {
   THEME: 'porchsongs_theme',
   HAS_REWRITTEN: 'porchsongs_has_rewritten',
   LIBRARY_LAYOUT: 'porchsongs_library_layout',
+  PERFORMANCE_LAYOUT: 'porchsongs_performance_layout',
 } as const;
 
 export { STORAGE_KEYS };

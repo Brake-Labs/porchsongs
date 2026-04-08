@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 
 const MIN_FONT_SIZE = 12;
-const MAX_FONT_SIZE = 22;
+const MAX_FONT_SIZE = 18;
 
 let cachedCharWidthRatio: number | null = null;
 

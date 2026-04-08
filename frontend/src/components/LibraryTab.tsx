@@ -190,7 +190,14 @@ const GRID_COL_CLASSES: Record<number, string> = {
   4: 'grid grid-cols-4 gap-2',
 };
 
-function PerformanceSheet({ song, className }: { song: Song; className?: string }) {
+interface PerformanceSheetProps {
+  song: Song;
+  className?: string;
+  fontSizeOverride?: number | null;
+  scrollDir?: 'vertical' | 'horizontal';
+}
+
+function PerformanceSheet({ song, className, fontSizeOverride, scrollDir = 'vertical' }: PerformanceSheetProps) {
   const text = song.rewritten_content;
   const sheetRef = useRef<HTMLDivElement>(null);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
@@ -202,18 +209,26 @@ function PerformanceSheet({ song, className }: { song: Song; className?: string 
   }, []);
 
   const maxCols = useMemo(() => maxColumnsForContent(text), [text]);
-  const autoCols = Math.min(autoColumnCount(viewportWidth), maxCols);
+  const isHorizontal = scrollDir === 'horizontal' && maxCols >= 2;
+  const autoCols = isHorizontal
+    ? Math.max(2, Math.min(autoColumnCount(viewportWidth), maxCols))
+    : 1;
   const columns = useMemo(() => splitContentForColumns(text, autoCols), [text, autoCols]);
   const isMultiCol = autoCols > 1 && columns !== null;
 
   const columnOverhead = isMultiCol ? 17 * (autoCols - 1) : 0;
   const autoFontSize = useAutoFontSize(sheetRef, text, { columnOverhead });
-  const fontStyle = autoFontSize !== undefined ? { fontSize: `${autoFontSize}px` } : undefined;
+  const effectiveSize = fontSizeOverride ?? autoFontSize;
+  const fontStyle = effectiveSize !== undefined ? { fontSize: `${effectiveSize}px` } : undefined;
 
   return (
     <div
       ref={sheetRef}
-      className={cn('overflow-auto', isMultiCol && GRID_COL_CLASSES[autoCols], className)}
+      className={cn(
+        isHorizontal ? 'overflow-x-auto overflow-y-hidden' : 'overflow-y-auto',
+        isMultiCol && GRID_COL_CLASSES[autoCols],
+        className,
+      )}
     >
       {isMultiCol && columns ? (
         columns.map((col, i) => (
@@ -483,6 +498,26 @@ export default function LibraryTab() {
     });
   }, []);
 
+  // Performance view: font size override (per-song, persisted to DB)
+  const [perfFontSize, setPerfFontSize] = useState<number | null>(null);
+  // Performance view: scroll direction (user preference, persisted to localStorage)
+  const [perfScrollDir, setPerfScrollDir] = useState<'vertical' | 'horizontal'>(() => {
+    const stored = localStorage.getItem(STORAGE_KEYS.PERFORMANCE_LAYOUT);
+    return stored === 'horizontal' ? 'horizontal' : 'vertical';
+  });
+
+  useEffect(() => {
+    setPerfFontSize(viewingSong?.font_size ?? null);
+  }, [viewingSong?.uuid, viewingSong?.font_size]);
+
+  const togglePerfScrollDir = useCallback(() => {
+    setPerfScrollDir(prev => {
+      const next = prev === 'vertical' ? 'horizontal' : 'vertical';
+      localStorage.setItem(STORAGE_KEYS.PERFORMANCE_LAYOUT, next);
+      return next;
+    });
+  }, []);
+
   const containerClass = scrollDir === 'horizontal' ? 'w-full' : 'max-w-[1120px] mx-auto w-full';
 
   // Calculate grid dimensions from the screen:
@@ -636,6 +671,15 @@ export default function LibraryTab() {
     setSongs(prev => prev.map(s => s.uuid === updated.uuid ? updated : s));
     if (viewingSong?.uuid === updated.uuid) setViewingSong(updated);
   };
+
+  const persistPerfFontSize = useCallback((value: number | null) => {
+    if (!viewingSong) return;
+    const sendValue = value === null ? 0 : value;
+    api.updateSong(viewingSong.uuid, { font_size: sendValue } as Partial<Song>).then(updated => {
+      setSongs(prev => prev.map(s => s.uuid === updated.uuid ? updated : s));
+      setViewingSong(prev => prev?.uuid === updated.uuid ? updated : prev);
+    }).catch(() => {});
+  }, [viewingSong]);
 
   const handleRenameRequest = (song: Song) => {
     setDialogState({ kind: 'rename', song });
@@ -829,6 +873,8 @@ export default function LibraryTab() {
   // --- Performance View (single song) ---
   if (viewingSong) {
     const song = viewingSong;
+    const showScrollToggle = maxColumnsForContent(song.rewritten_content) >= 2;
+    const sliderValue = perfFontSize ?? 16;
     return (
       <div className="flex flex-col h-full min-h-0 w-full">
         <div className="flex items-center gap-3 mb-2 shrink-0">
@@ -847,6 +893,59 @@ export default function LibraryTab() {
               <span className="text-sm text-muted-foreground ml-2">{song.artist}</span>
             )}
           </div>
+          <div className="hidden sm:flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground whitespace-nowrap min-w-[32px] text-right">
+              {perfFontSize === null ? 'Auto' : `${Math.round(perfFontSize)}px`}
+            </span>
+            <input
+              type="range"
+              min={10}
+              max={28}
+              step={1}
+              value={Math.round(sliderValue)}
+              onChange={(e) => setPerfFontSize(Number(e.target.value))}
+              onMouseUp={() => persistPerfFontSize(perfFontSize)}
+              onTouchEnd={() => persistPerfFontSize(perfFontSize)}
+              className="w-20 h-1 accent-primary cursor-pointer"
+              title="Text size"
+              aria-label="Font size"
+            />
+            {perfFontSize !== null && (
+              <button
+                onClick={() => { setPerfFontSize(null); persistPerfFontSize(null); }}
+                className="text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+                title="Reset to auto size"
+                aria-label="Reset to auto font size"
+              >
+                &times;
+              </button>
+            )}
+          </div>
+          {showScrollToggle && (
+            <button
+              className="hidden md:inline-flex bg-transparent hover:bg-panel rounded-md p-1.5 cursor-pointer text-muted-foreground hover:text-foreground transition-colors"
+              onClick={togglePerfScrollDir}
+              title={perfScrollDir === 'vertical' ? 'Switch to horizontal scroll' : 'Switch to vertical scroll'}
+              aria-label={perfScrollDir === 'vertical' ? 'Switch to horizontal scroll' : 'Switch to vertical scroll'}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+                {perfScrollDir === 'vertical' ? (
+                  <>
+                    <rect x="2" y="3" width="12" height="10" rx="1" />
+                    <line x1="5" y1="3" x2="5" y2="13" />
+                    <line x1="11" y1="3" x2="11" y2="13" />
+                  </>
+                ) : (
+                  <>
+                    <rect x="2" y="3" width="12" height="10" rx="1" />
+                    <line x1="4" y1="6" x2="12" y2="6" />
+                    <line x1="4" y1="8" x2="12" y2="8" />
+                    <line x1="4" y1="10" x2="9" y2="10" />
+                  </>
+                )}
+              </svg>
+            </button>
+          )}
           <div className="flex items-center gap-1.5 shrink-0">
             <Button variant="default" size="sm" onClick={() => onLoadSong(song)}>Edit</Button>
             <DropdownMenu>
@@ -877,7 +976,7 @@ export default function LibraryTab() {
           </div>
         </div>
 
-        <PerformanceSheet song={song} className="flex-1 min-h-0 overflow-y-auto" />
+        <PerformanceSheet song={song} className="flex-1 min-h-0" fontSizeOverride={perfFontSize} scrollDir={perfScrollDir} />
 
         <ConfirmDialog
           open={dialogState.kind === 'delete'}
