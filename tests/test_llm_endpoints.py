@@ -143,7 +143,7 @@ def test_parse_profile_not_found(client: TestClient) -> None:
 
 @patch("app.services.llm_service.amessages")
 def test_parse_llm_error(mock_amessages: MagicMock, client: TestClient) -> None:
-    """LLM throwing an exception should return 502."""
+    """LLM throwing a generic exception should return 502 with internal_error type."""
     profile = client.post("/api/profiles", json={"name": "Test"}).json()
     mock_amessages.side_effect = RuntimeError("API rate limit exceeded")
 
@@ -156,9 +156,119 @@ def test_parse_llm_error(mock_amessages: MagicMock, client: TestClient) -> None:
         },
     )
     assert resp.status_code == 502
-    assert "Something went wrong" in resp.json()["detail"]
+    detail = resp.json()["detail"]
+    assert detail["error_type"] == "internal_error"
+    assert "Something went wrong" in detail["detail"]
     # Raw exception details should NOT leak to the client
-    assert "rate limit" not in resp.json()["detail"]
+    assert "rate limit" not in detail["detail"]
+
+
+@patch("app.services.llm_service.amessages")
+def test_parse_rate_limit_error(mock_amessages: MagicMock, client: TestClient) -> None:
+    """RateLimitError should return provider_rate_limit error type."""
+    from any_llm import RateLimitError
+
+    profile = client.post("/api/profiles", json={"name": "Test"}).json()
+    mock_amessages.side_effect = RateLimitError("Rate limit exceeded")
+
+    resp = client.post(
+        "/api/parse",
+        json={"profile_id": profile["id"], "content": "Hello", **LLM_SETTINGS},
+    )
+    assert resp.status_code == 502
+    detail = resp.json()["detail"]
+    assert detail["error_type"] == "provider_rate_limit"
+    assert "rate-limited" in detail["detail"]
+
+
+@patch("app.services.llm_service.amessages")
+def test_parse_provider_error(mock_amessages: MagicMock, client: TestClient) -> None:
+    """ProviderError should return provider_error error type."""
+    from any_llm import ProviderError
+
+    profile = client.post("/api/profiles", json={"name": "Test"}).json()
+    mock_amessages.side_effect = ProviderError("Internal server error")
+
+    resp = client.post(
+        "/api/parse",
+        json={"profile_id": profile["id"], "content": "Hello", **LLM_SETTINGS},
+    )
+    assert resp.status_code == 502
+    detail = resp.json()["detail"]
+    assert detail["error_type"] == "provider_error"
+    assert "experiencing issues" in detail["detail"]
+
+
+@patch("app.services.llm_service.amessages")
+def test_parse_content_filter_error(mock_amessages: MagicMock, client: TestClient) -> None:
+    """ContentFilterError should return content_filter error type."""
+    from any_llm import ContentFilterError
+
+    profile = client.post("/api/profiles", json={"name": "Test"}).json()
+    mock_amessages.side_effect = ContentFilterError("Content blocked")
+
+    resp = client.post(
+        "/api/parse",
+        json={"profile_id": profile["id"], "content": "Hello", **LLM_SETTINGS},
+    )
+    assert resp.status_code == 502
+    detail = resp.json()["detail"]
+    assert detail["error_type"] == "content_filter"
+    assert "content filtering" in detail["detail"]
+
+
+@patch("app.services.llm_service.amessages")
+def test_parse_context_length_error(mock_amessages: MagicMock, client: TestClient) -> None:
+    """ContextLengthExceededError should return context_length error type."""
+    from any_llm import ContextLengthExceededError
+
+    profile = client.post("/api/profiles", json={"name": "Test"}).json()
+    mock_amessages.side_effect = ContextLengthExceededError("Context too long")
+
+    resp = client.post(
+        "/api/parse",
+        json={"profile_id": profile["id"], "content": "Hello", **LLM_SETTINGS},
+    )
+    assert resp.status_code == 502
+    detail = resp.json()["detail"]
+    assert detail["error_type"] == "context_length"
+    assert "too long" in detail["detail"]
+
+
+@patch("app.services.llm_service.amessages")
+def test_parse_model_not_found_error(mock_amessages: MagicMock, client: TestClient) -> None:
+    """ModelNotFoundError should return model_not_found error type."""
+    from any_llm import ModelNotFoundError
+
+    profile = client.post("/api/profiles", json={"name": "Test"}).json()
+    mock_amessages.side_effect = ModelNotFoundError("Model not found")
+
+    resp = client.post(
+        "/api/parse",
+        json={"profile_id": profile["id"], "content": "Hello", **LLM_SETTINGS},
+    )
+    assert resp.status_code == 502
+    detail = resp.json()["detail"]
+    assert detail["error_type"] == "model_not_found"
+    assert "not available" in detail["detail"]
+
+
+@patch("app.services.llm_service.amessages")
+def test_parse_auth_error(mock_amessages: MagicMock, client: TestClient) -> None:
+    """MissingApiKeyError should return auth_error with env var hint."""
+    from any_llm import MissingApiKeyError
+
+    profile = client.post("/api/profiles", json={"name": "Test"}).json()
+    mock_amessages.side_effect = MissingApiKeyError("openai", "OPENAI_API_KEY")
+
+    resp = client.post(
+        "/api/parse",
+        json={"profile_id": profile["id"], "content": "Hello", **LLM_SETTINGS},
+    )
+    assert resp.status_code == 502
+    detail = resp.json()["detail"]
+    assert detail["error_type"] == "auth_error"
+    assert "OPENAI_API_KEY" in detail["detail"]
 
 
 # --- POST /api/parse/image ---
@@ -451,11 +561,15 @@ def test_list_provider_models_success(mock_list_models: MagicMock, client: TestC
 
 @patch("app.services.llm_service.alist_models")
 def test_list_provider_models_failure(mock_list_models: MagicMock, client: TestClient) -> None:
-    mock_list_models.side_effect = RuntimeError("Invalid API key")
+    from any_llm import MissingApiKeyError
+
+    mock_list_models.side_effect = MissingApiKeyError("openai", "OPENAI_API_KEY")
 
     resp = client.get("/api/providers/openai/models")
     assert resp.status_code == 502
-    assert "OPENAI_API_KEY" in resp.json()["detail"]
+    detail = resp.json()["detail"]
+    assert detail["error_type"] == "auth_error"
+    assert "OPENAI_API_KEY" in detail["detail"]
 
 
 # --- api_base passthrough tests ---
@@ -1390,3 +1504,37 @@ def test_parse_stream_no_detached_error(mock_amessages: AsyncMock, client: TestC
     assert "event: token" in body
     assert "event: done" in body
     assert "event: error" not in body
+
+
+@patch("app.services.llm_service.amessages", new_callable=AsyncMock)
+def test_parse_stream_rate_limit_error(
+    mock_amessages: AsyncMock, client: TestClient
+) -> None:
+    """parse/stream should emit SSE error event with error_type for RateLimitError."""
+    import json
+
+    from any_llm import RateLimitError
+
+    profile = client.post("/api/profiles", json={"name": "Test"}).json()
+    mock_amessages.side_effect = RateLimitError("Rate limit exceeded")
+
+    resp = client.post(
+        "/api/parse/stream",
+        json={
+            "profile_id": profile["id"],
+            "content": "Hello world",
+            **LLM_SETTINGS,
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.text
+    assert "event: error" in body
+    # Extract the error event data
+    for line in body.splitlines():
+        if line.startswith("data:") and "error_type" in line:
+            data = json.loads(line[len("data:") :].strip())
+            assert data["error_type"] == "provider_rate_limit"
+            assert "rate-limited" in data["detail"]
+            break
+    else:
+        raise AssertionError("No error event with error_type found in SSE stream")

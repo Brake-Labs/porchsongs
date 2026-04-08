@@ -47,15 +47,30 @@ function _getAuthHeaders(): Record<string, string> {
   return {};
 }
 
+/** Error with optional error_type from the backend. */
+export type ApiError = Error & { errorType?: string };
+
 function _parseApiError(body: unknown, fallback: string): string {
-  const b = body as { detail?: string | { message?: string; error?: string } };
+  const b = body as { detail?: string | { message?: string; error?: string; detail?: string } };
   if (!b.detail) return fallback;
 
   if (typeof b.detail === 'object') {
-    return b.detail.message || b.detail.error || fallback;
+    return b.detail.detail || b.detail.message || b.detail.error || fallback;
   }
 
   return b.detail;
+}
+
+function _extractErrorType(body: unknown): string | undefined {
+  const b = body as { detail?: { error_type?: string }; error_type?: string };
+  if (typeof b.detail === 'object') return b.detail?.error_type;
+  return b.error_type;
+}
+
+/** True when the error originated from the AI provider, not PorchSongs. */
+export function isProviderError(err: unknown): boolean {
+  const errorType = (err as ApiError | undefined)?.errorType;
+  return typeof errorType === 'string' && errorType.startsWith('provider_');
 }
 
 function _downloadBlob(blob: Blob, filename: string): void {
@@ -72,7 +87,9 @@ function _downloadBlob(blob: Blob, filename: string): void {
 /** Throw a typed Error from an openapi-fetch error body. */
 function _throwApiError(error: unknown, fallback: string): never {
   const message = _parseApiError(error, fallback);
-  throw new Error(message);
+  const err = new Error(message) as ApiError;
+  err.errorType = _extractErrorType(error);
+  throw err;
 }
 
 // --- SSE streaming (stays manual, openapi-fetch doesn't handle SSE) ---
@@ -101,8 +118,9 @@ async function _streamSse<T>(
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       const message = _parseApiError(body, `Request failed: ${res.status}`);
-      const err = new Error(message) as Error & { status?: number };
+      const err = new Error(message) as ApiError & { status?: number };
       err.status = res.status;
+      err.errorType = _extractErrorType(body);
       throw err;
     }
 
@@ -132,11 +150,13 @@ async function _streamSse<T>(
           } else if (eventType === 'done') {
             result = JSON.parse(payload) as T;
           } else if (eventType === 'error') {
-            const err = JSON.parse(payload) as { detail: string | { message?: string; error?: string } };
-            const msg = typeof err.detail === 'object'
-              ? (err.detail.message || err.detail.error || 'Stream error')
-              : (err.detail || 'Stream error');
-            throw new Error(msg);
+            const parsed = JSON.parse(payload) as { detail: string | { message?: string; error?: string }; error_type?: string };
+            const msg = typeof parsed.detail === 'object'
+              ? (parsed.detail.message || parsed.detail.error || 'Stream error')
+              : (parsed.detail || 'Stream error');
+            const sseErr = new Error(msg) as ApiError;
+            sseErr.errorType = parsed.error_type;
+            throw sseErr;
           }
           eventType = '';
         }
