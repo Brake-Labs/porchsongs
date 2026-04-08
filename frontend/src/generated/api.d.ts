@@ -620,6 +620,10 @@ export interface components {
             reasoning?: string | null;
             /** Model */
             model?: string | null;
+            /** Input Tokens */
+            input_tokens?: number | null;
+            /** Output Tokens */
+            output_tokens?: number | null;
         };
         /** ChatMessageOut */
         ChatMessageOut: {
@@ -637,6 +641,10 @@ export interface components {
             reasoning?: string | null;
             /** Model */
             model?: string | null;
+            /** Input Tokens */
+            input_tokens?: number | null;
+            /** Output Tokens */
+            output_tokens?: number | null;
             /**
              * Created At
              * Format: date-time

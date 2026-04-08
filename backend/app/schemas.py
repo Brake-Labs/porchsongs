@@ -211,6 +211,8 @@ class ChatMessageCreate(BaseModel):
     is_note: bool = False
     reasoning: str | None = None
     model: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 class ChatMessageOut(BaseModel):
@@ -221,6 +223,8 @@ class ChatMessageOut(BaseModel):
     is_note: bool
     reasoning: str | None = None
     model: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
