@@ -1,11 +1,11 @@
-import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, type DragEvent, type MouseEvent } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, type DragEvent, type MouseEvent } from 'react';
 import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
 import { toast } from 'sonner';
 import api, { STORAGE_KEYS } from '@/api';
 import { Button } from '@/components/ui/button';
 import Spinner from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
-import { Card, CardHeader } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select } from '@/components/ui/select';
 import {
@@ -21,7 +21,7 @@ import PromptDialog, { type PromptField } from '@/components/ui/prompt-dialog';
 import { cn } from '@/lib/utils';
 import useAutoFontSize from '@/hooks/useAutoFontSize';
 import type { AppShellContext } from '@/layouts/AppShell';
-import type { Song, SongRevision } from '@/types';
+import type { Song } from '@/types';
 
 /**
  * Split lyrics into N balanced columns at section boundaries.
@@ -80,7 +80,7 @@ export function splitContentForColumns(text: string, numCols: number): string[] 
   return columns;
 }
 
-const PRE_BASE_CLASS = 'font-mono text-xs sm:text-code leading-snug whitespace-pre-wrap break-words sm:whitespace-pre sm:break-normal sm:overflow-x-auto text-foreground';
+const PRE_BASE_CLASS = 'font-mono text-xs sm:text-code leading-snug whitespace-pre text-foreground';
 
 const FOLDER_PILL_CLASS = 'bg-card border border-border rounded-full px-3 py-1.5 text-xs cursor-pointer transition-all text-muted-foreground font-medium hover:border-primary hover:text-foreground whitespace-nowrap';
 const FOLDER_PILL_ACTIVE = 'bg-primary text-white border-primary';
@@ -190,20 +190,10 @@ const GRID_COL_CLASSES: Record<number, string> = {
   4: 'grid grid-cols-4 gap-2',
 };
 
-function PerformanceSheet({ song, onSongUpdated }: { song: Song; onSongUpdated: (song: Song) => void }) {
+function PerformanceSheet({ song, className }: { song: Song; className?: string }) {
   const text = song.rewritten_content;
-  const cardRef = useRef<HTMLDivElement>(null);
-  const [userOverride, setUserOverride] = useState<number | null>(null);
-  const [localFontSize, setLocalFontSize] = useState<number | null>(song.font_size ?? null);
+  const sheetRef = useRef<HTMLDivElement>(null);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
-
-  useLayoutEffect(() => {
-    setUserOverride(null);
-  }, [text]);
-
-  useEffect(() => {
-    setLocalFontSize(song.font_size ?? null);
-  }, [song.font_size]);
 
   useEffect(() => {
     const handleResize = () => setViewportWidth(window.innerWidth);
@@ -213,119 +203,35 @@ function PerformanceSheet({ song, onSongUpdated }: { song: Song; onSongUpdated: 
 
   const maxCols = useMemo(() => maxColumnsForContent(text), [text]);
   const autoCols = Math.min(autoColumnCount(viewportWidth), maxCols);
-  const activeCols = userOverride !== null ? Math.min(userOverride, maxCols) : autoCols;
-  const columns = useMemo(() => splitContentForColumns(text, activeCols), [text, activeCols]);
-  const isMultiCol = activeCols > 1 && columns !== null;
+  const columns = useMemo(() => splitContentForColumns(text, autoCols), [text, autoCols]);
+  const isMultiCol = autoCols > 1 && columns !== null;
 
-  const columnOverhead = isMultiCol ? 17 * (activeCols - 1) : 0;
-  const autoFontSize = useAutoFontSize(cardRef, text, { columnOverhead });
-  const effectiveSize = localFontSize ?? autoFontSize;
-  const fontStyle = effectiveSize !== undefined ? { fontSize: `${effectiveSize}px` } : undefined;
-  const isAuto = localFontSize === null;
-  const sliderValue = effectiveSize ?? 16;
-
-  const persistFontSize = useCallback((value: number | null) => {
-    const sendValue = value === null ? 0 : value;
-    api.updateSong(song.uuid, { font_size: sendValue } as Partial<Song>).then(updated => {
-      onSongUpdated(updated);
-    }).catch(() => {});
-  }, [song.uuid, onSongUpdated]);
-
-  const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setLocalFontSize(Number(e.target.value));
-  };
-
-  const handleSliderCommit = () => {
-    persistFontSize(localFontSize);
-  };
-
-  const handleResetToAuto = () => {
-    setLocalFontSize(null);
-    persistFontSize(null);
-  };
-
-  // Build the list of column options available for this content
-  const colOptions: number[] = [1];
-  for (let c = 2; c <= maxCols; c++) colOptions.push(c);
-
-  const controls = (
-    <div className="flex items-center justify-end gap-2 mb-2 sm:mb-0 sm:absolute sm:top-2 sm:right-2 sm:z-10 sm:opacity-60 sm:hover:opacity-100 sm:transition-opacity">
-      <div className="flex items-center gap-1.5 bg-background/80 backdrop-blur-sm rounded-md px-2 py-1 border border-border">
-        <span className="text-xs text-muted-foreground whitespace-nowrap">
-          {isAuto ? 'Auto' : `${Math.round(sliderValue)}px`}
-        </span>
-        <input
-          type="range"
-          min={10}
-          max={28}
-          step={1}
-          value={Math.round(sliderValue)}
-          onChange={handleSliderChange}
-          onMouseUp={handleSliderCommit}
-          onTouchEnd={handleSliderCommit}
-          className="w-20 h-1 accent-primary cursor-pointer"
-          title="Text size"
-        />
-        {!isAuto && (
-          <button
-            onClick={handleResetToAuto}
-            className="text-xs text-muted-foreground hover:text-foreground cursor-pointer ml-0.5"
-            title="Reset to auto size"
-          >
-            &times;
-          </button>
-        )}
-      </div>
-      {colOptions.length > 1 && (
-        <div className="hidden xl:inline-flex items-center gap-0.5 bg-panel border border-border rounded-md p-0.5" role="radiogroup" aria-label="Column layout">
-          {colOptions.map(cols => {
-            const isActive = activeCols === cols;
-            return (
-              <button
-                key={cols}
-                className={cn(
-                  'px-2.5 py-1.5 text-xs rounded cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1',
-                  isActive ? 'bg-card text-foreground shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'
-                )}
-                onClick={() => setUserOverride(cols)}
-                role="radio"
-                aria-checked={isActive}
-                aria-label={`${cols} column layout`}
-              >
-                {cols} Col
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
+  const columnOverhead = isMultiCol ? 17 * (autoCols - 1) : 0;
+  const autoFontSize = useAutoFontSize(sheetRef, text, { columnOverhead });
+  const fontStyle = autoFontSize !== undefined ? { fontSize: `${autoFontSize}px` } : undefined;
 
   return (
-    <div className="relative">
-      {controls}
-      <Card
-        ref={cardRef}
-        className={cn('p-3 sm:p-4', isMultiCol && GRID_COL_CLASSES[activeCols])}
-      >
-        {isMultiCol && columns ? (
-          columns.map((col, i) => (
-            <pre
-              key={i}
-              className={cn(
-                PRE_BASE_CLASS,
-                'min-w-0',
-                i < columns.length - 1 && 'border-r border-border pr-3'
-              )}
-              style={fontStyle}
-            >
-              {col}
-            </pre>
-          ))
-        ) : (
-          <pre className={PRE_BASE_CLASS} style={fontStyle}>{text}</pre>
-        )}
-      </Card>
+    <div
+      ref={sheetRef}
+      className={cn('overflow-auto', isMultiCol && GRID_COL_CLASSES[autoCols], className)}
+    >
+      {isMultiCol && columns ? (
+        columns.map((col, i) => (
+          <pre
+            key={i}
+            className={cn(
+              PRE_BASE_CLASS,
+              'min-w-0',
+              i < columns.length - 1 && 'border-r border-border pr-3'
+            )}
+            style={fontStyle}
+          >
+            {col}
+          </pre>
+        ))
+      ) : (
+        <pre className={PRE_BASE_CLASS} style={fontStyle}>{text}</pre>
+      )}
     </div>
   );
 }
@@ -551,8 +457,6 @@ export default function LibraryTab() {
   const [songs, setSongs] = useState<Song[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [viewingSong, setViewingSong] = useState<Song | null>(null);
-  const [showDetails, setShowDetails] = useState(false);
-  const [revisions, setRevisions] = useState<SongRevision[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
   const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
@@ -688,8 +592,6 @@ export default function LibraryTab() {
       const song = songs.find(s => s.uuid === initialSongRef);
       if (song) {
         setViewingSong(song);
-        setShowDetails(false);
-        setRevisions([]);
       }
     } else if (initialSongRef == null) {
       // URL changed to /app/library (no song id), return to list view
@@ -704,8 +606,6 @@ export default function LibraryTab() {
 
   const handleView = (song: Song) => {
     setViewingSong(song);
-    setShowDetails(false);
-    setRevisions([]);
     pushSongUrl(song.uuid);
   };
 
@@ -714,17 +614,6 @@ export default function LibraryTab() {
     pushSongUrl(null);
   };
 
-  const handleShowDetails = async () => {
-    setShowDetails(prev => !prev);
-    if (!showDetails && viewingSong && revisions.length === 0) {
-      try {
-        const revs = await api.getSongRevisions(viewingSong.uuid);
-        setRevisions(revs);
-      } catch {
-        // ignore
-      }
-    }
-  };
 
   const handleDeleteRequest = (uuid: string) => {
     setDialogState({ kind: 'delete', songUuid: uuid });
@@ -941,58 +830,54 @@ export default function LibraryTab() {
   if (viewingSong) {
     const song = viewingSong;
     return (
-      <div className={containerClass}>
-        <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center mb-3 gap-3">
-          <Button variant="secondary" onClick={handleBack}>&larr; All Songs</Button>
-          <div className="flex gap-2 justify-end flex-wrap">
-            <Button variant="default" onClick={() => onLoadSong(song)}>Edit in Rewrite</Button>
-            <Button variant="secondary" onClick={() => handleDownloadPdf(song)}>Download PDF</Button>
-            <Button variant="ghost" className="text-muted-foreground hover:text-danger" onClick={() => handleDeleteRequest(song.uuid)}>Delete</Button>
+      <div className="flex flex-col h-full min-h-0 w-full">
+        <div className="flex items-center gap-3 mb-2 shrink-0">
+          <button
+            onClick={handleBack}
+            className="text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+            aria-label="Back to library"
+          >
+            &larr;
+          </button>
+          <div className="flex-1 min-w-0">
+            <span className="font-display text-lg font-bold text-foreground truncate">
+              {song.title || 'Untitled'}
+            </span>
+            {song.artist && (
+              <span className="text-sm text-muted-foreground ml-2">{song.artist}</span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Button variant="default" size="sm" onClick={() => onLoadSong(song)}>Edit</Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="bg-transparent border border-border rounded-md cursor-pointer text-xl leading-none px-2 py-1.5 text-muted-foreground hover:bg-panel hover:text-foreground"
+                  aria-label="Song actions"
+                >
+                  &hellip;
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => handleDownloadPdf(song)}>
+                  Download PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleRenameRequest(song)}>
+                  Rename
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-danger hover:!bg-danger-light"
+                  onClick={() => handleDeleteRequest(song.uuid)}
+                >
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
-        <div className="text-center mb-3">
-          <h2 className="font-display text-xl font-bold text-foreground">{song.title || 'Untitled'}</h2>
-          {song.artist && <div className="text-sm text-muted-foreground mt-0.5">{song.artist}</div>}
-        </div>
-
-        <PerformanceSheet song={song} onSongUpdated={handleSongUpdated} />
-
-        <Button variant="secondary" className="mt-6" onClick={handleShowDetails}>
-          {showDetails ? 'Hide Details' : 'Show Original & History'}
-        </Button>
-
-        {showDetails && (
-          <div className="mt-4 flex flex-col gap-4">
-            <Card>
-              <CardHeader>Original</CardHeader>
-              <pre className="p-3 sm:p-4 font-mono text-xs sm:text-code leading-relaxed whitespace-pre-wrap break-words">{song.original_content}</pre>
-            </Card>
-
-            {song.changes_summary && (
-              <Card>
-                <CardHeader className="bg-card">Changes</CardHeader>
-                <div className="p-4 text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{song.changes_summary}</div>
-              </Card>
-            )}
-
-            {revisions.length > 1 && (
-              <div className="mt-4 border-t border-border pt-3">
-                <h4 className="text-sm text-muted-foreground mb-2">Revision History ({revisions.length} versions)</h4>
-                {revisions.map(rev => (
-                  <div key={rev.id} className="text-xs py-1 text-muted-foreground border-b border-border last:border-b-0 font-[family-name:var(--font-data)] tabular-nums">
-                    v{rev.version} · {rev.edit_type === 'chat' ? 'Chat edit' : 'Full rewrite'} · {rev.changes_summary || 'No summary'} · {new Date(rev.created_at).toLocaleString()}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="flex gap-4 text-xs text-muted-foreground pt-2 font-[family-name:var(--font-data)] tabular-nums">
-              {song.current_version > 1 && <span>Version {song.current_version}</span>}
-              <span>{new Date(song.created_at).toLocaleDateString()}</span>
-            </div>
-          </div>
-        )}
+        <PerformanceSheet song={song} className="flex-1 min-h-0 overflow-y-auto" />
 
         <ConfirmDialog
           open={dialogState.kind === 'delete'}
@@ -1003,6 +888,17 @@ export default function LibraryTab() {
           variant="destructive"
           onConfirm={() => {
             if (dialogState.kind === 'delete') handleDeleteConfirmed(dialogState.songUuid);
+          }}
+        />
+
+        <PromptDialog
+          open={dialogState.kind === 'rename'}
+          onOpenChange={(open) => { if (!open) setDialogState({ kind: 'none' }); }}
+          title="Rename Song"
+          fields={renameFields}
+          confirmLabel="Save"
+          onConfirm={(values) => {
+            if (dialogState.kind === 'rename') handleRenameConfirmed(dialogState.song, values);
           }}
         />
       </div>
