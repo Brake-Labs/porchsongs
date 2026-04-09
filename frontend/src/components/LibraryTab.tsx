@@ -877,102 +877,106 @@ export default function LibraryTab() {
     const sliderValue = perfFontSize ?? 16;
     return (
       <div className="flex flex-col h-full min-h-0 w-full">
-        <div className="flex items-center gap-3 mb-2 shrink-0">
-          <button
-            onClick={handleBack}
-            className="text-sm text-muted-foreground hover:text-foreground cursor-pointer"
-            aria-label="Back to library"
-          >
-            &larr;
-          </button>
-          <div className="flex-1 min-w-0">
-            <span className="font-display text-lg font-bold text-foreground truncate">
-              {song.title || 'Untitled'}
-            </span>
-            {song.artist && (
-              <span className="text-sm text-muted-foreground ml-2">{song.artist}</span>
-            )}
+        <div className="shrink-0 mb-2">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleBack}
+              className="text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+              aria-label="Back to library"
+            >
+              &larr;
+            </button>
+            <div className="flex-1 min-w-0">
+              <span className="font-display text-lg font-bold text-foreground truncate">
+                {song.title || 'Untitled'}
+              </span>
+              {song.artist && (
+                <span className="text-sm text-muted-foreground ml-2">{song.artist}</span>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Button variant="default" size="sm" onClick={() => onLoadSong(song)}>Edit</Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className="bg-transparent border border-border rounded-md cursor-pointer text-xl leading-none px-2 py-1.5 text-muted-foreground hover:bg-panel hover:text-foreground"
+                    aria-label="Song actions"
+                  >
+                    &hellip;
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => handleDownloadPdf(song)}>
+                    Download PDF
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleRenameRequest(song)}>
+                    Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-danger hover:!bg-danger-light"
+                    onClick={() => handleDeleteRequest(song.uuid)}
+                  >
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-muted-foreground whitespace-nowrap min-w-[32px] text-right">
-              {perfFontSize === null ? 'Auto' : `${Math.round(perfFontSize)}px`}
-            </span>
-            <input
-              type="range"
-              min={6}
-              max={28}
-              step={1}
-              value={Math.round(sliderValue)}
-              onChange={(e) => setPerfFontSize(Number(e.target.value))}
-              onMouseUp={() => persistPerfFontSize(perfFontSize)}
-              onTouchEnd={() => persistPerfFontSize(perfFontSize)}
-              className="w-20 h-1 accent-primary cursor-pointer"
-              title="Text size"
-              aria-label="Font size"
-            />
-            {perfFontSize !== null && (
+          <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground whitespace-nowrap min-w-[32px] text-right">
+                {perfFontSize === null ? 'Auto' : `${Math.round(perfFontSize)}px`}
+              </span>
+              <input
+                type="range"
+                min={6}
+                max={28}
+                step={1}
+                value={Math.round(sliderValue)}
+                onChange={(e) => setPerfFontSize(Number(e.target.value))}
+                onMouseUp={() => persistPerfFontSize(perfFontSize)}
+                onTouchEnd={() => persistPerfFontSize(perfFontSize)}
+                className="w-20 h-1 accent-primary cursor-pointer"
+                title="Text size"
+                aria-label="Font size"
+              />
+              {perfFontSize !== null && (
+                <button
+                  onClick={() => { setPerfFontSize(null); persistPerfFontSize(null); }}
+                  className="text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+                  title="Reset to auto size"
+                  aria-label="Reset to auto font size"
+                >
+                  &times;
+                </button>
+              )}
+            </div>
+            {showScrollToggle && (
               <button
-                onClick={() => { setPerfFontSize(null); persistPerfFontSize(null); }}
-                className="text-xs text-muted-foreground hover:text-foreground cursor-pointer"
-                title="Reset to auto size"
-                aria-label="Reset to auto font size"
+                className="inline-flex bg-transparent hover:bg-panel rounded-md p-1.5 cursor-pointer text-muted-foreground hover:text-foreground transition-colors"
+                onClick={togglePerfScrollDir}
+                title={perfScrollDir === 'vertical' ? 'Switch to horizontal scroll' : 'Switch to vertical scroll'}
+                aria-label={perfScrollDir === 'vertical' ? 'Switch to horizontal scroll' : 'Switch to vertical scroll'}
               >
-                &times;
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+                  {perfScrollDir === 'vertical' ? (
+                    <>
+                      <rect x="2" y="3" width="12" height="10" rx="1" />
+                      <line x1="5" y1="3" x2="5" y2="13" />
+                      <line x1="11" y1="3" x2="11" y2="13" />
+                    </>
+                  ) : (
+                    <>
+                      <rect x="2" y="3" width="12" height="10" rx="1" />
+                      <line x1="4" y1="6" x2="12" y2="6" />
+                      <line x1="4" y1="8" x2="12" y2="8" />
+                      <line x1="4" y1="10" x2="9" y2="10" />
+                    </>
+                  )}
+                </svg>
               </button>
             )}
-          </div>
-          {showScrollToggle && (
-            <button
-              className="inline-flex bg-transparent hover:bg-panel rounded-md p-1.5 cursor-pointer text-muted-foreground hover:text-foreground transition-colors"
-              onClick={togglePerfScrollDir}
-              title={perfScrollDir === 'vertical' ? 'Switch to horizontal scroll' : 'Switch to vertical scroll'}
-              aria-label={perfScrollDir === 'vertical' ? 'Switch to horizontal scroll' : 'Switch to vertical scroll'}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-                {perfScrollDir === 'vertical' ? (
-                  <>
-                    <rect x="2" y="3" width="12" height="10" rx="1" />
-                    <line x1="5" y1="3" x2="5" y2="13" />
-                    <line x1="11" y1="3" x2="11" y2="13" />
-                  </>
-                ) : (
-                  <>
-                    <rect x="2" y="3" width="12" height="10" rx="1" />
-                    <line x1="4" y1="6" x2="12" y2="6" />
-                    <line x1="4" y1="8" x2="12" y2="8" />
-                    <line x1="4" y1="10" x2="9" y2="10" />
-                  </>
-                )}
-              </svg>
-            </button>
-          )}
-          <div className="flex items-center gap-1.5 shrink-0">
-            <Button variant="default" size="sm" onClick={() => onLoadSong(song)}>Edit</Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  className="bg-transparent border border-border rounded-md cursor-pointer text-xl leading-none px-2 py-1.5 text-muted-foreground hover:bg-panel hover:text-foreground"
-                  aria-label="Song actions"
-                >
-                  &hellip;
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => handleDownloadPdf(song)}>
-                  Download PDF
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleRenameRequest(song)}>
-                  Rename
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  className="text-danger hover:!bg-danger-light"
-                  onClick={() => handleDeleteRequest(song.uuid)}
-                >
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
           </div>
         </div>
 
