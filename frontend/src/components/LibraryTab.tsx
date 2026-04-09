@@ -899,7 +899,7 @@ export default function LibraryTab() {
             </span>
             <input
               type="range"
-              min={10}
+              min={6}
               max={28}
               step={1}
               value={Math.round(sliderValue)}
