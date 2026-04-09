@@ -893,7 +893,7 @@ export default function LibraryTab() {
               <span className="text-sm text-muted-foreground ml-2">{song.artist}</span>
             )}
           </div>
-          <div className="hidden sm:flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
             <span className="text-xs text-muted-foreground whitespace-nowrap min-w-[32px] text-right">
               {perfFontSize === null ? 'Auto' : `${Math.round(perfFontSize)}px`}
             </span>
@@ -923,7 +923,7 @@ export default function LibraryTab() {
           </div>
           {showScrollToggle && (
             <button
-              className="hidden md:inline-flex bg-transparent hover:bg-panel rounded-md p-1.5 cursor-pointer text-muted-foreground hover:text-foreground transition-colors"
+              className="inline-flex bg-transparent hover:bg-panel rounded-md p-1.5 cursor-pointer text-muted-foreground hover:text-foreground transition-colors"
               onClick={togglePerfScrollDir}
               title={perfScrollDir === 'vertical' ? 'Switch to horizontal scroll' : 'Switch to vertical scroll'}
               aria-label={perfScrollDir === 'vertical' ? 'Switch to horizontal scroll' : 'Switch to vertical scroll'}
