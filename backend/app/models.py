@@ -141,6 +141,8 @@ class ChatMessage(Base):
     is_note: Mapped[bool] = mapped_column(Boolean, default=False)
     reasoning: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     model: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
     song: Mapped["Song"] = relationship("Song", back_populates="chat_messages")

@@ -261,6 +261,8 @@ async def list_messages(
             is_note=row.is_note,
             reasoning=row.reasoning,
             model=row.model,
+            input_tokens=row.input_tokens,
+            output_tokens=row.output_tokens,
             created_at=row.created_at,
         )
         for row in rows
@@ -284,6 +286,8 @@ async def save_messages(
             is_note=msg.is_note,
             reasoning=msg.reasoning,
             model=msg.model,
+            input_tokens=msg.input_tokens,
+            output_tokens=msg.output_tokens,
         )
         db.add(row)
         rows.append(row)

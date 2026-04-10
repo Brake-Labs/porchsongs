@@ -420,6 +420,34 @@ def test_chat_persists_messages(mock_amessages: MagicMock, client: TestClient) -
 
 
 @patch("app.services.llm_service.amessages")
+def test_chat_persists_token_usage(mock_amessages: MagicMock, client: TestClient) -> None:
+    """POST /api/chat should persist input/output token counts on assistant message."""
+    _, song = _make_profile_and_song(client)
+
+    mock_amessages.return_value = _fake_message_response(
+        "<content>\nUpdated line\n</content>\nChanged it."
+    )
+
+    client.post(
+        "/api/chat",
+        json={
+            "song_id": song["id"],
+            "messages": [{"role": "user", "content": "Rewrite it"}],
+            **LLM_SETTINGS,
+        },
+    )
+
+    msgs = client.get(f"/api/songs/{song['id']}/messages").json()
+    assert len(msgs) == 2
+    # User message has no token usage
+    assert msgs[0]["input_tokens"] is None
+    assert msgs[0]["output_tokens"] is None
+    # Assistant message has token usage from the LLM response
+    assert msgs[1]["input_tokens"] == 10
+    assert msgs[1]["output_tokens"] == 20
+
+
+@patch("app.services.llm_service.amessages")
 def test_chat_conversational_no_content(mock_amessages: MagicMock, client: TestClient) -> None:
     """When the LLM responds without <content> tags, no version bump or revision is created."""
     _, song = _make_profile_and_song(client)

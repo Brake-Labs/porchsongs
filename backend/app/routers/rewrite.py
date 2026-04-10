@@ -480,6 +480,8 @@ def _persist_chat_result(
     original_content: str | None = None,
     reasoning: str | None = None,
     model: str | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
 ) -> None:
     """Update song, create revision, and save assistant message (does not commit).
 
@@ -512,6 +514,8 @@ def _persist_chat_result(
             is_note=False,
             reasoning=reasoning,
             model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
         )
     )
 
@@ -522,6 +526,7 @@ async def _finish_chat_in_background(
     reasoning_accumulated: str,
     song_id: int,
     model: str | None,
+    usage_data: dict[str, int] | None = None,
 ) -> None:
     """Continue consuming an LLM stream and persist the result after client disconnect.
 
@@ -533,7 +538,7 @@ async def _finish_chat_in_background(
                 if kind == "reasoning":
                     reasoning_accumulated += text
                 elif kind == "usage":
-                    pass  # usage stats not needed for persistence
+                    usage_data = json.loads(text)
                 else:
                     accumulated += text
     except TimeoutError:
@@ -560,6 +565,8 @@ async def _finish_chat_in_background(
             original_content=parsed.get("original_content"),
             reasoning=reasoning_accumulated or None,
             model=model,
+            input_tokens=usage_data.get("input_tokens") if usage_data else None,
+            output_tokens=usage_data.get("output_tokens") if usage_data else None,
         )
         db.commit()
         logger.info("Background chat persist succeeded for song %s", song_id)
@@ -618,6 +625,7 @@ async def chat(
     except Exception as e:
         raise HTTPException(status_code=502, detail=_format_llm_error(e, req.provider)) from None
 
+    usage_data = result.get("usage")
     _persist_chat_result(
         db,
         song,
@@ -627,10 +635,11 @@ async def chat(
         original_content=result.get("original_content"),
         reasoning=result.get("reasoning"),
         model=req.model,
+        input_tokens=usage_data.get("input_tokens") if usage_data else None,
+        output_tokens=usage_data.get("output_tokens") if usage_data else None,
     )
     db.commit()
 
-    usage_data = result.get("usage")
     usage = TokenUsage(**usage_data) if usage_data else None
 
     return ChatResponse(
@@ -699,7 +708,9 @@ async def chat_stream(
                     # async for already consumed it from the iterator.
                     if kind == "reasoning":
                         reasoning_accumulated += text
-                    elif kind != "usage":
+                    elif kind == "usage":
+                        usage_data = json.loads(text)
+                    else:
                         accumulated += text
                     # Client gone (e.g. mobile tab suspended).
                     # Finish the LLM call in a background task so the
@@ -711,6 +722,7 @@ async def chat_stream(
                             reasoning_accumulated,
                             song_id,
                             req.model,
+                            usage_data=usage_data,
                         )
                     )
                     _background_tasks.add(task)
@@ -776,6 +788,8 @@ async def chat_stream(
                     original_content=parsed.get("original_content"),
                     reasoning=reasoning_accumulated or None,
                     model=req.model,
+                    input_tokens=usage_data.get("input_tokens") if usage_data else None,
+                    output_tokens=usage_data.get("output_tokens") if usage_data else None,
                 )
                 persist_db.commit()
                 version = fresh_song.current_version

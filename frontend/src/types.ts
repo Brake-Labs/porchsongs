@@ -48,6 +48,8 @@ export interface ChatMessage {
   rawContent?: string;
   reasoning?: string;
   model?: string;
+  input_tokens?: number;
+  output_tokens?: number;
   images?: string[];  // base64 data URLs for display in bubbles
   pending?: boolean;  // queued while LLM is busy, awaiting delivery
   errorType?: string; // error classification from backend (e.g. "provider_rate_limit")

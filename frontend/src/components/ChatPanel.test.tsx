@@ -368,4 +368,18 @@ describe('ChatPanel', () => {
       expect(payload).not.toHaveProperty('rewritten_content');
     });
   });
+
+  it('restores accumulated token usage from loaded messages', () => {
+    const messages: ChatMessage[] = [
+      { role: 'user', content: 'Edit 1' },
+      { role: 'assistant', content: 'Done 1', input_tokens: 100, output_tokens: 200 },
+      { role: 'user', content: 'Edit 2' },
+      { role: 'assistant', content: 'Done 2', input_tokens: 150, output_tokens: 300 },
+    ];
+    render(<ChatPanel {...defaults} messages={messages} />);
+
+    // UsageFooter should display the accumulated totals (250 in / 500 out)
+    expect(screen.getByText(/250/)).toBeInTheDocument();
+    expect(screen.getByText(/500/)).toBeInTheDocument();
+  });
 });

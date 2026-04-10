@@ -338,6 +338,24 @@ def test_get_chat_messages(client: TestClient) -> None:
     assert data[0]["id"] < data[3]["id"]
 
 
+def test_chat_messages_token_usage_roundtrip(client: TestClient) -> None:
+    """Token usage saved via POST should be returned by GET."""
+    song = _make_song(client)
+    messages = [
+        {"role": "user", "content": "Edit this"},
+        {"role": "assistant", "content": "Done", "input_tokens": 150, "output_tokens": 300},
+    ]
+    resp = client.post(f"/api/songs/{song['id']}/messages", json=messages)
+    assert resp.status_code == 201
+
+    resp = client.get(f"/api/songs/{song['id']}/messages")
+    data = resp.json()
+    assert data[0]["input_tokens"] is None
+    assert data[0]["output_tokens"] is None
+    assert data[1]["input_tokens"] == 150
+    assert data[1]["output_tokens"] == 300
+
+
 def test_get_chat_messages_song_not_found(client: TestClient) -> None:
     resp = client.get("/api/songs/9999/messages")
     assert resp.status_code == 404

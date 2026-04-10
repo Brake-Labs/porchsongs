@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import Spinner from '@/components/ui/spinner';
 import StreamingPre from '@/components/ui/streaming-pre';
 import { StreamParser } from '@/lib/streamParser';
+import { sumTokenUsage } from '@/lib/chat-utils';
 import type { AttachedFile, ChatMessage, LlmSettings, TokenUsage } from '@/types';
 
 function fileToBase64(file: File): Promise<string> {
@@ -106,7 +107,7 @@ export default function ChatPanel({ songId, profileId, messages, setMessages, ll
   const [streaming, setStreaming] = useState(false);
   const [reasoningText, setReasoningText] = useState('');
   const [lastFailedInput, setLastFailedInput] = useState<string | null>(null);
-  const [tokenUsage, setTokenUsage] = useState<TokenUsage>({ input_tokens: 0, output_tokens: 0 });
+  const [tokenUsage, setTokenUsage] = useState<TokenUsage>(() => sumTokenUsage(messages));
   const [attachments, setAttachments] = useState<AttachedFile[]>([]);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -116,6 +117,11 @@ export default function ChatPanel({ songId, profileId, messages, setMessages, ll
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const pendingQueue = useRef<Array<{ apiContent: string | Array<Record<string, unknown>>; text: string }>>([]);
+
+  // Restore accumulated token usage when loading a different song
+  useEffect(() => {
+    setTokenUsage(sumTokenUsage(messages));
+  }, [songId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const processFiles = useCallback(async (files: FileList | File[]) => {
     const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB
