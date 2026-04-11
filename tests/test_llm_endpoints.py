@@ -1066,6 +1066,55 @@ def test_abandoned_generator_spawns_background_task(
     assert len(revisions) == 2
 
 
+def test_finish_chat_in_background_zero_accumulated(client: TestClient, db_session: Session) -> None:
+    """When a client disconnects before the first LLM token, the background
+    task should still consume the entire stream and persist the result.
+    Regression test for the pre-first-token disconnect bug."""
+    from app.routers.rewrite import _finish_chat_in_background
+
+    _, song_data = _make_profile_and_song(client)
+    song_id = song_data["id"]
+
+    song = db_session.query(Song).filter(Song.id == song_id).first()
+    assert song is not None
+    assert song.current_version == 1
+
+    # Simulate: client disconnected before any tokens arrived.  The entire
+    # LLM response comes through the background task.
+    async def _fake_full_stream() -> AsyncIterator[tuple[str, str]]:
+        yield ("token", "<content>\nBrand new lyrics here")
+        yield ("token", "\n</content>")
+        yield ("token", "\nHere are the new lyrics I wrote.")
+        yield ("usage", '{"input_tokens": 50, "output_tokens": 30}')
+
+    # No tokens were accumulated before disconnect
+    accumulated = ""
+    reasoning = ""
+
+    asyncio.run(
+        _finish_chat_in_background(
+            _fake_full_stream(),
+            accumulated,
+            reasoning,
+            song_id,
+            "gpt-4o-mini",
+        )
+    )
+
+    db_session.expire_all()
+
+    song = db_session.query(Song).filter(Song.id == song_id).first()
+    assert song is not None
+    assert song.current_version == 2
+    assert "Brand new lyrics here" in song.rewritten_content
+
+    revisions = db_session.query(SongRevision).filter(SongRevision.song_id == song_id).all()
+    assert len(revisions) == 2
+
+    messages = db_session.query(ChatMessageModel).filter(ChatMessageModel.song_id == song_id).all()
+    assert any(m.role == "assistant" and m.model == "gpt-4o-mini" for m in messages)
+
+
 # --- Prompt caching tests ---
 
 

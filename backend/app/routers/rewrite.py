@@ -745,10 +745,13 @@ async def chat_stream(
             yield f"event: error\ndata: {json.dumps(_format_llm_error(e, req.provider))}\n\n"
             return
         finally:
-            if not _completed and stream is not None and accumulated:
+            if not _completed and stream is not None:
                 # Generator abandoned by Starlette (client disconnected between
                 # yields, so the is_disconnected() check never ran).  Spawn a
                 # background task to finish the LLM call and persist the result.
+                # This covers the pre-first-token window too: the LLM call was
+                # initiated, so we must let it complete even if no tokens have
+                # been accumulated yet.
                 logger.info(
                     "Chat stream generator abandoned with %d chars accumulated, "
                     "spawning background task for song %s",

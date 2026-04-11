@@ -139,7 +139,6 @@ async function _streamSse<T>(
     let buffer = '';
     let eventType = '';
     let result: T | null = null;
-    let receivedData = false;
 
     for (;;) {
       let readResult: ReadableStreamReadResult<Uint8Array>;
@@ -147,14 +146,14 @@ async function _streamSse<T>(
         readResult = await reader.read();
       } catch {
         // reader.read() rejects when the connection is killed (e.g. mobile
-        // browser suspended the tab). If we already received data, the
-        // backend continues the LLM call and persists the result.
-        if (receivedData) throw new ConnectionLostError();
-        throw new Error('Connection failed');
+        // browser suspended the tab).  Since we have a reader the HTTP
+        // request succeeded, so the backend received it and will continue
+        // the LLM call in a background task — always treat this as a
+        // recoverable connection-lost rather than a hard failure.
+        throw new ConnectionLostError();
       }
       const { done, value } = readResult;
       if (done) break;
-      receivedData = true;
       buffer += decoder.decode(value, { stream: true });
 
       const lines = buffer.split('\n');
@@ -186,8 +185,7 @@ async function _streamSse<T>(
 
     if (!result) {
       // Stream ended without a done event — connection was dropped.
-      if (receivedData) throw new ConnectionLostError();
-      throw new Error('Stream ended without result');
+      throw new ConnectionLostError();
     }
     return result;
   };

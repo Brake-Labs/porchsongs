@@ -393,6 +393,7 @@ export default function ChatPanel({ songId, profileId, messages, setMessages, ll
         // The backend continues the LLM call and persists the result.
         // The visibility recovery hook will re-fetch when the tab returns.
         pendingQueue.current = [];
+        setLastFailedInput(null);
         setMessages(prev => [...prev.filter(m => !m.pending), { role: 'assistant' as const, content: 'Processing in background...', isNote: true }]);
       } else {
         pendingQueue.current = [];

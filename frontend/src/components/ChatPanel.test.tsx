@@ -369,6 +369,36 @@ describe('ChatPanel', () => {
     });
   });
 
+  describe('connection lost recovery', () => {
+    it('shows background processing note on ConnectionLostError instead of retry button', async () => {
+      const { ConnectionLostError } = await import('@/api');
+      vi.spyOn(api, 'chatStream').mockRejectedValue(new ConnectionLostError());
+
+      const setMessages = vi.fn();
+      render(<ChatPanel {...defaults} setMessages={setMessages} />);
+      const input = screen.getByPlaceholderText(/How would you like to change/) as HTMLTextAreaElement;
+
+      fireEvent.change(input, { target: { value: 'Make it jazzy' } });
+      await act(async () => {
+        fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+      });
+
+      // Should show "Processing in background..." note, not a retry button
+      const lastCall = setMessages.mock.calls[setMessages.mock.calls.length - 1]!;
+      // setMessages is called with a callback; invoke it to get the resulting messages
+      const result = typeof lastCall[0] === 'function' ? lastCall[0]([{ role: 'user', content: 'Make it jazzy' }]) : lastCall[0];
+      const lastMsg = result[result.length - 1];
+      expect(lastMsg.content).toBe('Processing in background...');
+      expect(lastMsg.isNote).toBe(true);
+      // Retry button should NOT be shown (no Error: prefix)
+      expect(lastMsg.content).not.toMatch(/^Error:/);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+  });
+
   it('restores accumulated token usage from loaded messages', () => {
     const messages: ChatMessage[] = [
       { role: 'user', content: 'Edit 1' },
