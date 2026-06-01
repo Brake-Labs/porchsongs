@@ -19,66 +19,13 @@ import {
 import ConfirmDialog from '@/components/ui/confirm-dialog';
 import PromptDialog, { type PromptField } from '@/components/ui/prompt-dialog';
 import { cn } from '@/lib/utils';
-import useAutoFontSize from '@/hooks/useAutoFontSize';
+import usePerformanceLayout from '@/hooks/usePerformanceLayout';
+import { maxColumnsForContent, splitContentForColumns } from '@/lib/performanceLayout';
 import type { AppShellContext } from '@/layouts/AppShell';
 import type { Song } from '@/types';
 
-/**
- * Split lyrics into N balanced columns at section boundaries.
- * Returns null if the content is too short to split.
- */
-const MIN_LINES_PER_COLUMN = 10;
-
-export function splitContentForColumns(text: string, numCols: number): string[] | null {
-  if (numCols <= 1) return null;
-
-  const lines = text.split('\n');
-  if (lines.length < MIN_LINES_PER_COLUMN * numCols) return null;
-
-  const boundaries: number[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i]!.trim();
-    if (trimmed === '' || /^\[.+\]$/.test(trimmed)) {
-      boundaries.push(i);
-    }
-  }
-
-  if (boundaries.length < numCols - 1) return null;
-
-  // Find numCols-1 split points that divide content most evenly
-  const targetSize = lines.length / numCols;
-  const splitPoints: number[] = [];
-
-  for (let col = 1; col < numCols; col++) {
-    const target = targetSize * col;
-    const minLine = splitPoints.length > 0 ? splitPoints[splitPoints.length - 1]! + MIN_LINES_PER_COLUMN : lines.length * 0.1;
-    let bestIdx = -1;
-    let bestDist = Infinity;
-    for (const idx of boundaries) {
-      if (idx <= minLine) continue;
-      if (idx >= lines.length - MIN_LINES_PER_COLUMN) continue;
-      const dist = Math.abs(idx - target);
-      if (dist < bestDist) {
-        bestDist = dist;
-        bestIdx = idx;
-      }
-    }
-    if (bestIdx === -1) return null;
-
-    const isSectionHeader = /^\[.+\]$/.test(lines[bestIdx]!.trim());
-    splitPoints.push(isSectionHeader ? bestIdx : bestIdx + 1);
-  }
-
-  const columns: string[] = [];
-  let start = 0;
-  for (const sp of splitPoints) {
-    columns.push(lines.slice(start, sp).join('\n').replace(/\n+$/, ''));
-    start = sp;
-  }
-  columns.push(lines.slice(start).join('\n').replace(/^\n+/, ''));
-
-  return columns;
-}
+// Re-exported for tests and callers that import from this module.
+export { splitContentForColumns };
 
 const PRE_BASE_CLASS = 'font-mono text-xs sm:text-code leading-snug whitespace-pre text-foreground';
 
@@ -162,71 +109,44 @@ function FolderPill({
   );
 }
 
-/**
- * Determine the best auto column count based on viewport width.
- * Returns 1-4 columns, scaling with available width.
- */
-function autoColumnCount(viewportWidth: number): number {
-  if (viewportWidth >= 1920) return 4;
-  if (viewportWidth >= 1536) return 3;
-  if (viewportWidth >= 1280) return 2;
-  return 1;
-}
-
-/**
- * Determine the max column count the content can support.
- */
-function maxColumnsForContent(text: string): number {
-  const lineCount = text.split('\n').length;
-  if (lineCount >= MIN_LINES_PER_COLUMN * 4) return 4;
-  if (lineCount >= MIN_LINES_PER_COLUMN * 3) return 3;
-  if (lineCount >= MIN_LINES_PER_COLUMN * 2) return 2;
-  return 1;
-}
-
 const GRID_COL_CLASSES: Record<number, string> = {
   2: 'grid grid-cols-2 gap-4',
-  3: 'grid grid-cols-3 gap-3',
-  4: 'grid grid-cols-4 gap-2',
+  3: 'grid grid-cols-3 gap-4',
+  4: 'grid grid-cols-4 gap-4',
 };
+
+/** Column preference: 'auto' lets the layout decide, or force a fixed count. */
+export type ColumnPref = 'auto' | 1 | 2 | 3 | 4;
 
 interface PerformanceSheetProps {
   song: Song;
   className?: string;
   fontSizeOverride?: number | null;
-  scrollDir?: 'vertical' | 'horizontal';
+  columnsPref?: ColumnPref;
 }
 
-function PerformanceSheet({ song, className, fontSizeOverride, scrollDir = 'vertical' }: PerformanceSheetProps) {
+function PerformanceSheet({ song, className, fontSizeOverride, columnsPref = 'auto' }: PerformanceSheetProps) {
   const text = song.rewritten_content;
   const sheetRef = useRef<HTMLDivElement>(null);
-  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
 
-  useEffect(() => {
-    const handleResize = () => setViewportWidth(window.innerWidth);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  const layout = usePerformanceLayout(sheetRef, text, columnsPref);
+  const { columns, numCols } = layout;
+  const isMultiCol = numCols > 1 && columns !== null;
 
-  const maxCols = useMemo(() => maxColumnsForContent(text), [text]);
-  const isHorizontal = scrollDir === 'horizontal' && maxCols >= 2;
-  const autoCols = isHorizontal
-    ? Math.max(2, Math.min(autoColumnCount(viewportWidth), maxCols))
-    : 1;
-  const columns = useMemo(() => splitContentForColumns(text, autoCols), [text, autoCols]);
-  const isMultiCol = autoCols > 1 && columns !== null;
-
-  const columnOverhead = isMultiCol ? 17 * (autoCols - 1) : 0;
-  const autoFontSize = useAutoFontSize(sheetRef, text, { columnOverhead });
-  const effectiveSize = fontSizeOverride ?? autoFontSize;
+  const effectiveSize = fontSizeOverride ?? layout.fontSize;
   const fontStyle = effectiveSize !== undefined ? { fontSize: `${effectiveSize}px` } : undefined;
 
   return (
     <div
       ref={sheetRef}
       className={cn(
-        isHorizontal ? 'overflow-x-auto overflow-y-hidden' : 'overflow-y-auto',
-        isMultiCol && GRID_COL_CLASSES[autoCols],
+        'overflow-y-auto',
+        // Multi-column is sized to fit the screen, so it never scrolls sideways.
+        // Single column allows horizontal scroll only as a last resort: when one
+        // chart line is wider than the screen even at the minimum font, scrolling
+        // beats clipping a chord off the edge.
+        isMultiCol ? 'overflow-x-hidden' : 'overflow-x-auto',
+        isMultiCol && GRID_COL_CLASSES[numCols],
         className,
       )}
     >
@@ -237,7 +157,7 @@ function PerformanceSheet({ song, className, fontSizeOverride, scrollDir = 'vert
             className={cn(
               PRE_BASE_CLASS,
               'min-w-0',
-              i < columns.length - 1 && 'border-r border-border pr-3'
+              i < columns.length - 1 && 'border-r border-border pr-4'
             )}
             style={fontStyle}
           >
@@ -500,22 +420,21 @@ export default function LibraryTab() {
 
   // Performance view: font size override (per-song, persisted to DB)
   const [perfFontSize, setPerfFontSize] = useState<number | null>(null);
-  // Performance view: scroll direction (user preference, persisted to localStorage)
-  const [perfScrollDir, setPerfScrollDir] = useState<'vertical' | 'horizontal'>(() => {
+  // Performance view: column preference (user preference, persisted to localStorage).
+  // 'auto' lets the layout fit the song to the screen; a number forces a count.
+  const [perfColumns, setPerfColumns] = useState<ColumnPref>(() => {
     const stored = localStorage.getItem(STORAGE_KEYS.PERFORMANCE_LAYOUT);
-    return stored === 'horizontal' ? 'horizontal' : 'vertical';
+    const n = Number(stored);
+    return stored && Number.isInteger(n) && n >= 1 && n <= 4 ? (n as ColumnPref) : 'auto';
   });
 
   useEffect(() => {
     setPerfFontSize(viewingSong?.font_size ?? null);
   }, [viewingSong?.uuid, viewingSong?.font_size]);
 
-  const togglePerfScrollDir = useCallback(() => {
-    setPerfScrollDir(prev => {
-      const next = prev === 'vertical' ? 'horizontal' : 'vertical';
-      localStorage.setItem(STORAGE_KEYS.PERFORMANCE_LAYOUT, next);
-      return next;
-    });
+  const handlePerfColumnsChange = useCallback((value: ColumnPref) => {
+    setPerfColumns(value);
+    localStorage.setItem(STORAGE_KEYS.PERFORMANCE_LAYOUT, String(value));
   }, []);
 
   const containerClass = scrollDir === 'horizontal' ? 'w-full' : 'max-w-[1120px] mx-auto w-full';
@@ -873,7 +792,8 @@ export default function LibraryTab() {
   // --- Performance View (single song) ---
   if (viewingSong) {
     const song = viewingSong;
-    const showScrollToggle = maxColumnsForContent(song.rewritten_content) >= 2;
+    const maxCols = maxColumnsForContent(song.rewritten_content);
+    const showColumnSelect = maxCols >= 2;
     const sliderValue = perfFontSize ?? 16;
     return (
       <div className="flex flex-col h-full min-h-0 w-full bg-card rounded-lg p-3 sm:p-4">
@@ -952,35 +872,29 @@ export default function LibraryTab() {
                 </button>
               )}
             </div>
-            {showScrollToggle && (
-              <button
-                className="inline-flex bg-transparent hover:bg-panel rounded-md p-1.5 cursor-pointer text-muted-foreground hover:text-foreground transition-colors"
-                onClick={togglePerfScrollDir}
-                title={perfScrollDir === 'vertical' ? 'Switch to horizontal scroll' : 'Switch to vertical scroll'}
-                aria-label={perfScrollDir === 'vertical' ? 'Switch to horizontal scroll' : 'Switch to vertical scroll'}
-              >
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-                  {perfScrollDir === 'vertical' ? (
-                    <>
-                      <rect x="2" y="3" width="12" height="10" rx="1" />
-                      <line x1="5" y1="3" x2="5" y2="13" />
-                      <line x1="11" y1="3" x2="11" y2="13" />
-                    </>
-                  ) : (
-                    <>
-                      <rect x="2" y="3" width="12" height="10" rx="1" />
-                      <line x1="4" y1="6" x2="12" y2="6" />
-                      <line x1="4" y1="8" x2="12" y2="8" />
-                      <line x1="4" y1="10" x2="9" y2="10" />
-                    </>
-                  )}
-                </svg>
-              </button>
+            {showColumnSelect && (
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="whitespace-nowrap">Columns</span>
+                <Select
+                  value={String(perfColumns)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    handlePerfColumnsChange(v === 'auto' ? 'auto' : (Number(v) as ColumnPref));
+                  }}
+                  className="w-auto px-2 py-1 text-xs"
+                  aria-label="Number of columns"
+                >
+                  <option value="auto">Auto</option>
+                  {Array.from({ length: maxCols }, (_, i) => i + 1).map((n) => (
+                    <option key={n} value={String(n)}>{n}</option>
+                  ))}
+                </Select>
+              </label>
             )}
           </div>
         </div>
 
-        <PerformanceSheet song={song} className="flex-1 min-h-0" fontSizeOverride={perfFontSize} scrollDir={perfScrollDir} />
+        <PerformanceSheet song={song} className="flex-1 min-h-0" fontSizeOverride={perfFontSize} columnsPref={perfColumns} />
 
         <ConfirmDialog
           open={dialogState.kind === 'delete'}
