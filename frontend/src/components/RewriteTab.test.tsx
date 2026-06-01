@@ -16,6 +16,7 @@ vi.mock('@/api', () => ({
     parseStream: vi.fn(),
     parseImage: vi.fn().mockResolvedValue({ text: '' }),
     extractFile: vi.fn().mockResolvedValue({ text: '' }),
+    scrapeUrl: vi.fn().mockResolvedValue({ text: '', title: null, artist: null, source_url: '' }),
     listSongs: vi.fn().mockResolvedValue([]),
     updateSong: vi.fn().mockResolvedValue({}),
     saveSong: vi.fn().mockResolvedValue({ id: 99, uuid: 'uuid-99', profile_id: 1 }),
@@ -648,6 +649,104 @@ describe('RewriteTab', () => {
       // Should have called onClearParse to clear parse state in AppShell
       expect(onClearParse).toHaveBeenCalled();
       expect(onNewRewrite).toHaveBeenCalledWith(null, null);
+    });
+  });
+
+  describe('Import from Link', () => {
+    it('renders the Import from Link button in INPUT state', () => {
+      render(<RewriteTab {...makeProps()} />);
+      expect(screen.getByText('Import from Link')).toBeInTheDocument();
+    });
+
+    it('opens a dialog with a URL field when clicked', () => {
+      render(<RewriteTab {...makeProps()} />);
+      fireEvent.click(screen.getByText('Import from Link'));
+      expect(screen.getByText('Import from a link')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/ultimate-guitar/)).toBeInTheDocument();
+    });
+
+    it('scrapes the URL and populates the textarea with the returned text', async () => {
+      vi.mocked(api.scrapeUrl).mockResolvedValue({
+        text: 'Im Yours - Jason Mraz\n\nG  D\nWell you done done me',
+        title: 'Im Yours',
+        artist: 'Jason Mraz',
+        source_url: 'https://tabs.ultimate-guitar.com/tab/jason-mraz/im-yours',
+      });
+
+      render(<RewriteTab {...makeProps()} />);
+      fireEvent.click(screen.getByText('Import from Link'));
+
+      const urlInput = screen.getByPlaceholderText(/ultimate-guitar/);
+      fireEvent.change(urlInput, {
+        target: { value: 'https://tabs.ultimate-guitar.com/tab/jason-mraz/im-yours' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Fetch chords' }));
+
+      await waitFor(() => {
+        expect(api.scrapeUrl).toHaveBeenCalledWith({
+          profile_id: 1,
+          url: 'https://tabs.ultimate-guitar.com/tab/jason-mraz/im-yours',
+        });
+      });
+
+      // Dialog closes and the textarea is filled with the scraped text
+      await waitFor(() => {
+        const textarea = screen.getByPlaceholderText(/Paste lyrics/) as HTMLTextAreaElement;
+        expect(textarea.value).toContain('Well you done done me');
+      });
+    });
+
+    it('records source_url on the saved song after importing from a link', async () => {
+      const parseResult = {
+        title: 'Im Yours',
+        artist: 'Jason Mraz',
+        original_content: 'G  D\nWell you done done me',
+      } as ParseResult;
+      const onParse = vi.fn().mockResolvedValue(parseResult);
+      vi.mocked(api.scrapeUrl).mockResolvedValue({
+        text: 'G  D\nWell you done done me',
+        title: 'Im Yours',
+        artist: 'Jason Mraz',
+        source_url: 'https://tabs.ultimate-guitar.com/tab/jason-mraz/im-yours',
+      });
+      vi.mocked(api.saveSong).mockResolvedValue({ id: 7, uuid: 'uuid-7', profile_id: 1 } as never);
+
+      render(<RewriteTab {...makeProps({ onParse })} />);
+
+      // Import from link
+      fireEvent.click(screen.getByText('Import from Link'));
+      fireEvent.change(screen.getByPlaceholderText(/ultimate-guitar/), {
+        target: { value: 'https://tabs.ultimate-guitar.com/tab/jason-mraz/im-yours' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Fetch chords' }));
+
+      await waitFor(() => expect(api.scrapeUrl).toHaveBeenCalled());
+
+      // Then run the import (parse)
+      await waitFor(() => screen.getByText('Import Song'));
+      fireEvent.click(screen.getByText('Import Song'));
+
+      await waitFor(() => {
+        expect(api.saveSong).toHaveBeenCalledWith(expect.objectContaining({
+          source_url: 'https://tabs.ultimate-guitar.com/tab/jason-mraz/im-yours',
+        }));
+      });
+    });
+
+    it('surfaces an error when scraping fails', async () => {
+      const setParseError = vi.fn();
+      vi.mocked(api.scrapeUrl).mockRejectedValue(new Error('That site blocked the request.'));
+
+      render(<RewriteTab {...makeProps({ setParseError })} />);
+      fireEvent.click(screen.getByText('Import from Link'));
+      fireEvent.change(screen.getByPlaceholderText(/ultimate-guitar/), {
+        target: { value: 'https://example.com/song' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Fetch chords' }));
+
+      await waitFor(() => {
+        expect(setParseError).toHaveBeenCalledWith(expect.stringContaining('blocked'));
+      });
     });
   });
 

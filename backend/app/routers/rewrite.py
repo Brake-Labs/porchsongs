@@ -38,8 +38,10 @@ from ..schemas import (
     ParseResponse,
     ProvidersResponse,
     TokenUsage,
+    UrlScrapeRequest,
+    UrlScrapeResponse,
 )
-from ..services import llm_service
+from ..services import llm_service, scrape_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -417,6 +419,37 @@ async def parse_file(
             status_code=422,
             detail="Unsupported file type. Supported formats: PDF, TXT.",
         )
+
+
+@router.post("/parse/url", response_model=UrlScrapeResponse)
+async def parse_url(
+    req: UrlScrapeRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UrlScrapeResponse:
+    """Scrape a web page (e.g. an Ultimate Guitar link) for song text.
+
+    Returns the extracted text (with any detected title/artist prepended) so it
+    can flow through the normal parse pipeline, plus the source URL for record.
+    """
+    get_user_profile(db, current_user, req.profile_id)
+
+    try:
+        result = await asyncio.to_thread(scrape_service.scrape_url, req.url)
+    except scrape_service.ScrapeError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e)) from None
+    except Exception:
+        logger.exception("URL scrape failed for %s", req.url)
+        raise HTTPException(
+            status_code=502, detail="Something went wrong fetching that link. Please try again."
+        ) from None
+
+    return UrlScrapeResponse(
+        text=result.text,
+        title=result.title,
+        artist=result.artist,
+        source_url=req.url,
+    )
 
 
 def _deserialize_content(raw: str) -> str | list[dict[str, object]]:

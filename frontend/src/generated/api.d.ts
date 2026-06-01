@@ -366,6 +366,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/parse/url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Parse Url
+         * @description Scrape a web page (e.g. an Ultimate Guitar link) for song text.
+         *
+         *     Returns the extracted text (with any detected title/artist prepended) so it
+         *     can flow through the normal parse pipeline, plus the source URL for record.
+         */
+        post: operations["parse_url_api_parse_url_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/chat": {
         parameters: {
             query?: never;
@@ -1034,6 +1057,24 @@ export interface components {
             cache_creation_input_tokens?: number | null;
             /** Cache Read Input Tokens */
             cache_read_input_tokens?: number | null;
+        };
+        /** UrlScrapeRequest */
+        UrlScrapeRequest: {
+            /** Profile Id */
+            profile_id: number;
+            /** Url */
+            url: string;
+        };
+        /** UrlScrapeResponse */
+        UrlScrapeResponse: {
+            /** Text */
+            text: string;
+            /** Title */
+            title?: string | null;
+            /** Artist */
+            artist?: string | null;
+            /** Source Url */
+            source_url: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -1970,6 +2011,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FileExtractResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    parse_url_api_parse_url_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UrlScrapeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UrlScrapeResponse"];
                 };
             };
             /** @description Validation Error */

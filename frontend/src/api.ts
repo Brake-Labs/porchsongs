@@ -10,6 +10,7 @@ import type {
   SavedModel,
   Song,
   SongRevision,
+  UrlScrapeResult,
 } from '@/types';
 import client, {
   getAccessToken,
@@ -306,6 +307,37 @@ const api = {
       throw new Error(_parseApiError(errBody, `Request failed: ${res.status}`));
     }
     return res.json() as Promise<{ text: string }>;
+  },
+
+  // URL scrape (Ultimate Guitar and other chord sites, no LLM needed)
+  scrapeUrl: async (body: { profile_id: number; url: string }) => {
+    const res = await fetch('/api/parse/url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ..._getAuthHeaders() },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 401) {
+      const refreshed = await tryRefresh();
+      if (refreshed) {
+        const retry = await fetch('/api/parse/url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ..._getAuthHeaders() },
+          body: JSON.stringify(body),
+        });
+        if (!retry.ok) {
+          const errBody = await retry.json().catch(() => ({}));
+          throw new Error(_parseApiError(errBody, `Request failed: ${retry.status}`));
+        }
+        return retry.json() as Promise<UrlScrapeResult>;
+      }
+      window.dispatchEvent(new CustomEvent('porchsongs-logout'));
+      throw new Error('Authentication required. Please log in.');
+    }
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(_parseApiError(errBody, `Request failed: ${res.status}`));
+    }
+    return res.json() as Promise<UrlScrapeResult>;
   },
 
   // Songs

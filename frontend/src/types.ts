@@ -17,6 +17,7 @@ export interface AuthUser {
 }
 export type ChatHistoryRow = components['schemas']['ChatMessageOut'];
 export type ParseResult = components['schemas']['ParseResponse'];
+export type UrlScrapeResult = components['schemas']['UrlScrapeResponse'];
 export type TokenUsage = components['schemas']['TokenUsage'];
 export type ChatResult = components['schemas']['ChatResponse'];
 export type ProviderInfo = components['schemas']['ProviderInfo'];

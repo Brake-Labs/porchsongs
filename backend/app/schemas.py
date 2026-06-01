@@ -122,6 +122,18 @@ class FileExtractResponse(BaseModel):
     usage: TokenUsage | None = None  # always None (no LLM call), shape consistency
 
 
+class UrlScrapeRequest(BaseModel):
+    profile_id: int
+    url: str = Field(max_length=2000)
+
+
+class UrlScrapeResponse(BaseModel):
+    text: str
+    title: str | None = None
+    artist: str | None = None
+    source_url: str
+
+
 class ParseResponse(BaseModel):
     original_content: str
     title: str | None = None
