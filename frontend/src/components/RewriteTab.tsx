@@ -25,7 +25,10 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogBody,
+  DialogFooter,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { QuotaBanner, OnboardingBanner, isQuotaError, QuotaUpgradeLink } from '@/extensions/quota';
 import { SAMPLE_SONGS, sampleToParseResult } from '@/data/sample-songs';
@@ -138,6 +141,12 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const docFileInputRef = useRef<HTMLInputElement>(null);
   const [fileLoading, setFileLoading] = useState(false);
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [linkUrl, setLinkUrl] = useState('');
+  const [linkLoading, setLinkLoading] = useState(false);
+  // Records where imported text came from (e.g. an Ultimate Guitar link) so we
+  // can store it as the song's source_url on save. Cleared after each save.
+  const pendingSourceUrlRef = useRef<string | null>(null);
   const [inputDragging, setInputDragging] = useState(false);
   const inputDragCounterRef = useRef(0);
   const [parseReasoningExpanded, setParseReasoningExpanded] = useState(false);
@@ -337,6 +346,25 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     }
   };
 
+  const handleScrapeUrl = async () => {
+    const url = linkUrl.trim();
+    if (!url || !profile?.id) return;
+
+    setLinkLoading(true);
+    setParseError(null);
+    try {
+      const result = await api.scrapeUrl({ profile_id: profile.id, url });
+      setInput(result.text);
+      pendingSourceUrlRef.current = result.source_url;
+      setLinkDialogOpen(false);
+      setLinkUrl('');
+    } catch (err) {
+      setParseError('Couldn\'t import from that link: ' + (err as Error).message);
+    } finally {
+      setLinkLoading(false);
+    }
+  };
+
   const handleInputDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -419,11 +447,13 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
             profile_id: profile.id,
             title: result.title || null,
             artist: result.artist || null,
+            source_url: pendingSourceUrlRef.current || null,
             original_content: result.original_content,
             rewritten_content: result.original_content,
             llm_provider: llmSettings.provider,
             llm_model: llmSettings.model,
           });
+          pendingSourceUrlRef.current = null;
           localStorage.setItem(STORAGE_KEYS.HAS_REWRITTEN, '1');
           setHasSongs(true);
           savedSongRef.current = { id: song.id, uuid: song.uuid };
@@ -931,6 +961,13 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 >
                   {fileLoading ? <><Spinner size="sm" className="mr-1.5" /> Extracting...</> : 'Import from File'}
                 </Button>
+                <Button
+                  variant="secondary"
+                  disabled={!hasProfile}
+                  onClick={() => setLinkDialogOpen(true)}
+                >
+                  Import from Link
+                </Button>
                 <span className="text-xs text-muted-foreground">
                   {parseBlocker ?? shortcutHint}
                 </span>
@@ -1121,6 +1158,41 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Import from Link dialog */}
+      <Dialog open={linkDialogOpen} onOpenChange={(open) => { setLinkDialogOpen(open); if (!open) setLinkUrl(''); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Import from a link</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <p className="text-sm text-muted-foreground mb-3">
+              Paste a link to a chords page (Ultimate Guitar works best). We&apos;ll fetch the chords so you can clean them up and start workshopping.
+            </p>
+            <Input
+              type="url"
+              value={linkUrl}
+              autoFocus
+              placeholder="https://tabs.ultimate-guitar.com/tab/..."
+              onChange={e => setLinkUrl(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && linkUrl.trim() && !linkLoading) {
+                  e.preventDefault();
+                  handleScrapeUrl();
+                }
+              }}
+            />
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setLinkDialogOpen(false)} disabled={linkLoading}>
+              Cancel
+            </Button>
+            <Button onClick={handleScrapeUrl} disabled={!linkUrl.trim() || linkLoading}>
+              {linkLoading ? <><Spinner size="sm" className="mr-1.5" /> Fetching...</> : 'Fetch chords'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         open={scrapDialogOpen}
