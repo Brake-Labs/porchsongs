@@ -142,8 +142,15 @@ interface Candidate {
 /**
  * Evaluate a single column count: the font that fits its width, and (for
  * multi-column) its height, plus whether the whole song fits on screen.
+ *
+ * `honorExplicit` is set when the user picked this column count by hand. In that
+ * mode we never reject the count for being "too narrow": we size the font to fit
+ * the column width so the longest line is not clipped (multi-column can't scroll
+ * sideways), dropping below the readability floor only when the width genuinely
+ * cannot hold the line at the floor. In auto mode the floor is hard, so a
+ * cramped multi-column candidate is simply marked as not fitting and skipped.
  */
-function evaluate(numCols: number, input: SolveInput): Candidate {
+function evaluate(numCols: number, input: SolveInput, honorExplicit = false): Candidate {
   const { containerWidth, containerHeight, charRatio, longestLineLen, totalLines } = input;
   const charsPerLine = Math.max(1, longestLineLen);
 
@@ -159,8 +166,17 @@ function evaluate(numCols: number, input: SolveInput): Candidate {
     return { numCols, fontSize, fitsOnScreen: heightFont >= fontSize };
   }
 
-  // Multi-column must fit both width and height to be worthwhile.
   const fitFont = Math.min(widthFont, heightFont);
+
+  if (honorExplicit) {
+    // Prefer the readable floor, but never let it exceed what the width can
+    // hold or the longest line would clip. Height overflow just scrolls.
+    const floor = Math.min(FONT_MIN_MULTI, widthFont);
+    const fontSize = clamp(fitFont, floor, FONT_MAX);
+    return { numCols, fontSize, fitsOnScreen: fontSize <= fitFont + 0.05 };
+  }
+
+  // Auto multi-column must fit both width and height to be worthwhile.
   return {
     numCols,
     fontSize: clamp(fitFont, FONT_MIN_MULTI, FONT_MAX),
@@ -185,8 +201,10 @@ function maxColumnsByWidth(input: SolveInput, cap: number): number {
  *
  * Auto mode prefers the on-screen layout with the largest font; if nothing fits
  * on screen (long song / narrow viewport) it falls back to a single scrolling
- * column sized to the available width. A fixed `columnsPref` is honored (capped
- * by what the width and content length allow) even if it has to scroll.
+ * column sized to the available width. A fixed `columnsPref` is honored as long
+ * as the content is long enough to split into that many columns; the font
+ * shrinks to whatever fits the resulting column width, even below the
+ * readability floor, rather than silently dropping columns the screen can't fit.
  */
 export function solvePerformanceLayout(input: SolveInput): SolveResult {
   if (input.containerWidth <= 0 || input.containerHeight <= 0) {
@@ -196,9 +214,10 @@ export function solvePerformanceLayout(input: SolveInput): SolveResult {
   const contentCap = Math.max(1, input.maxColsContent);
 
   if (input.columnsPref !== 'auto') {
-    const widthCap = maxColumnsByWidth(input, contentCap);
-    const numCols = clamp(Math.round(input.columnsPref), 1, Math.min(contentCap, Math.max(1, widthCap)));
-    return evaluate(numCols, input);
+    // Honor the user's choice, capped only by what the content length supports.
+    // Width no longer vetoes the column count; the font drops to fit instead.
+    const numCols = clamp(Math.round(input.columnsPref), 1, contentCap);
+    return evaluate(numCols, input, true);
   }
 
   const widthCap = Math.min(contentCap, maxColumnsByWidth(input, contentCap));

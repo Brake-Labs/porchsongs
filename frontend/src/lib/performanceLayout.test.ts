@@ -67,10 +67,27 @@ describe('solvePerformanceLayout', () => {
     expect(result.numCols).toBe(2);
   });
 
-  it('caps a fixed column preference by what the width can hold', () => {
-    // 4 columns cannot hold a 58-char line on a 350px phone.
+  it('honors a fixed column preference the width cannot fit at the readable floor', () => {
+    // A medium viewport where 3 columns of a 58-char line drop below the 12px
+    // multi-column floor. The old solver clamped this back down to fewer
+    // columns; now we keep the user's choice and shrink the font to fit.
+    const result = solvePerformanceLayout(baseInput({ containerWidth: 900, containerHeight: 960, columnsPref: 3 }));
+    expect(result.numCols).toBe(3);
+    expect(result.fontSize).toBeGreaterThan(0);
+    expect(result.fontSize).toBeLessThanOrEqual(FONT_MAX);
+  });
+
+  it('honors a cramped fixed preference by shrinking the font instead of dropping columns', () => {
+    // 4 columns of a 58-char line on a 350px phone is tiny but it is what the
+    // user explicitly asked for, so we never clip the line off the edge.
     const result = solvePerformanceLayout(baseInput({ containerWidth: 350, containerHeight: 660, columnsPref: 4 }));
-    expect(result.numCols).toBe(1);
+    expect(result.numCols).toBe(4);
+    expect(result.fontSize).toBeGreaterThan(0);
+  });
+
+  it('still caps a fixed column preference by content length', () => {
+    const result = solvePerformanceLayout(baseInput({ maxColsContent: 2, columnsPref: 4 }));
+    expect(result.numCols).toBe(2);
   });
 
   it('caps columns by content length', () => {
