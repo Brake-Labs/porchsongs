@@ -1,0 +1,34 @@
+"""Tests for the frontend staleness mechanism: build-id endpoint + cache headers."""
+
+from fastapi.testclient import TestClient
+
+from app.main import _extract_web_build_id
+
+
+def test_extract_web_build_id_finds_entry_bundle() -> None:
+    html = (
+        '<head><script type="module" crossorigin src="/assets/index-DKenwdW0.js"></script>'
+        '<link rel="modulepreload" href="/assets/vendor-Bx91yz.js"></head>'
+    )
+    assert _extract_web_build_id(html) == "index-DKenwdW0.js"
+
+
+def test_extract_web_build_id_none_without_entry() -> None:
+    # Vite dev server shell points at /src/main.tsx, not a hashed bundle.
+    assert _extract_web_build_id('<script type="module" src="/src/main.tsx"></script>') is None
+    assert _extract_web_build_id("<html><body>hi</body></html>") is None
+
+
+def test_web_build_id_endpoint_is_public_and_dbless(client: TestClient) -> None:
+    resp = client.get("/api/web-build-id")
+    assert resp.status_code == 200
+    assert "web_build_id" in resp.json()
+
+
+def test_web_build_id_is_not_cached(client: TestClient) -> None:
+    # The staleness check must never be answered from a cache, or it could miss
+    # the deploy it exists to detect. Never the year-long immutable asset cache.
+    resp = client.get("/api/web-build-id")
+    cache_control = resp.headers.get("cache-control", "")
+    assert "no-store" in cache_control
+    assert "immutable" not in cache_control
