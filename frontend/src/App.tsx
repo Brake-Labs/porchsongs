@@ -3,6 +3,7 @@ import Spinner from '@/components/ui/spinner';
 import NotFoundPage from '@/components/NotFoundPage';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import AppShell from '@/layouts/AppShell';
+import UpdateBanner from '@/components/UpdateBanner';
 import RewriteTab from '@/components/RewriteTab';
 import LibraryTab from '@/components/LibraryTab';
 import SettingsPage from '@/components/SettingsPage';
@@ -27,14 +28,19 @@ export default function App() {
 
   if (authState === 'loading') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-3 text-muted-foreground">
-        <Spinner />
-        <span className="text-sm">Loading...</span>
-      </div>
+      <>
+        <UpdateBanner />
+        <div className="flex flex-col items-center justify-center min-h-screen gap-3 text-muted-foreground">
+          <Spinner />
+          <span className="text-sm">Loading...</span>
+        </div>
+      </>
     );
   }
 
   return (
+    <>
+    <UpdateBanner />
     <Routes>
       {/* Premium route elements (marketing pages, etc.) */}
       {getPremiumRouteElements()}
@@ -66,5 +72,6 @@ export default function App() {
       {/* 404 */}
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
+    </>
   );
 }

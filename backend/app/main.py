@@ -1,4 +1,5 @@
 import logging
+import re
 from importlib.metadata import version as pkg_version
 from pathlib import Path
 
@@ -26,6 +27,25 @@ except Exception:
     __version__ = "0.0.0-dev"
 
 app = FastAPI(title="porchsongs", version=__version__)
+
+# Vite names the entry chunk `assets/index-<hash>.js`; the hash changes on every
+# rebuild. Lazy chunks get their own names, so the first match is the entry.
+_ENTRY_BUNDLE_RE = re.compile(r"assets/(index-[A-Za-z0-9_-]+\.js)")
+
+
+def _extract_web_build_id(html: str) -> str | None:
+    """Pull the content-hashed entry bundle name out of the built index.html.
+
+    This is the frontend's build identity: the client compares its own entry
+    script's filename against this value (via GET /api/web-build-id) and offers
+    a reload when they differ, so a long-lived page (especially an installed
+    PWA, which iOS resumes for weeks with no refresh affordance) does not keep
+    running a stale bundle after a deploy. Returns None for an unbuilt shell
+    (Vite dev server entry is /src/main.tsx), which disables the check there.
+    """
+    match = _ENTRY_BUNDLE_RE.search(html)
+    return match.group(1) if match else None
+
 
 app.add_middleware(
     CORSMiddleware,  # type: ignore[arg-type]
@@ -56,7 +76,12 @@ async def health(db: Session = Depends(get_db)) -> HealthResponse | JSONResponse
 
 
 class CacheHeadersMiddleware:
-    """Add Cache-Control headers for hashed static assets (Vite /assets/*)."""
+    """Tune Cache-Control so deploys are picked up without serving stale code.
+
+    Hashed assets (Vite ``/assets/*``) are immutable and cached for a year; the
+    HTML shell (index.html / SPA fallback) is served ``no-cache`` so the browser
+    always revalidates and learns about a new entry bundle after a deploy.
+    """
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -70,10 +95,19 @@ class CacheHeadersMiddleware:
         is_hashed_asset = path.startswith("/assets/")
 
         async def send_with_cache(message: Message) -> None:
-            if message["type"] == "http.response.start" and is_hashed_asset:
+            if message["type"] == "http.response.start":
                 headers = list(message.get("headers", []))
-                headers.append((b"cache-control", b"public, max-age=31536000, immutable"))
-                message = {**message, "headers": headers}
+                if is_hashed_asset:
+                    headers.append((b"cache-control", b"public, max-age=31536000, immutable"))
+                    message = {**message, "headers": headers}
+                else:
+                    content_type = next(
+                        (v for (k, v) in headers if k.lower() == b"content-type"), b""
+                    )
+                    if content_type.startswith(b"text/html"):
+                        headers = [(k, v) for (k, v) in headers if k.lower() != b"cache-control"]
+                        headers.append((b"cache-control", b"no-cache"))
+                        message = {**message, "headers": headers}
             await send(message)
 
         await self.app(scope, receive, send_with_cache)
@@ -88,9 +122,25 @@ _static_dir = (
     frontend_dist if frontend_dist.exists() else (frontend_dir if frontend_dir.exists() else None)
 )
 
+_index_html_content = ""
 if _static_dir is not None:
     _index_html_path = _static_dir / "index.html"
     _index_html_content = _index_html_path.read_text() if _index_html_path.exists() else ""
+
+_web_build_id = _extract_web_build_id(_index_html_content)
+
+
+@app.get("/api/web-build-id", include_in_schema=False)
+async def web_build_id() -> JSONResponse:
+    """Report the deployed entry-bundle hash so clients can detect a stale page.
+
+    Intentionally DB-free and unauthenticated: the reload prompt must work on
+    every route (marketing, login, app) and even when the database is degraded.
+    """
+    return JSONResponse({"web_build_id": _web_build_id})
+
+
+if _static_dir is not None:
 
     @app.get("/app")
     @app.get("/app/{rest:path}")
