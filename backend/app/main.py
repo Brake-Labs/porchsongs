@@ -136,8 +136,9 @@ async def web_build_id() -> JSONResponse:
 
     Intentionally DB-free and unauthenticated: the reload prompt must work on
     every route (marketing, login, app) and even when the database is degraded.
+    `no-store` so the staleness check is never answered from a cache.
     """
-    return JSONResponse({"web_build_id": _web_build_id})
+    return JSONResponse({"web_build_id": _web_build_id}, headers={"Cache-Control": "no-store"})
 
 
 if _static_dir is not None:

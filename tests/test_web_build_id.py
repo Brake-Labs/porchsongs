@@ -25,7 +25,10 @@ def test_web_build_id_endpoint_is_public_and_dbless(client: TestClient) -> None:
     assert "web_build_id" in resp.json()
 
 
-def test_api_responses_are_not_immutably_cached(client: TestClient) -> None:
-    # Only hashed /assets/* should get the year-long immutable cache.
+def test_web_build_id_is_not_cached(client: TestClient) -> None:
+    # The staleness check must never be answered from a cache, or it could miss
+    # the deploy it exists to detect. Never the year-long immutable asset cache.
     resp = client.get("/api/web-build-id")
-    assert "immutable" not in resp.headers.get("cache-control", "")
+    cache_control = resp.headers.get("cache-control", "")
+    assert "no-store" in cache_control
+    assert "immutable" not in cache_control

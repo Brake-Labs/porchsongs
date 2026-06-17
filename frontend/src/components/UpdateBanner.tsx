@@ -7,7 +7,12 @@ const CHECK_THROTTLE_MS = 30_000;
 
 async function fetchServerBuildId(): Promise<string | null | undefined> {
   try {
-    const res = await fetch('/api/web-build-id', { headers: { Accept: 'application/json' } });
+    // `no-store`: the staleness check must never read a cached build id, or it
+    // could miss the very deploy it exists to catch.
+    const res = await fetch('/api/web-build-id', {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
     if (!res.ok) return undefined;
     const data = (await res.json()) as { web_build_id?: string | null };
     return data.web_build_id ?? null;
