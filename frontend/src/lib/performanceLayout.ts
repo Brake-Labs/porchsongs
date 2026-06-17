@@ -94,6 +94,11 @@ export function splitContentForColumns(text: string, numCols: number): string[] 
  * Returns null when the content fits within a single column (`maxLines`), i.e.
  * there is nothing to pack.
  */
+/** Join lines into a column string, dropping blank lines at either end. */
+function trimBlankEnds(lines: string[]): string {
+  return lines.join('\n').replace(/^\n+/, '').replace(/\n+$/, '');
+}
+
 export function packColumnsToHeight(text: string, numCols: number, maxLines: number): string[] | null {
   if (numCols <= 1 || maxLines < 1) return null;
 
@@ -112,24 +117,26 @@ export function packColumnsToHeight(text: string, numCols: number, maxLines: num
       continue;
     }
     const hardEnd = Math.min(start + maxLines, lines.length);
-    // Break at the highest section boundary at or before the height cap to fill
-    // the column as much as fits. Breaking at the boundary index itself keeps a
-    // section header (and any blank line) at the top of the next column, where
-    // the leading blank is trimmed off; this never overshoots the cap.
+    // Break at the highest section boundary whose visible lines fit the cap
+    // (index <= hardEnd). A blank line is consumed into this column (break after
+    // it) so the next column opens cleanly on its section header; a header opens
+    // the next column. Consuming the blank costs at most one trimmed-away line,
+    // so the visible height never exceeds the cap, and the next column is never
+    // left with just an orphaned blank.
     let end = -1;
     for (let i = hardEnd; i > start; i--) {
       if (isBoundary(i)) {
-        end = i;
+        end = isSectionHeader(i) ? i : i + 1;
         break;
       }
     }
     if (end === -1) end = hardEnd; // single section taller than the viewport
 
-    columns.push(lines.slice(start, end).join('\n').replace(/\n+$/, ''));
+    columns.push(trimBlankEnds(lines.slice(start, end)));
     start = end;
   }
 
-  columns.push(start < lines.length ? lines.slice(start).join('\n').replace(/^\n+/, '') : '');
+  columns.push(start < lines.length ? trimBlankEnds(lines.slice(start)) : '');
   return columns;
 }
 

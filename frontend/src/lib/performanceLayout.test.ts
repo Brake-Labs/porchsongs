@@ -142,6 +142,28 @@ describe('packColumnsToHeight', () => {
     expect(cols).toHaveLength(3);
   });
 
+  it('never leaves a middle column empty when a section exactly fills the cap', () => {
+    // Sections of 6 lines, cap of 6: col 0 = section 1, and the blank before
+    // section 2 must not be orphaned into an empty col 1.
+    const cols = packColumnsToHeight(sectioned(4, 5), 3, 6)!;
+    expect(cols).toHaveLength(3);
+    cols.forEach((c) => expect(c.trim()).not.toBe(''));
+    expect(cols[0]!.startsWith('[Section 1]')).toBe(true);
+    expect(cols[1]!.startsWith('[Section 2]')).toBe(true);
+  });
+
+  it('never starts or ends a column with a blank line', () => {
+    for (const cap of [6, 8, 12, 19]) {
+      const cols = packColumnsToHeight(sectioned(8, 5), 3, cap);
+      if (!cols) continue;
+      cols.forEach((c) => {
+        if (c === '') return;
+        expect(c.startsWith('\n')).toBe(false);
+        expect(c.endsWith('\n')).toBe(false);
+      });
+    }
+  });
+
   it('hard-cuts a single section taller than the viewport', () => {
     // 10 lines, no blanks or headers → no boundary to break on.
     const text = Array.from({ length: 10 }, (_, i) => `line ${i}`).join('\n');
