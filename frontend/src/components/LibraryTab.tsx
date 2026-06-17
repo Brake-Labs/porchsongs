@@ -129,7 +129,7 @@ function PerformanceSheet({ song, className, fontSizeOverride, columnsPref = 'au
   const text = song.rewritten_content;
   const sheetRef = useRef<HTMLDivElement>(null);
 
-  const layout = usePerformanceLayout(sheetRef, text, columnsPref);
+  const layout = usePerformanceLayout(sheetRef, text, columnsPref, fontSizeOverride ?? null);
   const { columns, numCols } = layout;
   const isMultiCol = numCols > 1 && columns !== null;
 

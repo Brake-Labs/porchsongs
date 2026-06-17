@@ -80,6 +80,60 @@ export function splitContentForColumns(text: string, numCols: number): string[] 
 }
 
 /**
+ * Pack lines into `numCols` columns where every column but the last holds at
+ * most `maxLines` lines, so each fills the viewport height without spilling a
+ * line below the fold. Breaks at a section boundary (blank line or `[Section]`
+ * header) at or before the cap so a verse is never cut across the gap, falling
+ * back to a hard cut only when a single section is taller than the viewport.
+ * The last column takes the remainder and is the only column allowed to scroll.
+ *
+ * This is the overflow counterpart to splitContentForColumns: use the balanced
+ * split when the song fits on screen, and this when it doesn't, so columns stay
+ * a top-to-bottom reading order instead of forcing a scroll down every column.
+ *
+ * Returns null when the content fits within a single column (`maxLines`), i.e.
+ * there is nothing to pack.
+ */
+export function packColumnsToHeight(text: string, numCols: number, maxLines: number): string[] | null {
+  if (numCols <= 1 || maxLines < 1) return null;
+
+  const lines = text.split('\n');
+  if (lines.length <= maxLines) return null;
+
+  const isSectionHeader = (i: number): boolean => /^\[.+\]$/.test(lines[i]?.trim() ?? '');
+  const isBoundary = (i: number): boolean => (lines[i]?.trim() ?? '') === '' || isSectionHeader(i);
+
+  const columns: string[] = [];
+  let start = 0;
+
+  for (let col = 0; col < numCols - 1; col++) {
+    if (start >= lines.length) {
+      columns.push('');
+      continue;
+    }
+    const hardEnd = Math.min(start + maxLines, lines.length);
+    // Break at the highest section boundary at or before the height cap to fill
+    // the column as much as fits. Breaking at the boundary index itself keeps a
+    // section header (and any blank line) at the top of the next column, where
+    // the leading blank is trimmed off; this never overshoots the cap.
+    let end = -1;
+    for (let i = hardEnd; i > start; i--) {
+      if (isBoundary(i)) {
+        end = i;
+        break;
+      }
+    }
+    if (end === -1) end = hardEnd; // single section taller than the viewport
+
+    columns.push(lines.slice(start, end).join('\n').replace(/\n+$/, ''));
+    start = end;
+  }
+
+  columns.push(start < lines.length ? lines.slice(start).join('\n').replace(/^\n+/, '') : '');
+  return columns;
+}
+
+/**
  * Determine the max column count the content can support (by length).
  */
 export function maxColumnsForContent(text: string): number {
