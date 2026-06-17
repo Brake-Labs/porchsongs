@@ -2,8 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import {
   solvePerformanceLayout,
   splitContentForColumns,
+  packColumnsToHeight,
   maxColumnsForContent,
   longestLineLength,
+  LINE_HEIGHT_RATIO,
   type SolveResult,
 } from '@/lib/performanceLayout';
 
@@ -54,10 +56,13 @@ export default function usePerformanceLayout(
   containerRef: React.RefObject<HTMLElement | null>,
   text: string,
   columnsPref: number | 'auto',
+  fontSizeOverride: number | null = null,
 ): PerformanceLayout {
   const [layout, setLayout] = useState<PerformanceLayout>(INITIAL);
   const prefRef = useRef(columnsPref);
   prefRef.current = columnsPref;
+  const overrideRef = useRef(fontSizeOverride);
+  overrideRef.current = fontSizeOverride;
 
   useEffect(() => {
     const el = containerRef.current;
@@ -70,17 +75,37 @@ export default function usePerformanceLayout(
       const longestLineLen = longestLineLength(text);
       if (longestLineLen === 0) return;
 
+      const totalLines = text.split('\n').length;
       const result: SolveResult = solvePerformanceLayout({
         containerWidth: container.clientWidth,
         containerHeight: container.clientHeight,
         charRatio: getCharWidthRatio(),
         longestLineLen,
-        totalLines: text.split('\n').length,
+        totalLines,
         maxColsContent: maxColumnsForContent(text),
         columnsPref: prefRef.current,
       });
 
-      const columns = result.numCols > 1 ? splitContentForColumns(text, result.numCols) : null;
+      let columns: string[] | null = null;
+      if (result.numCols > 1) {
+        // Use the font actually rendered (manual override wins over the auto
+        // size) to decide whether the song overflows the screen at this layout.
+        const effectiveFont = overrideRef.current ?? result.fontSize;
+        const linesPerViewport = Math.max(
+          1,
+          Math.floor(container.clientHeight / (effectiveFont * LINE_HEIGHT_RATIO)),
+        );
+        const balancedColLines = Math.ceil(totalLines / result.numCols);
+
+        columns =
+          balancedColLines <= linesPerViewport
+            ? // Whole song fits: balanced columns read best.
+              splitContentForColumns(text, result.numCols)
+            : // Overflows: fill each column to the viewport so only the last
+              // column scrolls, instead of every column spilling below the fold.
+              (packColumnsToHeight(text, result.numCols, linesPerViewport) ??
+              splitContentForColumns(text, result.numCols));
+      }
       const numCols = columns ? result.numCols : 1;
 
       setLayout({
@@ -95,7 +120,7 @@ export default function usePerformanceLayout(
     const observer = new ResizeObserver(compute);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [containerRef, text, columnsPref]);
+  }, [containerRef, text, columnsPref, fontSizeOverride]);
 
   return layout;
 }

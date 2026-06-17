@@ -1,6 +1,7 @@
 import {
   longestLineLength,
   solvePerformanceLayout,
+  packColumnsToHeight,
   FONT_MIN_SINGLE,
   FONT_MIN_MULTI,
   FONT_MAX,
@@ -99,5 +100,83 @@ describe('solvePerformanceLayout', () => {
     const result = solvePerformanceLayout(baseInput({ containerWidth: 0, containerHeight: 0 }));
     expect(result.numCols).toBe(1);
     expect(result.fitsOnScreen).toBe(false);
+  });
+});
+
+/** Build a song of `count` sections, each a `[Section]` header + `body` lines, blank-separated. */
+function sectioned(count: number, body: number): string {
+  const blocks: string[] = [];
+  for (let s = 0; s < count; s++) {
+    const lines = [`[Section ${s + 1}]`, ...Array.from({ length: body }, (_, i) => `line ${s}-${i}`)];
+    blocks.push(lines.join('\n'));
+  }
+  return blocks.join('\n\n');
+}
+
+describe('packColumnsToHeight', () => {
+  it('fills non-last columns to the cap and dumps the remainder in the last column', () => {
+    // 4 sections of 5 lines (6 with header) → 27 lines incl. blanks.
+    const text = sectioned(4, 5);
+    const cols = packColumnsToHeight(text, 2, 8)!;
+    expect(cols).toHaveLength(2);
+    // First column never exceeds the height cap...
+    expect(cols[0]!.split('\n').length).toBeLessThanOrEqual(8);
+    // ...and the last column holds more than one viewport (the overflow that scrolls).
+    expect(cols[1]!.split('\n').length).toBeGreaterThan(8);
+  });
+
+  it('breaks at a section boundary so a section is never split across the gap', () => {
+    const text = sectioned(4, 5);
+    const cols = packColumnsToHeight(text, 2, 8)!;
+    // Each column starts on a section header, none ends mid-section.
+    expect(cols[0]!.startsWith('[Section 1]')).toBe(true);
+    expect(cols[1]!.startsWith('[Section')).toBe(true);
+    // The whole content is preserved across the columns (ignoring blank padding).
+    const rejoined = cols.join('\n').replace(/\n{2,}/g, '\n');
+    expect(rejoined).toContain('[Section 2]');
+    expect(rejoined).toContain('line 3-4');
+  });
+
+  it('always returns exactly numCols entries', () => {
+    const cols = packColumnsToHeight(sectioned(6, 5), 3, 8)!;
+    expect(cols).toHaveLength(3);
+  });
+
+  it('never leaves a middle column empty when a section exactly fills the cap', () => {
+    // Sections of 6 lines, cap of 6: col 0 = section 1, and the blank before
+    // section 2 must not be orphaned into an empty col 1.
+    const cols = packColumnsToHeight(sectioned(4, 5), 3, 6)!;
+    expect(cols).toHaveLength(3);
+    cols.forEach((c) => expect(c.trim()).not.toBe(''));
+    expect(cols[0]!.startsWith('[Section 1]')).toBe(true);
+    expect(cols[1]!.startsWith('[Section 2]')).toBe(true);
+  });
+
+  it('never starts or ends a column with a blank line', () => {
+    for (const cap of [6, 8, 12, 19]) {
+      const cols = packColumnsToHeight(sectioned(8, 5), 3, cap);
+      if (!cols) continue;
+      cols.forEach((c) => {
+        if (c === '') return;
+        expect(c.startsWith('\n')).toBe(false);
+        expect(c.endsWith('\n')).toBe(false);
+      });
+    }
+  });
+
+  it('hard-cuts a single section taller than the viewport', () => {
+    // 10 lines, no blanks or headers → no boundary to break on.
+    const text = Array.from({ length: 10 }, (_, i) => `line ${i}`).join('\n');
+    const cols = packColumnsToHeight(text, 2, 4)!;
+    expect(cols).toHaveLength(2);
+    expect(cols[0]!.split('\n')).toHaveLength(4); // hard cut at the cap
+  });
+
+  it('returns null when the content already fits in one column', () => {
+    expect(packColumnsToHeight(sectioned(2, 3), 2, 100)).toBeNull();
+  });
+
+  it('returns null for a single column', () => {
+    expect(packColumnsToHeight(sectioned(4, 5), 1, 8)).toBeNull();
   });
 });

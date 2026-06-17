@@ -80,6 +80,67 @@ export function splitContentForColumns(text: string, numCols: number): string[] 
 }
 
 /**
+ * Pack lines into `numCols` columns where every column but the last holds at
+ * most `maxLines` lines, so each fills the viewport height without spilling a
+ * line below the fold. Breaks at a section boundary (blank line or `[Section]`
+ * header) at or before the cap so a verse is never cut across the gap, falling
+ * back to a hard cut only when a single section is taller than the viewport.
+ * The last column takes the remainder and is the only column allowed to scroll.
+ *
+ * This is the overflow counterpart to splitContentForColumns: use the balanced
+ * split when the song fits on screen, and this when it doesn't, so columns stay
+ * a top-to-bottom reading order instead of forcing a scroll down every column.
+ *
+ * Returns null when the content fits within a single column (`maxLines`), i.e.
+ * there is nothing to pack.
+ */
+/** Join lines into a column string, dropping blank lines at either end. */
+function trimBlankEnds(lines: string[]): string {
+  return lines.join('\n').replace(/^\n+/, '').replace(/\n+$/, '');
+}
+
+export function packColumnsToHeight(text: string, numCols: number, maxLines: number): string[] | null {
+  if (numCols <= 1 || maxLines < 1) return null;
+
+  const lines = text.split('\n');
+  if (lines.length <= maxLines) return null;
+
+  const isSectionHeader = (i: number): boolean => /^\[.+\]$/.test(lines[i]?.trim() ?? '');
+  const isBoundary = (i: number): boolean => (lines[i]?.trim() ?? '') === '' || isSectionHeader(i);
+
+  const columns: string[] = [];
+  let start = 0;
+
+  for (let col = 0; col < numCols - 1; col++) {
+    if (start >= lines.length) {
+      columns.push('');
+      continue;
+    }
+    const hardEnd = Math.min(start + maxLines, lines.length);
+    // Break at the highest section boundary whose visible lines fit the cap
+    // (index <= hardEnd). A blank line is consumed into this column (break after
+    // it) so the next column opens cleanly on its section header; a header opens
+    // the next column. Consuming the blank costs at most one trimmed-away line,
+    // so the visible height never exceeds the cap, and the next column is never
+    // left with just an orphaned blank.
+    let end = -1;
+    for (let i = hardEnd; i > start; i--) {
+      if (isBoundary(i)) {
+        end = isSectionHeader(i) ? i : i + 1;
+        break;
+      }
+    }
+    if (end === -1) end = hardEnd; // single section taller than the viewport
+
+    columns.push(trimBlankEnds(lines.slice(start, end)));
+    start = end;
+  }
+
+  columns.push(start < lines.length ? trimBlankEnds(lines.slice(start)) : '');
+  return columns;
+}
+
+/**
  * Determine the max column count the content can support (by length).
  */
 export function maxColumnsForContent(text: string): number {
