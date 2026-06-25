@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
 from ..auth.scoping import get_user_profile, get_user_song
+from ..config import settings
 from ..database import SessionLocal, get_db
 from ..models import ChatMessage as ChatMessageModel
 from ..models import Profile, ProfileModel, ProviderConnection, Song, SongRevision, User
@@ -153,7 +154,15 @@ async def _cancellable(request: Request, coro: Awaitable[T]) -> T:
 def _lookup_api_base(
     db: Session, profile_id: int | None, provider: str | None, model: str | None
 ) -> str | None:
-    """Look up api_base: prefer ProviderConnection, fall back to ProfileModel."""
+    """Resolve api_base for an LLM call.
+
+    A deployment-wide gateway (``LLM_API_BASE``) is a hard override: when set it
+    routes every call through that base URL, ignoring per-profile connections.
+    Otherwise prefer the profile's ProviderConnection, then fall back to its
+    ProfileModel.
+    """
+    if settings.llm_api_base:
+        return settings.llm_api_base
     if not profile_id or not provider:
         return None
     conn = (
