@@ -808,27 +808,30 @@ def test_delete_profile_cascades_connections(client: TestClient) -> None:
     assert resp.status_code == 404
 
 
-def test_lookup_api_base_prefers_connection(client: TestClient) -> None:
-    """Parse should use api_base from ProviderConnection over ProfileModel."""
+def test_gateway_unset_ignores_per_profile_connection(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hard cutover: per-profile connections no longer drive generation.
+
+    With the gateway unset, api_base/api_key are None (any-llm then resolves
+    keys from its per-provider env vars), regardless of any ProviderConnection
+    or ProfileModel rows.
+    """
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "llm_api_base", None)
+    monkeypatch.setattr(settings, "llm_api_key", None)
+
     profile = client.post("/api/profiles", json={}).json()
     pid = profile["id"]
-
-    # Set up connection with a specific api_base
+    # These rows used to drive generation; after the cutover they are ignored.
     client.post(
         f"/api/profiles/{pid}/connections",
-        json={
-            "provider": "openai",
-            "api_base": "http://connection-base:8080",
-        },
+        json={"provider": "openai", "api_base": "http://connection-base:8080"},
     )
-    # ProfileModel has a different api_base (legacy)
     client.post(
         f"/api/profiles/{pid}/models",
-        json={
-            "provider": "openai",
-            "model": "gpt-4",
-            "api_base": "http://model-base:9090",
-        },
+        json={"provider": "openai", "model": "gpt-4", "api_base": "http://model-base:9090"},
     )
 
     mock_response = _make_message_resp(
@@ -849,24 +852,20 @@ def test_lookup_api_base_prefers_connection(client: TestClient) -> None:
         )
         assert resp.status_code == 200
         call_kwargs = mock_ac.call_args.kwargs
-        assert call_kwargs.get("api_base") == "http://connection-base:8080"
+        assert call_kwargs.get("api_base") is None
+        assert call_kwargs.get("api_key") is None
 
 
-def test_llm_api_base_env_override_wins(
+def test_llm_api_base_routes_all_traffic(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A configured LLM_API_BASE is a hard override over per-profile connections."""
+    """When LLM_API_BASE is set, every LLM call is routed through it."""
     from app.config import settings
 
     monkeypatch.setattr(settings, "llm_api_base", "http://gateway:8000")
 
     profile = client.post("/api/profiles", json={}).json()
     pid = profile["id"]
-    # Per-profile connection points elsewhere; the env override must still win.
-    client.post(
-        f"/api/profiles/{pid}/connections",
-        json={"provider": "openai", "api_base": "http://connection-base:8080"},
-    )
 
     mock_response = _make_message_resp(
         "<meta>\nTitle: T\nArtist: A\n</meta>\n<original>\nHello\n</original>"
@@ -886,6 +885,36 @@ def test_llm_api_base_env_override_wins(
         )
         assert resp.status_code == 200
         assert mock_ac.call_args.kwargs.get("api_base") == "http://gateway:8000"
+
+
+def test_llm_api_key_env_override_wins(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A configured LLM_API_KEY is a hard override over the request's own key."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "llm_api_key", "gateway-key")
+
+    profile = client.post("/api/profiles", json={}).json()
+    pid = profile["id"]
+
+    mock_response = _make_message_resp(
+        "<meta>\nTitle: T\nArtist: A\n</meta>\n<original>\nHello\n</original>"
+    )
+
+    with patch(
+        "app.services.llm_service.amessages", new_callable=AsyncMock, return_value=mock_response
+    ) as mock_ac:
+        resp = client.post(
+            "/api/parse",
+            json={
+                "profile_id": pid,
+                "content": "Hello",
+                "provider": "openai",
+                "model": "gpt-4",
+                "api_key": "request-key",
+            },
+        )
+        assert resp.status_code == 200
+        assert mock_ac.call_args.kwargs.get("api_key") == "gateway-key"
 
 
 def test_list_connections_not_found(client: TestClient) -> None:

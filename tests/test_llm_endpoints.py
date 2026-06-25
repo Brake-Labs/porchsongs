@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -604,23 +605,21 @@ def test_list_provider_models_failure(mock_list_models: MagicMock, client: TestC
 
 
 @patch("app.services.llm_service.amessages")
-def test_parse_passes_api_base(mock_amessages: MagicMock, client: TestClient) -> None:
-    """When a ProfileModel has api_base set, the parse call should pass it to amessages."""
-    profile = client.post(
-        "/api/profiles",
-        json={
-            "name": "Local LLM User",
-        },
-    ).json()
+def test_parse_routes_through_gateway(
+    mock_amessages: MagicMock, client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hard cutover: LLM_API_BASE/LLM_API_KEY drive the call; ProfileModel is ignored."""
+    from app.config import settings
 
-    # Save a ProfileModel with api_base
+    monkeypatch.setattr(settings, "llm_api_base", "http://gateway:9000")
+    monkeypatch.setattr(settings, "llm_api_key", "gw-key")
+
+    profile = client.post("/api/profiles", json={"name": "Local LLM User"}).json()
+
+    # A ProfileModel api_base used to drive generation; after the cutover it is ignored.
     client.post(
         f"/api/profiles/{profile['id']}/models",
-        json={
-            "provider": "ollama",
-            "model": "llama3",
-            "api_base": "http://localhost:11434",
-        },
+        json={"provider": "ollama", "model": "llama3", "api_base": "http://localhost:11434"},
     )
 
     mock_amessages.return_value = _fake_message_response(
@@ -639,14 +638,15 @@ def test_parse_passes_api_base(mock_amessages: MagicMock, client: TestClient) ->
     assert resp.status_code == 200
 
     assert mock_amessages.call_count == 1
-    assert mock_amessages.call_args.kwargs.get("api_base") == "http://localhost:11434"
+    assert mock_amessages.call_args.kwargs.get("api_base") == "http://gateway:9000"
+    assert mock_amessages.call_args.kwargs.get("api_key") == "gw-key"
 
 
 @patch("app.services.llm_service.amessages")
-def test_parse_no_api_base_when_no_profile_model(
+def test_parse_no_api_base_when_gateway_unset(
     mock_amessages: MagicMock, client: TestClient
 ) -> None:
-    """When no ProfileModel exists, api_base should not be passed."""
+    """With the gateway unset, api_base is not passed (any-llm uses provider defaults)."""
     profile = client.post(
         "/api/profiles",
         json={
@@ -1066,7 +1066,9 @@ def test_abandoned_generator_spawns_background_task(
     assert len(revisions) == 2
 
 
-def test_finish_chat_in_background_zero_accumulated(client: TestClient, db_session: Session) -> None:
+def test_finish_chat_in_background_zero_accumulated(
+    client: TestClient, db_session: Session
+) -> None:
     """When a client disconnects before the first LLM token, the background
     task should still consume the entire stream and persist the result.
     Regression test for the pre-first-token disconnect bug."""
@@ -1634,9 +1636,7 @@ def test_parse_stream_no_detached_error(mock_amessages: AsyncMock, client: TestC
 
 
 @patch("app.services.llm_service.amessages", new_callable=AsyncMock)
-def test_parse_stream_rate_limit_error(
-    mock_amessages: AsyncMock, client: TestClient
-) -> None:
+def test_parse_stream_rate_limit_error(mock_amessages: AsyncMock, client: TestClient) -> None:
     """parse/stream should emit SSE error event with error_type for RateLimitError."""
     import json
 
