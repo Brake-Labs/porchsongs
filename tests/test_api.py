@@ -3,6 +3,7 @@
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 # --- Profile CRUD ---
@@ -849,6 +850,42 @@ def test_lookup_api_base_prefers_connection(client: TestClient) -> None:
         assert resp.status_code == 200
         call_kwargs = mock_ac.call_args.kwargs
         assert call_kwargs.get("api_base") == "http://connection-base:8080"
+
+
+def test_llm_api_base_env_override_wins(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A configured LLM_API_BASE is a hard override over per-profile connections."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "llm_api_base", "http://gateway:8000")
+
+    profile = client.post("/api/profiles", json={}).json()
+    pid = profile["id"]
+    # Per-profile connection points elsewhere; the env override must still win.
+    client.post(
+        f"/api/profiles/{pid}/connections",
+        json={"provider": "openai", "api_base": "http://connection-base:8080"},
+    )
+
+    mock_response = _make_message_resp(
+        "<meta>\nTitle: T\nArtist: A\n</meta>\n<original>\nHello\n</original>"
+    )
+
+    with patch(
+        "app.services.llm_service.amessages", new_callable=AsyncMock, return_value=mock_response
+    ) as mock_ac:
+        resp = client.post(
+            "/api/parse",
+            json={
+                "profile_id": pid,
+                "content": "Hello",
+                "provider": "openai",
+                "model": "gpt-4",
+            },
+        )
+        assert resp.status_code == 200
+        assert mock_ac.call_args.kwargs.get("api_base") == "http://gateway:8000"
 
 
 def test_list_connections_not_found(client: TestClient) -> None:
