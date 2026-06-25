@@ -9,11 +9,16 @@ class Settings(BaseSettings):
     refresh_token_days: int = 30
     premium_plugin: str | None = None
     default_max_tokens: int = 32768
-    # Deployment-wide LLM gateway. When set, every LLM call is routed through
-    # this base URL regardless of any per-profile connection (a hard override),
-    # so an operator can funnel all traffic through a single proxy/gateway.
-    # Unset (None) preserves the default per-provider endpoints.
+    # Base URL for all LLM traffic. When set, every LLM call is routed through
+    # this gateway; when unset, calls use each provider's default endpoint.
+    # This is the sole source of api_base: per-profile provider connections are
+    # not consulted for routing.
     llm_api_base: str | None = None
+    # API key for all LLM traffic, the matched pair to llm_api_base. When set,
+    # it authenticates every LLM call regardless of provider; when unset, the
+    # key is None and any-llm falls back to its per-provider env var resolution
+    # (e.g. ANTHROPIC_API_KEY). The per-request key is not consulted.
+    llm_api_key: str | None = None
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

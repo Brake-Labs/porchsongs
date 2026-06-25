@@ -25,7 +25,7 @@ from ..auth.scoping import get_user_profile, get_user_song
 from ..config import settings
 from ..database import SessionLocal, get_db
 from ..models import ChatMessage as ChatMessageModel
-from ..models import Profile, ProfileModel, ProviderConnection, Song, SongRevision, User
+from ..models import Profile, Song, SongRevision, User
 from ..schemas import (
     ChatMessage,
     ChatRequest,
@@ -151,46 +151,6 @@ async def _cancellable(request: Request, coro: Awaitable[T]) -> T:
         watcher.cancel()
 
 
-def _lookup_api_base(
-    db: Session, profile_id: int | None, provider: str | None, model: str | None
-) -> str | None:
-    """Resolve api_base for an LLM call.
-
-    A deployment-wide gateway (``LLM_API_BASE``) is a hard override: when set it
-    routes every call through that base URL, ignoring per-profile connections.
-    Otherwise prefer the profile's ProviderConnection, then fall back to its
-    ProfileModel.
-    """
-    if settings.llm_api_base:
-        return settings.llm_api_base
-    if not profile_id or not provider:
-        return None
-    conn = (
-        db.query(ProviderConnection)
-        .filter(
-            ProviderConnection.profile_id == profile_id,
-            ProviderConnection.provider == provider,
-        )
-        .first()
-    )
-    if conn and conn.api_base:
-        return conn.api_base
-    # Backward compat: check ProfileModel
-    if model:
-        pm = (
-            db.query(ProfileModel)
-            .filter(
-                ProfileModel.profile_id == profile_id,
-                ProfileModel.provider == provider,
-                ProfileModel.model == model,
-            )
-            .first()
-        )
-        if pm and pm.api_base:
-            return pm.api_base
-    return None
-
-
 @router.get("/prompts/defaults", response_model=DefaultPromptsResponse, tags=["prompts"])
 async def get_default_prompts(
     current_user: User = Depends(get_current_user),
@@ -209,7 +169,7 @@ async def parse(
     db: Session = Depends(get_db),
 ) -> ParseResponse:
     profile = get_user_profile(db, current_user, req.profile_id)
-    api_base = _lookup_api_base(db, req.profile_id, req.provider, req.model)
+    api_base = settings.llm_api_base
 
     try:
         result = await _cancellable(
@@ -223,7 +183,7 @@ async def parse(
                 instruction=req.instruction,
                 system_prompt=profile.system_prompt_parse,
                 max_tokens=req.max_tokens,
-                api_key=req.api_key,
+                api_key=settings.llm_api_key,
             ),
         )
     except HTTPException:
@@ -251,7 +211,7 @@ async def parse_stream(
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
     profile = get_user_profile(db, current_user, req.profile_id)
-    api_base = _lookup_api_base(db, req.profile_id, req.provider, req.model)
+    api_base = settings.llm_api_base
 
     # Extract ORM value before the generator runs — the DB session may be
     # closed by then, making ORM attribute access raise DetachedInstanceError.
@@ -271,7 +231,7 @@ async def parse_stream(
                 instruction=req.instruction,
                 system_prompt=system_prompt,
                 max_tokens=req.max_tokens,
-                api_key=req.api_key,
+                api_key=settings.llm_api_key,
             )
             async for kind, text in stream:
                 if await request.is_disconnected():
@@ -316,7 +276,7 @@ async def parse_image(
 ) -> ImageExtractResponse:
     """Extract song text from an uploaded image using LLM vision."""
     get_user_profile(db, current_user, req.profile_id)
-    api_base = _lookup_api_base(db, req.profile_id, req.provider, req.model)
+    api_base = settings.llm_api_base
 
     try:
         result = await _cancellable(
@@ -327,7 +287,7 @@ async def parse_image(
                 model=req.model,
                 api_base=api_base,
                 max_tokens=req.max_tokens,
-                api_key=req.api_key,
+                api_key=settings.llm_api_key,
             ),
         )
     except HTTPException:
@@ -628,7 +588,7 @@ async def chat(
 ) -> ChatResponse:
     song = get_user_song(db, current_user, req.song_id)
     messages, history_len = _load_chat_messages(db, song.id, req.messages)
-    api_base = _lookup_api_base(db, song.profile_id, req.provider, req.model)
+    api_base = settings.llm_api_base
     profile = db.query(Profile).filter(Profile.id == song.profile_id).first()
 
     # Extract ORM values before commit (commit expires cached attributes).
@@ -657,7 +617,7 @@ async def chat(
                 reasoning_effort=req.reasoning_effort,
                 system_prompt=system_prompt,
                 max_tokens=req.max_tokens,
-                api_key=req.api_key,
+                api_key=settings.llm_api_key,
                 history_len=history_len,
                 rewritten_content=rewritten_content,
             ),
@@ -704,7 +664,7 @@ async def chat_stream(
 ) -> StreamingResponse:
     song = get_user_song(db, current_user, req.song_id)
     messages, history_len = _load_chat_messages(db, song.id, req.messages)
-    api_base = _lookup_api_base(db, song.profile_id, req.provider, req.model)
+    api_base = settings.llm_api_base
     profile = db.query(Profile).filter(Profile.id == song.profile_id).first()
 
     # Extract ORM values before commit.  commit() expires all cached attributes
@@ -740,7 +700,7 @@ async def chat_stream(
                 reasoning_effort=req.reasoning_effort,
                 system_prompt=system_prompt,
                 max_tokens=req.max_tokens,
-                api_key=req.api_key,
+                api_key=settings.llm_api_key,
                 history_len=history_len,
                 rewritten_content=rewritten_content,
             )
