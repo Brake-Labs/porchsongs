@@ -626,7 +626,9 @@ export interface components {
             /** Role */
             role: string;
             /** Content */
-            content: string | Record<string, never>[];
+            content: string | {
+                [key: string]: unknown;
+            }[];
         };
         /** ChatMessageCreate */
         ChatMessageCreate: {
@@ -1109,7 +1111,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };
