@@ -117,16 +117,18 @@ const GRID_COL_CLASSES: Record<number, string> = {
 
 /** Column preference: 'auto' lets the layout decide, or force a fixed count. */
 export type ColumnPref = 'auto' | 1 | 2 | 3 | 4;
+export type SongVersion = 'rewritten' | 'original';
 
 interface PerformanceSheetProps {
   song: Song;
+  version: SongVersion;
   className?: string;
   fontSizeOverride?: number | null;
   columnsPref?: ColumnPref;
 }
 
-function PerformanceSheet({ song, className, fontSizeOverride, columnsPref = 'auto' }: PerformanceSheetProps) {
-  const text = song.rewritten_content;
+function PerformanceSheet({ song, version, className, fontSizeOverride, columnsPref = 'auto' }: PerformanceSheetProps) {
+  const text = version === 'original' ? song.original_content : song.rewritten_content;
   const sheetRef = useRef<HTMLDivElement>(null);
 
   const layout = usePerformanceLayout(sheetRef, text, columnsPref, fontSizeOverride ?? null);
@@ -428,6 +430,13 @@ export default function LibraryTab() {
     return stored && Number.isInteger(n) && n >= 1 && n <= 4 ? (n as ColumnPref) : 'auto';
   });
 
+  // Performance view: which content to perform (user preference, persisted to
+  // localStorage). 'rewritten' is your edited version; 'original' is the song
+  // as pasted/imported. The toggle only appears when the two differ.
+  const [perfVersion, setPerfVersion] = useState<SongVersion>(() =>
+    localStorage.getItem(STORAGE_KEYS.PERFORMANCE_VERSION) === 'original' ? 'original' : 'rewritten',
+  );
+
   useEffect(() => {
     setPerfFontSize(viewingSong?.font_size ?? null);
   }, [viewingSong?.uuid, viewingSong?.font_size]);
@@ -435,6 +444,11 @@ export default function LibraryTab() {
   const handlePerfColumnsChange = useCallback((value: ColumnPref) => {
     setPerfColumns(value);
     localStorage.setItem(STORAGE_KEYS.PERFORMANCE_LAYOUT, String(value));
+  }, []);
+
+  const handlePerfVersionChange = useCallback((value: SongVersion) => {
+    setPerfVersion(value);
+    localStorage.setItem(STORAGE_KEYS.PERFORMANCE_VERSION, value);
   }, []);
 
   const containerClass = scrollDir === 'horizontal' ? 'w-full' : 'max-w-[1120px] mx-auto w-full';
@@ -792,7 +806,15 @@ export default function LibraryTab() {
   // --- Performance View (single song) ---
   if (viewingSong) {
     const song = viewingSong;
-    const maxCols = maxColumnsForContent(song.rewritten_content);
+    // Only offer the original when it meaningfully differs from the edited
+    // version; otherwise the toggle is noise. A stale 'original' preference
+    // falls back to the edited version when there's nothing distinct to show.
+    const hasDistinctOriginal =
+      song.original_content.trim() !== '' &&
+      song.original_content.trim() !== song.rewritten_content.trim();
+    const activeVersion: SongVersion = hasDistinctOriginal ? perfVersion : 'rewritten';
+    const activeContent = activeVersion === 'original' ? song.original_content : song.rewritten_content;
+    const maxCols = maxColumnsForContent(activeContent);
     const showColumnSelect = maxCols >= 2;
     const sliderValue = perfFontSize ?? 16;
     return (
@@ -843,7 +865,39 @@ export default function LibraryTab() {
               </DropdownMenu>
             </div>
           </div>
-          <div className="flex items-center gap-2 mt-1">
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            {hasDistinctOriginal && (
+              <div
+                className="inline-flex rounded-md border border-border overflow-hidden shrink-0"
+                role="group"
+                aria-label="Song version"
+              >
+                <button
+                  onClick={() => handlePerfVersionChange('rewritten')}
+                  aria-pressed={activeVersion === 'rewritten'}
+                  className={cn(
+                    'px-3 py-1 text-xs font-medium cursor-pointer transition-colors',
+                    activeVersion === 'rewritten'
+                      ? 'bg-primary text-white'
+                      : 'bg-transparent text-muted-foreground hover:bg-panel hover:text-foreground',
+                  )}
+                >
+                  Your Version
+                </button>
+                <button
+                  onClick={() => handlePerfVersionChange('original')}
+                  aria-pressed={activeVersion === 'original'}
+                  className={cn(
+                    'px-3 py-1 text-xs font-medium cursor-pointer transition-colors border-l border-border',
+                    activeVersion === 'original'
+                      ? 'bg-primary text-white'
+                      : 'bg-transparent text-muted-foreground hover:bg-panel hover:text-foreground',
+                  )}
+                >
+                  Original
+                </button>
+              </div>
+            )}
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-muted-foreground whitespace-nowrap min-w-[32px] text-right">
                 {perfFontSize === null ? 'Auto' : `${Math.round(perfFontSize)}px`}
@@ -894,7 +948,7 @@ export default function LibraryTab() {
           </div>
         </div>
 
-        <PerformanceSheet song={song} className="flex-1 min-h-0" fontSizeOverride={perfFontSize} columnsPref={perfColumns} />
+        <PerformanceSheet song={song} version={activeVersion} className="flex-1 min-h-0" fontSizeOverride={perfFontSize} columnsPref={perfColumns} />
 
         <ConfirmDialog
           open={dialogState.kind === 'delete'}
