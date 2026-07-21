@@ -42,32 +42,18 @@ export async function getDefaultProfileId(baseUrl: string): Promise<number> {
   return def.id;
 }
 
-/** Intercept /api/providers to return a fake provider list. */
-export async function mockProviders(page: Page): Promise<void> {
-  await page.route('**/api/providers', async (route) => {
+/** Intercept /api/models to return a fake gateway model catalog. */
+export async function mockModels(page: Page): Promise<void> {
+  await page.route('**/api/models', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        providers: [
-          { name: 'openai', local: false },
-          { name: 'anthropic', local: false },
+        models: [
+          'personal-ps-anthropic:claude-sonnet-4-6',
+          'personal-ps-anthropic:claude-haiku-4-5-20251001',
         ],
-        platform_enabled: false,
       }),
-    });
-  });
-}
-
-/**
- * Intercept /api/providers/{provider}/models to return a fake model list.
- */
-export async function mockProviderModels(page: Page): Promise<void> {
-  await page.route('**/api/providers/*/models*', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(['gpt-4', 'gpt-4o', 'gpt-3.5-turbo']),
     });
   });
 }
@@ -88,12 +74,11 @@ export async function createChatMessagesViaApi(
   }
 }
 
-/** Set localStorage keys to pre-configure a provider+model so tests skip model selection. */
+/** Set localStorage keys to pre-configure a gateway model so tests skip model selection. */
 export async function presetLlmSettings(page: Page, baseUrl: string): Promise<void> {
   await page.goto(baseUrl);
   await page.evaluate(() => {
-    localStorage.setItem('porchsongs_provider', 'openai');
-    localStorage.setItem('porchsongs_model', 'gpt-4');
+    localStorage.setItem('porchsongs_model', 'personal-ps-anthropic:claude-sonnet-4-6');
     localStorage.setItem('porchsongs_reasoning_effort', 'high');
   });
 }

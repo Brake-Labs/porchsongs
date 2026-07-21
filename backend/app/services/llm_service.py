@@ -1,17 +1,13 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
-from any_llm import LLMProvider, alist_models, amessages
+from any_llm import alist_models, amessages
 from any_llm.types.messages import MessageResponse, MessageStreamEvent
-
-if TYPE_CHECKING:
-    from ..schemas import ProviderInfo
 
 # Map reasoning_effort values to Anthropic's thinking/output_config format.
 # amessages() is a native pass-through that does NOT convert reasoning_effort
@@ -196,36 +192,21 @@ The song is provided in the system prompt. When you make changes and emit <conte
 that becomes the new current version for subsequent turns. If the user tells you the song \
 has been manually edited and provides a current version, base your edits on that version."""
 
-_LOCAL_PROVIDERS = {"ollama", "llamafile", "llamacpp", "lmstudio", "vllm"}
-
-# Meta-providers that proxy to other providers and should not be directly selectable.
-_HIDDEN_PROVIDERS = {"platform"}
-
 # Providers that support Anthropic-style prompt caching via cache_control.
+# The gateway ("otari") does NOT honor Anthropic cache_control passthrough
+# (cache tokens come back as 0), so it is intentionally not listed here.
 _CACHEABLE_PROVIDERS = {"anthropic"}
 
 
-def is_platform_enabled() -> bool:
-    """Return True when the Any LLM Platform key is configured."""
-    return bool(os.getenv("ANY_LLM_KEY"))
-
-
-def get_configured_providers() -> list[ProviderInfo]:
-    """Return all known providers. Actual validation happens when listing models."""
-    from ..schemas import ProviderInfo
-
-    return [
-        ProviderInfo(name=p.value, local=p.value in _LOCAL_PROVIDERS)
-        for p in LLMProvider
-        if p.value not in _HIDDEN_PROVIDERS
-    ]
-
-
-async def get_models(provider: str, api_base: str | None = None) -> list[str]:
-    """Fetch available models for a provider using env-var credentials."""
+async def get_models(
+    provider: str, api_base: str | None = None, api_key: str | None = None
+) -> list[str]:
+    """Fetch available models for a provider (e.g. the gateway's model catalog)."""
     kwargs: dict[str, Any] = {"provider": provider}
     if api_base:
         kwargs["api_base"] = api_base
+    if api_key:
+        kwargs["api_key"] = api_key
     raw = await alist_models(**kwargs)
     return [m.id if hasattr(m, "id") else str(m) for m in raw]
 
@@ -433,7 +414,10 @@ async def parse_content_stream(
                 yield ("reasoning", event.delta.thinking)
         elif event.type == "message_delta" and event.usage:
             usage_data: dict[str, int | None] = {
-                "input_tokens": input_usage.get("input_tokens", 0),
+                # Some gateway models report input tokens only on message_delta
+                # rather than message_start; prefer whichever is non-zero.
+                "input_tokens": (input_usage.get("input_tokens") or 0)
+                or (getattr(event.usage, "input_tokens", None) or 0),
                 "output_tokens": event.usage.output_tokens,
             }
             cache_create = input_usage.get("cache_creation_input_tokens")
@@ -695,7 +679,10 @@ async def chat_edit_content_stream(
                 yield ("reasoning", event.delta.thinking)
         elif event.type == "message_delta" and event.usage:
             usage_data: dict[str, int | None] = {
-                "input_tokens": input_usage.get("input_tokens", 0),
+                # Some gateway models report input tokens only on message_delta
+                # rather than message_start; prefer whichever is non-zero.
+                "input_tokens": (input_usage.get("input_tokens") or 0)
+                or (getattr(event.usage, "input_tokens", None) or 0),
                 "output_tokens": event.usage.output_tokens,
             }
             cache_create = input_usage.get("cache_creation_input_tokens")

@@ -2,8 +2,7 @@ import { test, expect } from '@playwright/test';
 import {
   waitForAppReady,
   navigateToTab,
-  mockProviders,
-  mockProviderModels,
+  mockModels,
   presetLlmSettings,
   createSongViaApi,
   createChatMessagesViaApi,
@@ -27,8 +26,7 @@ import {
 test.describe('Song Lifecycle', () => {
   test.beforeEach(async ({ page, baseURL }) => {
     await presetLlmSettings(page, baseURL!);
-    await mockProviders(page);
-    await mockProviderModels(page);
+    await mockModels(page);
   });
 
   test('parsed song is saved on first chat and appears in library', async ({ page }) => {

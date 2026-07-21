@@ -41,6 +41,23 @@ def _clean_tables(db_engine: Engine) -> None:
             conn.commit()
 
 
+@pytest.fixture(autouse=True)
+def _configure_gateway() -> Generator[None]:
+    """Point the app at a dummy LLM gateway so rewrite endpoints don't 503.
+
+    porchsongs is gateway-only: ``_require_gateway`` returns 503 when
+    ``llm_api_base`` is unset. Tests mock the LLM call itself, so they only
+    need the gateway settings to be present.
+    """
+    from app.config import settings
+
+    orig_base, orig_key = settings.llm_api_base, settings.llm_api_key
+    settings.llm_api_base = "https://gateway.test/v1"
+    settings.llm_api_key = "test-gateway-key"
+    yield
+    settings.llm_api_base, settings.llm_api_key = orig_base, orig_key
+
+
 @pytest.fixture()
 def db_session(db_engine: Engine, _clean_tables: None) -> Generator[Session]:
     """Create a PostgreSQL session for each test."""

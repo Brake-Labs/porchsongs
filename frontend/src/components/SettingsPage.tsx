@@ -6,22 +6,16 @@ import type { AppShellContext } from '@/layouts/AppShell';
 import { getExtraSettingsTabs, renderPremiumSettingsTab, showOssSettingsTabs } from '@/extensions';
 
 const SETTINGS_TABS = [
-  { key: 'models', label: 'Models' },
+  { key: 'models', label: 'Model' },
   { key: 'prompts', label: 'System Prompts' },
 ] as const;
 
 export default function SettingsPage() {
   const ctx = useOutletContext<AppShellContext>();
   const {
-    provider,
     model,
-    savedModels,
-    onSave,
-    onAddModel,
-    onRemoveModel,
-    connections,
-    onAddConnection,
-    onRemoveConnection,
+    models,
+    onChangeModel,
     profile,
     onSaveProfile,
     reasoningEffort,
@@ -62,15 +56,9 @@ export default function SettingsPage() {
 
       {activeTab === 'models' && (
         <ModelsTab
-          provider={provider}
           model={model}
-          savedModels={savedModels}
-          onSave={onSave}
-          onAddModel={onAddModel}
-          onRemoveModel={onRemoveModel}
-          connections={connections}
-          onAddConnection={onAddConnection}
-          onRemoveConnection={onRemoveConnection}
+          models={models}
+          onChangeModel={onChangeModel}
           reasoningEffort={reasoningEffort}
           onChangeReasoningEffort={onChangeReasoningEffort}
         />

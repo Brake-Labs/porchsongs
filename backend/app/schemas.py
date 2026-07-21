@@ -44,40 +44,6 @@ class ProfileOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# --- Profile Models ---
-class ProfileModelCreate(BaseModel):
-    provider: str
-    model: str
-    api_base: str | None = None
-
-
-class ProfileModelOut(BaseModel):
-    id: int
-    profile_id: int
-    provider: str
-    model: str
-    api_base: str | None
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-# --- Provider Connections ---
-class ProviderConnectionCreate(BaseModel):
-    provider: str
-    api_base: str | None = None
-
-
-class ProviderConnectionOut(BaseModel):
-    id: int
-    profile_id: int
-    provider: str
-    api_base: str | None
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
 class TokenUsage(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
@@ -89,21 +55,17 @@ class TokenUsage(BaseModel):
 class ParseRequest(BaseModel):
     profile_id: int
     content: str = Field(max_length=100_000)
-    provider: str
     model: str
     reasoning_effort: str | None = None
     instruction: str | None = Field(default=None, max_length=2000)
     max_tokens: int | None = None
-    api_key: str | None = None
 
 
 class ImageExtractRequest(BaseModel):
     profile_id: int
     image: str = Field(max_length=10_000_000)  # base64-encoded image (up to ~7MB)
-    provider: str
     model: str
     max_tokens: int | None = None
-    api_key: str | None = None
 
 
 class ImageExtractResponse(BaseModel):
@@ -245,11 +207,9 @@ class ChatMessageOut(BaseModel):
 class ChatRequest(BaseModel):
     song_id: int
     messages: list[ChatMessage]
-    provider: str
     model: str
     reasoning_effort: str | None = None
     max_tokens: int | None = None
-    api_key: str | None = None
     rewritten_content: str | None = None
 
 
@@ -278,11 +238,5 @@ class DefaultPromptsResponse(BaseModel):
     chat: str
 
 
-class ProviderInfo(BaseModel):
-    name: str
-    local: bool
-
-
-class ProvidersResponse(BaseModel):
-    providers: list[ProviderInfo]
-    platform_enabled: bool
+class ModelsResponse(BaseModel):
+    models: list[str]

@@ -45,8 +45,8 @@ test.describe('OSS Navigation', () => {
     await page.getByRole('button', { name: 'System Prompts' }).click();
     await expect(page).toHaveURL(/\/app\/settings\/prompts$/);
 
-    // Click "Models" sub-tab
-    await page.getByRole('button', { name: 'Models' }).click();
+    // Click "Model" sub-tab
+    await page.getByRole('button', { name: 'Model' }).click();
     await expect(page).toHaveURL(/\/app\/settings\/models$/);
   });
 

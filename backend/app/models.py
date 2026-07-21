@@ -63,12 +63,6 @@ class Profile(Base):
     )
 
     user: Mapped["User"] = relationship("User", back_populates="profiles")
-    connections: Mapped[list["ProviderConnection"]] = relationship(
-        "ProviderConnection", back_populates="profile", cascade="all, delete-orphan"
-    )
-    models: Mapped[list["ProfileModel"]] = relationship(
-        "ProfileModel", back_populates="profile", cascade="all, delete-orphan"
-    )
 
 
 class Song(Base):
@@ -146,32 +140,3 @@ class ChatMessage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
     song: Mapped["Song"] = relationship("Song", back_populates="chat_messages")
-
-
-class ProviderConnection(Base):
-    __tablename__ = "provider_connections"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    profile_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("profiles.id"), index=True, nullable=False
-    )
-    provider: Mapped[str] = mapped_column(String, nullable=False)
-    api_base: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
-
-    profile: Mapped["Profile"] = relationship("Profile", back_populates="connections")
-
-
-class ProfileModel(Base):
-    __tablename__ = "profile_models"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    profile_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("profiles.id"), index=True, nullable=False
-    )
-    provider: Mapped[str] = mapped_column(String, nullable=False)
-    model: Mapped[str] = mapped_column(String, nullable=False)
-    api_base: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
-
-    profile: Mapped["Profile"] = relationship("Profile", back_populates="models")

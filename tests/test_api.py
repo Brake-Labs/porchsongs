@@ -3,7 +3,6 @@
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
 
 # --- Profile CRUD ---
@@ -271,21 +270,6 @@ def test_song_revisions(client: TestClient) -> None:
     assert revisions[0]["edit_type"] == "full"
 
 
-# --- Providers ---
-
-
-def test_list_providers(client: TestClient) -> None:
-    resp = client.get("/api/providers")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "providers" in data
-    assert "platform_enabled" in data
-    providers = data["providers"]
-    assert isinstance(providers, list)
-    assert len(providers) > 0
-    assert "name" in providers[0]
-
-
 # --- Chat Messages ---
 
 
@@ -393,131 +377,7 @@ def test_delete_song_deletes_messages(client: TestClient) -> None:
     assert resp.status_code == 404
 
 
-# --- Profile Models ---
-
-
-def test_list_profile_models_empty(client: TestClient) -> None:
-    profile = client.post("/api/profiles", json={}).json()
-    resp = client.get(f"/api/profiles/{profile['id']}/models")
-    assert resp.status_code == 200
-    assert resp.json() == []
-
-
-def test_add_profile_model(client: TestClient) -> None:
-    profile = client.post("/api/profiles", json={}).json()
-    resp = client.post(
-        f"/api/profiles/{profile['id']}/models",
-        json={
-            "provider": "openai",
-            "model": "gpt-4",
-        },
-    )
-    assert resp.status_code == 201
-    data = resp.json()
-    assert data["provider"] == "openai"
-    assert data["model"] == "gpt-4"
-    assert data["profile_id"] == profile["id"]
-    assert data["api_base"] is None
-
-
-def test_add_profile_model_upsert(client: TestClient) -> None:
-    profile = client.post("/api/profiles", json={}).json()
-    pid = profile["id"]
-
-    client.post(
-        f"/api/profiles/{pid}/models",
-        json={
-            "provider": "openai",
-            "model": "gpt-4",
-        },
-    )
-    # Same provider+model — should update, not create a second row
-    client.post(
-        f"/api/profiles/{pid}/models",
-        json={
-            "provider": "openai",
-            "model": "gpt-4",
-            "api_base": "http://localhost:8080",
-        },
-    )
-
-    resp = client.get(f"/api/profiles/{pid}/models")
-    models = resp.json()
-    assert len(models) == 1
-    assert models[0]["api_base"] == "http://localhost:8080"
-
-
-def test_add_profile_model_profile_not_found(client: TestClient) -> None:
-    resp = client.post(
-        "/api/profiles/9999/models",
-        json={
-            "provider": "openai",
-            "model": "gpt-4",
-        },
-    )
-    assert resp.status_code == 404
-
-
-def test_delete_profile_model(client: TestClient) -> None:
-    profile = client.post("/api/profiles", json={}).json()
-    pid = profile["id"]
-    pm = client.post(
-        f"/api/profiles/{pid}/models",
-        json={
-            "provider": "openai",
-            "model": "gpt-4",
-        },
-    ).json()
-
-    resp = client.delete(f"/api/profiles/{pid}/models/{pm['id']}")
-    assert resp.status_code == 200
-
-    # Verify gone
-    resp = client.get(f"/api/profiles/{pid}/models")
-    assert resp.json() == []
-
-
-def test_delete_profile_cascades_models(client: TestClient) -> None:
-    profile = client.post("/api/profiles", json={}).json()
-    pid = profile["id"]
-    client.post(
-        f"/api/profiles/{pid}/models",
-        json={
-            "provider": "openai",
-            "model": "gpt-4",
-        },
-    )
-
-    # Delete the profile
-    client.delete(f"/api/profiles/{pid}")
-
-    # Profile is gone — listing models should 404
-    resp = client.get(f"/api/profiles/{pid}/models")
-    assert resp.status_code == 404
-
-
-def test_list_profile_models_multiple(client: TestClient) -> None:
-    profile = client.post("/api/profiles", json={}).json()
-    pid = profile["id"]
-    client.post(
-        f"/api/profiles/{pid}/models",
-        json={
-            "provider": "openai",
-            "model": "gpt-4",
-        },
-    )
-    client.post(
-        f"/api/profiles/{pid}/models",
-        json={
-            "provider": "anthropic",
-            "model": "claude-3-opus",
-        },
-    )
-
-    resp = client.get(f"/api/profiles/{pid}/models")
-    assert resp.status_code == 200
-    models = resp.json()
-    assert len(models) == 2
+# --- Parse (LLM) ---
 
 
 def _make_message_resp(content: str) -> MagicMock:
@@ -539,8 +399,8 @@ def _make_message_resp(content: str) -> MagicMock:
     return r
 
 
-def test_parse_uses_env_credentials(client: TestClient) -> None:
-    """POST /parse should call amessages without api_key (uses env vars)."""
+def test_parse_uses_gateway_credentials(client: TestClient) -> None:
+    """POST /parse should call amessages with the server gateway provider/key."""
     profile = client.post("/api/profiles", json={}).json()
 
     with patch("app.services.llm_service.amessages", new_callable=AsyncMock) as mock_ac:
@@ -553,14 +413,13 @@ def test_parse_uses_env_credentials(client: TestClient) -> None:
             json={
                 "profile_id": profile["id"],
                 "content": "Hello world",
-                "provider": "openai",
                 "model": "gpt-4",
             },
         )
         assert resp.status_code == 200
-        # Verify amessages was called without api_key
         assert mock_ac.call_count == 1
-        assert mock_ac.call_args.kwargs.get("api_key") is None
+        assert mock_ac.call_args.kwargs.get("provider") == "otari"
+        assert mock_ac.call_args.kwargs.get("api_key") == "test-gateway-key"
 
 
 def test_parse_returns_title_artist(client: TestClient) -> None:
@@ -666,266 +525,6 @@ def test_parse_missing_tags_fallback(client: TestClient) -> None:
         assert data["original_content"] == "My raw lyrics"
         assert data["title"] is None
         assert data["artist"] is None
-
-
-# --- Provider Connections ---
-
-
-def test_list_connections_empty(client: TestClient) -> None:
-    profile = client.post("/api/profiles", json={}).json()
-    resp = client.get(f"/api/profiles/{profile['id']}/connections")
-    assert resp.status_code == 200
-    assert resp.json() == []
-
-
-def test_add_connection(client: TestClient) -> None:
-    profile = client.post("/api/profiles", json={}).json()
-    resp = client.post(
-        f"/api/profiles/{profile['id']}/connections",
-        json={
-            "provider": "openai",
-        },
-    )
-    assert resp.status_code == 201
-    data = resp.json()
-    assert data["provider"] == "openai"
-    assert data["api_base"] is None
-    assert data["profile_id"] == profile["id"]
-
-
-def test_add_connection_with_api_base(client: TestClient) -> None:
-    profile = client.post("/api/profiles", json={}).json()
-    resp = client.post(
-        f"/api/profiles/{profile['id']}/connections",
-        json={
-            "provider": "ollama",
-            "api_base": "http://localhost:11434",
-        },
-    )
-    assert resp.status_code == 201
-    data = resp.json()
-    assert data["provider"] == "ollama"
-    assert data["api_base"] == "http://localhost:11434"
-
-
-def test_add_connection_upsert(client: TestClient) -> None:
-    profile = client.post("/api/profiles", json={}).json()
-    pid = profile["id"]
-
-    client.post(f"/api/profiles/{pid}/connections", json={"provider": "ollama"})
-    # Same provider — should update api_base
-    client.post(
-        f"/api/profiles/{pid}/connections",
-        json={
-            "provider": "ollama",
-            "api_base": "http://localhost:11434",
-        },
-    )
-
-    resp = client.get(f"/api/profiles/{pid}/connections")
-    conns = resp.json()
-    assert len(conns) == 1
-    assert conns[0]["api_base"] == "http://localhost:11434"
-
-
-def test_add_connection_profile_not_found(client: TestClient) -> None:
-    resp = client.post("/api/profiles/9999/connections", json={"provider": "openai"})
-    assert resp.status_code == 404
-
-
-def test_delete_connection(client: TestClient) -> None:
-    profile = client.post("/api/profiles", json={}).json()
-    pid = profile["id"]
-    conn = client.post(
-        f"/api/profiles/{pid}/connections",
-        json={
-            "provider": "openai",
-        },
-    ).json()
-
-    resp = client.delete(f"/api/profiles/{pid}/connections/{conn['id']}")
-    assert resp.status_code == 200
-
-    resp = client.get(f"/api/profiles/{pid}/connections")
-    assert resp.json() == []
-
-
-def test_delete_connection_cascades_models(client: TestClient) -> None:
-    """Deleting a connection should also delete ProfileModel rows for that provider."""
-    profile = client.post("/api/profiles", json={}).json()
-    pid = profile["id"]
-
-    # Add connection + two models for same provider
-    conn = client.post(
-        f"/api/profiles/{pid}/connections",
-        json={
-            "provider": "openai",
-        },
-    ).json()
-    client.post(
-        f"/api/profiles/{pid}/models",
-        json={
-            "provider": "openai",
-            "model": "gpt-4",
-        },
-    )
-    client.post(
-        f"/api/profiles/{pid}/models",
-        json={
-            "provider": "openai",
-            "model": "gpt-3.5-turbo",
-        },
-    )
-    # Add a model for a different provider (should survive)
-    client.post(
-        f"/api/profiles/{pid}/models",
-        json={
-            "provider": "anthropic",
-            "model": "claude-3-opus",
-        },
-    )
-
-    # Delete the openai connection
-    client.delete(f"/api/profiles/{pid}/connections/{conn['id']}")
-
-    # openai models gone, anthropic model survives
-    resp = client.get(f"/api/profiles/{pid}/models")
-    models = resp.json()
-    assert len(models) == 1
-    assert models[0]["provider"] == "anthropic"
-
-
-def test_delete_profile_cascades_connections(client: TestClient) -> None:
-    """Deleting a profile should also delete its connections."""
-    profile = client.post("/api/profiles", json={}).json()
-    pid = profile["id"]
-    client.post(f"/api/profiles/{pid}/connections", json={"provider": "openai"})
-
-    client.delete(f"/api/profiles/{pid}")
-
-    # Profile gone — connections endpoint should 404
-    resp = client.get(f"/api/profiles/{pid}/connections")
-    assert resp.status_code == 404
-
-
-def test_gateway_unset_ignores_per_profile_connection(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Hard cutover: per-profile connections no longer drive generation.
-
-    With the gateway unset, api_base/api_key are None (any-llm then resolves
-    keys from its per-provider env vars), regardless of any ProviderConnection
-    or ProfileModel rows.
-    """
-    from app.config import settings
-
-    monkeypatch.setattr(settings, "llm_api_base", None)
-    monkeypatch.setattr(settings, "llm_api_key", None)
-
-    profile = client.post("/api/profiles", json={}).json()
-    pid = profile["id"]
-    # These rows used to drive generation; after the cutover they are ignored.
-    client.post(
-        f"/api/profiles/{pid}/connections",
-        json={"provider": "openai", "api_base": "http://connection-base:8080"},
-    )
-    client.post(
-        f"/api/profiles/{pid}/models",
-        json={"provider": "openai", "model": "gpt-4", "api_base": "http://model-base:9090"},
-    )
-
-    mock_response = _make_message_resp(
-        "<meta>\nTitle: T\nArtist: A\n</meta>\n<original>\nHello\n</original>"
-    )
-
-    with patch(
-        "app.services.llm_service.amessages", new_callable=AsyncMock, return_value=mock_response
-    ) as mock_ac:
-        resp = client.post(
-            "/api/parse",
-            json={
-                "profile_id": pid,
-                "content": "Hello",
-                "provider": "openai",
-                "model": "gpt-4",
-            },
-        )
-        assert resp.status_code == 200
-        call_kwargs = mock_ac.call_args.kwargs
-        assert call_kwargs.get("api_base") is None
-        assert call_kwargs.get("api_key") is None
-
-
-def test_llm_api_base_routes_all_traffic(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """When LLM_API_BASE is set, every LLM call is routed through it."""
-    from app.config import settings
-
-    monkeypatch.setattr(settings, "llm_api_base", "http://gateway:8000")
-
-    profile = client.post("/api/profiles", json={}).json()
-    pid = profile["id"]
-
-    mock_response = _make_message_resp(
-        "<meta>\nTitle: T\nArtist: A\n</meta>\n<original>\nHello\n</original>"
-    )
-
-    with patch(
-        "app.services.llm_service.amessages", new_callable=AsyncMock, return_value=mock_response
-    ) as mock_ac:
-        resp = client.post(
-            "/api/parse",
-            json={
-                "profile_id": pid,
-                "content": "Hello",
-                "provider": "openai",
-                "model": "gpt-4",
-            },
-        )
-        assert resp.status_code == 200
-        assert mock_ac.call_args.kwargs.get("api_base") == "http://gateway:8000"
-
-
-def test_llm_api_key_env_override_wins(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A configured LLM_API_KEY is a hard override over the request's own key."""
-    from app.config import settings
-
-    monkeypatch.setattr(settings, "llm_api_key", "gateway-key")
-
-    profile = client.post("/api/profiles", json={}).json()
-    pid = profile["id"]
-
-    mock_response = _make_message_resp(
-        "<meta>\nTitle: T\nArtist: A\n</meta>\n<original>\nHello\n</original>"
-    )
-
-    with patch(
-        "app.services.llm_service.amessages", new_callable=AsyncMock, return_value=mock_response
-    ) as mock_ac:
-        resp = client.post(
-            "/api/parse",
-            json={
-                "profile_id": pid,
-                "content": "Hello",
-                "provider": "openai",
-                "model": "gpt-4",
-                "api_key": "request-key",
-            },
-        )
-        assert resp.status_code == 200
-        assert mock_ac.call_args.kwargs.get("api_key") == "gateway-key"
-
-
-def test_list_connections_not_found(client: TestClient) -> None:
-    resp = client.get("/api/profiles/9999/connections")
-    assert resp.status_code == 404
-
-
-def test_delete_connection_not_found(client: TestClient) -> None:
-    profile = client.post("/api/profiles", json={}).json()
-    resp = client.delete(f"/api/profiles/{profile['id']}/connections/9999")
-    assert resp.status_code == 404
 
 
 # --- Input Size Validation ---

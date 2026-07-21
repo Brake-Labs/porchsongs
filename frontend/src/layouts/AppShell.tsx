@@ -4,8 +4,6 @@ import { Toaster } from 'sonner';
 import api, { ConnectionLostError, STORAGE_KEYS } from '@/api';
 import { chatHistoryToMessages } from '@/lib/chat-utils';
 import useLocalStorage from '@/hooks/useLocalStorage';
-import useProviderConnections from '@/hooks/useProviderConnections';
-import useSavedModels from '@/hooks/useSavedModels';
 import useVisibilityRecovery from '@/hooks/useVisibilityRecovery';
 import Header from '@/components/Header';
 import Tabs from '@/components/Tabs';
@@ -18,7 +16,7 @@ import type { Profile, RewriteResult, RewriteMeta, ChatMessage, Song, ParseResul
 /** Context value provided to child routes via useOutletContext(). */
 export interface AppShellContext {
   profile: Profile | null;
-  llmSettings: { provider: string; model: string; reasoning_effort: string };
+  llmSettings: { model: string; reasoning_effort: string };
   rewriteResult: RewriteResult | null;
   rewriteMeta: RewriteMeta | null;
   currentSongId: number | null;
@@ -29,23 +27,15 @@ export interface AppShellContext {
   onSongSaved: (song: Song) => void;
   onContentUpdated: (content: string) => void;
   onOriginalContentUpdated: (content: string) => void;
-  onChangeProvider: (provider: string) => void;
   onChangeModel: (model: string) => void;
   reasoningEffort: string;
   onChangeReasoningEffort: (value: string) => void;
-  savedModels: ReturnType<typeof useSavedModels>['savedModels'];
   onOpenSettings: () => void;
   isPremium: boolean;
   isAdmin: boolean;
-  // Settings-specific props
-  provider: string;
+  // Model picker (gateway catalog)
   model: string;
-  onSave: (provider: string, model: string) => void;
-  onAddModel: ReturnType<typeof useSavedModels>['addModel'];
-  onRemoveModel: ReturnType<typeof useSavedModels>['removeModel'];
-  connections: ReturnType<typeof useProviderConnections>['connections'];
-  onAddConnection: ReturnType<typeof useProviderConnections>['addConnection'];
-  onRemoveConnection: (connId: number) => void;
+  models: string[];
   onSaveProfile: (data: Partial<Profile>) => Promise<Profile>;
   // Library-specific props
   onLoadSong: (song: Song) => Promise<void>;
@@ -76,13 +66,11 @@ export default function AppShell() {
   const [profileError, setProfileError] = useState(false);
 
   // LLM settings (persisted in localStorage)
-  const [provider, setProvider] = useLocalStorage(STORAGE_KEYS.PROVIDER, '');
   const [model, setModel] = useLocalStorage(STORAGE_KEYS.MODEL, '');
   const [reasoningEffort, setReasoningEffort] = useLocalStorage(STORAGE_KEYS.REASONING_EFFORT, 'high');
 
-  // Provider connections and saved models
-  const { connections, addConnection, removeConnection } = useProviderConnections(profile?.id, isPremium);
-  const { savedModels, addModel, removeModel, refresh: refreshModels } = useSavedModels(profile?.id, isPremium);
+  // Gateway model catalog (fetched once)
+  const [models, setModels] = useState<string[]>([]);
 
   // Rewrite state (shared between RewriteTab, comparison, chat)
   const [rewriteResult, setRewriteResult] = useState<RewriteResult | null>(null);
@@ -120,7 +108,7 @@ export default function AppShell() {
     }
   }, []);
 
-  const llmSettings = { provider, model, reasoning_effort: reasoningEffort };
+  const llmSettings = { model, reasoning_effort: reasoningEffort };
 
   // Re-sync song state from DB when the tab becomes visible after a stream
   // was active (handles mobile browser suspending the tab mid-generation).
@@ -158,6 +146,15 @@ export default function AppShell() {
     if (authState !== 'ready') return;
     loadProfile();
   }, [authState, loadProfile]);
+
+  // Load the gateway model catalog once auth is ready. Premium hides the model
+  // controls entirely, so only fetch in OSS mode.
+  useEffect(() => {
+    if (authState !== 'ready' || isPremium) return;
+    api.listModels()
+      .then(setModels)
+      .catch(() => setModels([]));
+  }, [authState, isPremium]);
 
   // Auto-restore active song on mount (page refresh / PWA relaunch recovery).
   // If the user had a song open and the app relaunched at /app, navigate
@@ -234,7 +231,6 @@ export default function AppShell() {
         {
           profile_id: profile.id,
           content: params.content,
-          provider,
           model,
           reasoning_effort: reasoningEffort,
           ...(params.instruction && { instruction: params.instruction }),
@@ -263,7 +259,7 @@ export default function AppShell() {
       setParseLoading(false);
       setParseStreamText('');
     }
-  }, [profile, provider, model, reasoningEffort, handleNewRewrite]);
+  }, [profile, model, reasoningEffort, handleNewRewrite]);
 
   const handleCancelParse = useCallback(() => {
     parseAbortRef.current?.abort();
@@ -317,22 +313,6 @@ export default function AppShell() {
     }
   }, [navigate, setCurrentSong]);
 
-  const handleRemoveConnection = useCallback(async (connId: number) => {
-    const conn = connections.find(c => c.id === connId);
-    await removeConnection(connId);
-    if (conn && conn.provider === provider) {
-      const remaining = savedModels.filter(m => m.provider !== conn.provider);
-      if (remaining.length > 0) {
-        setProvider(remaining[0]!.provider);
-        setModel(remaining[0]!.model);
-      } else {
-        setProvider('');
-        setModel('');
-      }
-    }
-    refreshModels();
-  }, [connections, removeConnection, provider, savedModels, setProvider, setModel, refreshModels]);
-
   // Redirect to login if not authenticated
   if (authState === 'login') {
     return <Navigate to="/app/login" replace />;
@@ -361,22 +341,14 @@ export default function AppShell() {
     onSongSaved: handleSongSaved,
     onContentUpdated: handleContentUpdated,
     onOriginalContentUpdated: handleOriginalUpdated,
-    onChangeProvider: setProvider,
     onChangeModel: setModel,
     reasoningEffort,
     onChangeReasoningEffort: setReasoningEffort,
-    savedModels,
     onOpenSettings: () => navigate('/app/settings/models'),
     isPremium,
     isAdmin: currentAuthUser?.role === 'admin',
-    provider,
     model,
-    onSave: (p, m) => { setProvider(p); setModel(m); },
-    onAddModel: addModel,
-    onRemoveModel: removeModel,
-    connections,
-    onAddConnection: addConnection,
-    onRemoveConnection: handleRemoveConnection,
+    models,
     onSaveProfile: handleSaveProfile,
     onLoadSong: handleLoadSong,
     parseLoading,

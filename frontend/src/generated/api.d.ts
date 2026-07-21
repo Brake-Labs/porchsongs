@@ -64,76 +64,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/profiles/{profile_id}/models": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Profile Models */
-        get: operations["list_profile_models_api_profiles__profile_id__models_get"];
-        put?: never;
-        /** Add Profile Model */
-        post: operations["add_profile_model_api_profiles__profile_id__models_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/profiles/{profile_id}/models/{model_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Delete Profile Model */
-        delete: operations["delete_profile_model_api_profiles__profile_id__models__model_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/profiles/{profile_id}/connections": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Connections */
-        get: operations["list_connections_api_profiles__profile_id__connections_get"];
-        put?: never;
-        /** Add Connection */
-        post: operations["add_connection_api_profiles__profile_id__connections_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/profiles/{profile_id}/connections/{connection_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Delete Connection */
-        delete: operations["delete_connection_api_profiles__profile_id__connections__connection_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/songs": {
         parameters: {
             query?: never;
@@ -423,32 +353,18 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/providers": {
+    "/api/models": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List Providers */
-        get: operations["list_providers_api_providers_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/providers/{provider}/models": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Provider Models */
-        get: operations["list_provider_models_api_providers__provider__models_get"];
+        /**
+         * List Models
+         * @description List the models the configured gateway exposes for the current API key.
+         */
+        get: operations["list_models_api_models_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -682,16 +598,12 @@ export interface components {
             song_id: number;
             /** Messages */
             messages: components["schemas"]["ChatMessage"][];
-            /** Provider */
-            provider: string;
             /** Model */
             model: string;
             /** Reasoning Effort */
             reasoning_effort?: string | null;
             /** Max Tokens */
             max_tokens?: number | null;
-            /** Api Key */
-            api_key?: string | null;
             /** Rewritten Content */
             rewritten_content?: string | null;
         };
@@ -756,20 +668,21 @@ export interface components {
             profile_id: number;
             /** Image */
             image: string;
-            /** Provider */
-            provider: string;
             /** Model */
             model: string;
             /** Max Tokens */
             max_tokens?: number | null;
-            /** Api Key */
-            api_key?: string | null;
         };
         /** ImageExtractResponse */
         ImageExtractResponse: {
             /** Text */
             text: string;
             usage?: components["schemas"]["TokenUsage"] | null;
+        };
+        /** ModelsResponse */
+        ModelsResponse: {
+            /** Models */
+            models: string[];
         };
         /** OkResponse */
         OkResponse: {
@@ -782,8 +695,6 @@ export interface components {
             profile_id: number;
             /** Content */
             content: string;
-            /** Provider */
-            provider: string;
             /** Model */
             model: string;
             /** Reasoning Effort */
@@ -792,8 +703,6 @@ export interface components {
             instruction?: string | null;
             /** Max Tokens */
             max_tokens?: number | null;
-            /** Api Key */
-            api_key?: string | null;
         };
         /** ParseResponse */
         ParseResponse: {
@@ -823,33 +732,6 @@ export interface components {
              * @default false
              */
             platform_key_disabled: boolean;
-        };
-        /** ProfileModelCreate */
-        ProfileModelCreate: {
-            /** Provider */
-            provider: string;
-            /** Model */
-            model: string;
-            /** Api Base */
-            api_base?: string | null;
-        };
-        /** ProfileModelOut */
-        ProfileModelOut: {
-            /** Id */
-            id: number;
-            /** Profile Id */
-            profile_id: number;
-            /** Provider */
-            provider: string;
-            /** Model */
-            model: string;
-            /** Api Base */
-            api_base: string | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
         };
         /** ProfileOut */
         ProfileOut: {
@@ -889,43 +771,6 @@ export interface components {
             system_prompt_chat?: string | null;
             /** Platform Key Disabled */
             platform_key_disabled?: boolean | null;
-        };
-        /** ProviderConnectionCreate */
-        ProviderConnectionCreate: {
-            /** Provider */
-            provider: string;
-            /** Api Base */
-            api_base?: string | null;
-        };
-        /** ProviderConnectionOut */
-        ProviderConnectionOut: {
-            /** Id */
-            id: number;
-            /** Profile Id */
-            profile_id: number;
-            /** Provider */
-            provider: string;
-            /** Api Base */
-            api_base: string | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-        };
-        /** ProviderInfo */
-        ProviderInfo: {
-            /** Name */
-            name: string;
-            /** Local */
-            local: boolean;
-        };
-        /** ProvidersResponse */
-        ProvidersResponse: {
-            /** Providers */
-            providers: components["schemas"]["ProviderInfo"][];
-            /** Platform Enabled */
-            platform_enabled: boolean;
         };
         /** SongCreate */
         SongCreate: {
@@ -1243,202 +1088,6 @@ export interface operations {
             header?: never;
             path: {
                 profile_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OkResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_profile_models_api_profiles__profile_id__models_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                profile_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProfileModelOut"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    add_profile_model_api_profiles__profile_id__models_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                profile_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ProfileModelCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProfileModelOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_profile_model_api_profiles__profile_id__models__model_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                profile_id: number;
-                model_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OkResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_connections_api_profiles__profile_id__connections_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                profile_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProviderConnectionOut"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    add_connection_api_profiles__profile_id__connections_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                profile_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ProviderConnectionCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProviderConnectionOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_connection_api_profiles__profile_id__connections__connection_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                profile_id: number;
-                connection_id: number;
             };
             cookie?: never;
         };
@@ -2127,7 +1776,7 @@ export interface operations {
             };
         };
     };
-    list_providers_api_providers_get: {
+    list_models_api_models_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -2142,40 +1791,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProvidersResponse"];
-                };
-            };
-        };
-    };
-    list_provider_models_api_providers__provider__models_get: {
-        parameters: {
-            query?: {
-                api_base?: string | null;
-            };
-            header?: never;
-            path: {
-                provider: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": string[];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ModelsResponse"];
                 };
             };
         };

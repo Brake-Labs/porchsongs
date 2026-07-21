@@ -1,18 +1,15 @@
 import { Select } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import type { SavedModel } from '@/types';
 import type { ChangeEvent } from 'react';
 
 interface ModelSelectorProps {
-  provider: string;
   model: string;
-  savedModels: SavedModel[];
-  onChangeProvider: (provider: string) => void;
+  models: string[];
   onChangeModel: (model: string) => void;
   onOpenSettings: () => void;
 }
 
-export default function ModelSelector({ provider, model, savedModels, onChangeProvider, onChangeModel, onOpenSettings }: ModelSelectorProps) {
+export default function ModelSelector({ model, models, onChangeModel, onOpenSettings }: ModelSelectorProps) {
   const handleChange = (e: ChangeEvent<HTMLSelectElement>) => {
     const val = e.target.value;
     if (val === '__manage__') {
@@ -20,44 +17,34 @@ export default function ModelSelector({ provider, model, savedModels, onChangePr
       return;
     }
     if (!val) return;
-    const sm = savedModels.find(m => m.id === Number(val));
-    if (sm) {
-      onChangeProvider(sm.provider);
-      onChangeModel(sm.model);
-    }
+    onChangeModel(val);
   };
 
-  const activeId = savedModels.find(m => m.provider === provider && m.model === model)?.id;
-  const hasUnsaved = provider && model && !activeId;
-
-  if (!savedModels.length && !provider) {
+  if (!models.length && !model) {
     return (
       <div className="flex items-center gap-2 mb-3">
         <span className="text-sm text-muted-foreground">
-          No models configured.{' '}
-          <Button variant="link-inline" onClick={onOpenSettings}>Open Settings</Button> to add one.
+          No models available.{' '}
+          <Button variant="link-inline" onClick={onOpenSettings}>Open Settings</Button> to choose one.
         </span>
       </div>
     );
   }
 
+  const hasCurrent = !!model && models.includes(model);
+
   return (
     <div className="flex items-center gap-2 mb-3">
       <Select
-        value={activeId ? String(activeId) : (hasUnsaved ? '__unsaved__' : '')}
+        value={model}
         onChange={handleChange}
         className="w-full sm:w-auto sm:min-w-[220px] py-1.5 px-2.5 text-sm"
+        aria-label="Model"
       >
-        {hasUnsaved && (
-          <option value="__unsaved__">{provider} / {model} (unsaved)</option>
-        )}
-        {!hasUnsaved && !activeId && (
-          <option value="">Select model...</option>
-        )}
-        {savedModels.map(sm => (
-          <option key={sm.id} value={String(sm.id)}>
-            {sm.provider} / {sm.model}
-          </option>
+        {!model && <option value="">Select model...</option>}
+        {model && !hasCurrent && <option value={model}>{model}</option>}
+        {models.map(m => (
+          <option key={m} value={m}>{m}</option>
         ))}
         <option value="__manage__">Manage models...</option>
       </Select>

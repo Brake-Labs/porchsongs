@@ -12,13 +12,13 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.11+-blue?logo=python&logoColor=white" />
   <img alt="React" src="https://img.shields.io/badge/react-19-61dafb?logo=react&logoColor=white" />
   <img alt="FastAPI" src="https://img.shields.io/badge/fastapi-0.115-009688?logo=fastapi&logoColor=white" />
-  <a href="https://any-llm.ai/"><img alt="any-llm" src="https://img.shields.io/badge/LLM_providers-38+-c06830" /></a>
+  <a href="https://any-llm.ai/"><img alt="any-llm" src="https://img.shields.io/badge/LLM-gateway-c06830" /></a>
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green" />
 </p>
 
 <p align="center">
   A personal song lyric rewriter. Edit and refine your lyrics with AI -- workshop them into something that actually sounds like you.<br />
-  Powered by <a href="https://any-llm.ai/">any-llm</a> -- use any LLM provider you want.
+  Powered by <a href="https://any-llm.ai/">any-llm</a> -- routed through a single LLM gateway.
 </p>
 
 ---
@@ -33,7 +33,7 @@ porchsongs preserves meter, rhyme scheme, chord alignment, and emotional meaning
 
 **[porchsongs.ai](https://porchsongs.ai)** is the hosted version of porchsongs. Sign in with Google, pick a plan, and start rewriting. No setup, no API keys to manage.
 
-If you prefer to self-host or want full control over your LLM provider, follow the [Quick Start](#quick-start) below.
+If you prefer to self-host or want to point porchsongs at your own LLM gateway, follow the [Quick Start](#quick-start) below.
 
 ## How It Works
 
@@ -48,10 +48,13 @@ pip install uv
 uv sync
 cd frontend && npm install && npm run build && cd ..
 cd backend
-uv run uvicorn app.main:app --reload
+LLM_API_BASE=https://your-gateway/v1 LLM_API_KEY=your-key \
+  uv run uvicorn app.main:app --reload
 ```
 
-Open [http://localhost:8000](http://localhost:8000). Configure your LLM API key in Settings.
+Open [http://localhost:8000](http://localhost:8000). porchsongs routes all AI traffic
+through a single LLM gateway; set `LLM_API_BASE` and `LLM_API_KEY` (see the
+[environment variables](#environment-variables) below), then pick a model in Settings.
 
 By default, porchsongs runs in **zero-config dev mode** -- no login required, a local user is auto-created. See [Authentication](#authentication) below for production setups.
 
@@ -142,8 +145,9 @@ Docker Compose includes a PostgreSQL service and runs migrations automatically o
 | `JWT_EXPIRY_MINUTES` | `15` | Access token lifetime |
 | `REFRESH_TOKEN_DAYS` | `30` | Refresh token lifetime |
 | `PREMIUM_PLUGIN` | *(none)* | Module path for premium auth backend |
-| `OPENAI_API_KEY` | *(none)* | OpenAI API key |
-| `ANTHROPIC_API_KEY` | *(none)* | Anthropic API key |
+| `LLM_API_BASE` | *(none)* | LLM gateway base URL (OpenAI-compatible, e.g. `https://your-gateway/v1`). Required for AI features |
+| `LLM_API_KEY` | *(none)* | LLM gateway API key (read server-side, never sent to the browser) |
+| `LLM_PROVIDER` | `otari` | any-llm provider name for the gateway |
 
 See `.env.example` for the full list.
 
@@ -165,18 +169,18 @@ cd frontend && npx eslint src/
 cd frontend && npm run typecheck
 ```
 
-## LLM Providers -- Powered by any-llm
+## LLM gateway -- Powered by any-llm
 
-porchsongs uses **[any-llm](https://any-llm.ai/)** as its LLM backbone -- a unified interface to **38+ providers** including OpenAI, Anthropic, Google, Mistral, Groq, and Ollama. Swap providers by changing a single setting; no code changes needed.
+porchsongs routes all AI traffic through a single **LLM gateway** using **[any-llm](https://any-llm.ai/)**. Point `LLM_API_BASE` / `LLM_API_KEY` at any OpenAI-compatible gateway (an [Otari](https://any-llm.ai/) deployment by default) and pick a model in Settings; the model catalog is discovered from the gateway. Keys live only on the server and are never sent from the browser.
 
 | | |
 |---|---|
 | **Website** | [any-llm.ai](https://any-llm.ai/) |
 | **GitHub** | [mozilla-ai/any-llm](https://github.com/mozilla-ai/any-llm) |
 
-any-llm gives porchsongs:
-- **Provider flexibility** -- use whichever LLM API you already have a key for
-- **Local/offline support** -- run fully offline with [llamafile](https://github.com/mozilla-ai/llamafile) or Ollama
-- **Consistent interface** -- streaming, async, and tool use work the same across all providers
+Routing everything through one gateway gives porchsongs:
+- **One place to manage credentials, models, and spend** -- no per-provider keys in the app
+- **Model discovery** -- the Settings model picker is populated from the gateway's catalog
+- **Consistent interface** -- streaming, async, and reasoning work the same regardless of the model behind the gateway
 
 Bring your own API key, configure it in Settings, and start rewriting.
