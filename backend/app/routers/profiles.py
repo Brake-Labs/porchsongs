@@ -6,16 +6,12 @@ from sqlalchemy.orm import Session
 from ..auth.dependencies import get_current_user
 from ..auth.scoping import get_user_profile
 from ..database import get_db
-from ..models import Profile, ProfileModel, ProviderConnection, User
+from ..models import Profile, User
 from ..schemas import (
     OkResponse,
     ProfileCreate,
-    ProfileModelCreate,
-    ProfileModelOut,
     ProfileOut,
     ProfileUpdate,
-    ProviderConnectionCreate,
-    ProviderConnectionOut,
 )
 
 router = APIRouter(tags=["profiles"])
@@ -113,149 +109,6 @@ async def delete_profile(
             "Move or delete the songs first.",
         )
 
-    db.query(ProfileModel).filter(ProfileModel.profile_id == profile.id).delete()
-    db.query(ProviderConnection).filter(ProviderConnection.profile_id == profile.id).delete()
     db.delete(profile)
-    db.commit()
-    return OkResponse(ok=True)
-
-
-@router.get("/profiles/{profile_id}/models", response_model=list[ProfileModelOut])
-async def list_profile_models(
-    profile_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> list[ProfileModel]:
-    get_user_profile(db, current_user, profile_id)
-    return (
-        db.query(ProfileModel)
-        .filter(ProfileModel.profile_id == profile_id)
-        .order_by(ProfileModel.created_at.desc())
-        .all()
-    )
-
-
-@router.post("/profiles/{profile_id}/models", response_model=ProfileModelOut, status_code=201)
-async def add_profile_model(
-    profile_id: int,
-    data: ProfileModelCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> ProfileModel:
-    get_user_profile(db, current_user, profile_id)
-
-    existing = (
-        db.query(ProfileModel)
-        .filter(
-            ProfileModel.profile_id == profile_id,
-            ProfileModel.provider == data.provider,
-            ProfileModel.model == data.model,
-        )
-        .first()
-    )
-    if existing:
-        existing.api_base = data.api_base
-        db.commit()
-        db.refresh(existing)
-        return existing
-
-    pm = ProfileModel(profile_id=profile_id, **data.model_dump())
-    db.add(pm)
-    db.commit()
-    db.refresh(pm)
-    return pm
-
-
-@router.delete("/profiles/{profile_id}/models/{model_id}", response_model=OkResponse)
-async def delete_profile_model(
-    profile_id: int,
-    model_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> OkResponse:
-    get_user_profile(db, current_user, profile_id)
-    pm = (
-        db.query(ProfileModel)
-        .filter(ProfileModel.id == model_id, ProfileModel.profile_id == profile_id)
-        .first()
-    )
-    if not pm:
-        raise HTTPException(status_code=404, detail="Saved model not found")
-    db.delete(pm)
-    db.commit()
-    return OkResponse(ok=True)
-
-
-# --- Provider Connections ---
-
-
-@router.get("/profiles/{profile_id}/connections", response_model=list[ProviderConnectionOut])
-async def list_connections(
-    profile_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> list[ProviderConnection]:
-    get_user_profile(db, current_user, profile_id)
-    return (
-        db.query(ProviderConnection)
-        .filter(ProviderConnection.profile_id == profile_id)
-        .order_by(ProviderConnection.created_at.desc())
-        .all()
-    )
-
-
-@router.post(
-    "/profiles/{profile_id}/connections", response_model=ProviderConnectionOut, status_code=201
-)
-async def add_connection(
-    profile_id: int,
-    data: ProviderConnectionCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> ProviderConnection:
-    get_user_profile(db, current_user, profile_id)
-
-    existing = (
-        db.query(ProviderConnection)
-        .filter(
-            ProviderConnection.profile_id == profile_id,
-            ProviderConnection.provider == data.provider,
-        )
-        .first()
-    )
-    if existing:
-        existing.api_base = data.api_base
-        db.commit()
-        db.refresh(existing)
-        return existing
-
-    conn = ProviderConnection(profile_id=profile_id, **data.model_dump())
-    db.add(conn)
-    db.commit()
-    db.refresh(conn)
-    return conn
-
-
-@router.delete("/profiles/{profile_id}/connections/{connection_id}", response_model=OkResponse)
-async def delete_connection(
-    profile_id: int,
-    connection_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> OkResponse:
-    get_user_profile(db, current_user, profile_id)
-    conn = (
-        db.query(ProviderConnection)
-        .filter(ProviderConnection.id == connection_id, ProviderConnection.profile_id == profile_id)
-        .first()
-    )
-    if not conn:
-        raise HTTPException(status_code=404, detail="Connection not found")
-    # Cascade-delete all ProfileModel rows for this provider
-    db.query(ProfileModel).filter(
-        ProfileModel.profile_id == profile_id,
-        ProfileModel.provider == conn.provider,
-    ).delete()
-    db.delete(conn)
     db.commit()
     return OkResponse(ok=True)

@@ -5,8 +5,6 @@ import type { components } from '@/generated/api';
 export type Profile = components['schemas']['ProfileOut'];
 export type Song = components['schemas']['SongOut'];
 export type SongRevision = components['schemas']['SongRevisionOut'];
-export type SavedModel = components['schemas']['ProfileModelOut'];
-export type ProviderConnection = components['schemas']['ProviderConnectionOut'];
 export interface AuthUser {
   id: number;
   email: string;
@@ -20,8 +18,6 @@ export type ParseResult = components['schemas']['ParseResponse'];
 export type UrlScrapeResult = components['schemas']['UrlScrapeResponse'];
 export type TokenUsage = components['schemas']['TokenUsage'];
 export type ChatResult = components['schemas']['ChatResponse'];
-export type ProviderInfo = components['schemas']['ProviderInfo'];
-export type ProvidersResponse = components['schemas']['ProvidersResponse'];
 
 // --- Frontend-only types (no backend equivalent, stay manual) ---
 
@@ -63,14 +59,8 @@ export interface AttachedFile {
 }
 
 export interface LlmSettings {
-  provider: string;
   model: string;
   reasoning_effort: string;
-}
-
-export interface Provider {
-  name: string;
-  local: boolean;
 }
 
 export interface AuthConfig {

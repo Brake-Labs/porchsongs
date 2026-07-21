@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { waitForAppReady, mockProviders, mockProviderModels, presetLlmSettings } from '../fixtures/test-helpers';
+import { waitForAppReady, mockModels, presetLlmSettings } from '../fixtures/test-helpers';
 import {
   interceptLlmEndpoints,
   mockParseStreamResponse,
@@ -14,12 +14,11 @@ import {
 
 test.describe('OSS Rewrite Flow', () => {
   test.beforeEach(async ({ page, baseURL }) => {
-    // Pre-set provider/model in localStorage
+    // Pre-set the gateway model in localStorage
     await presetLlmSettings(page, baseURL!);
 
-    // Mock providers and models endpoints
-    await mockProviders(page);
-    await mockProviderModels(page);
+    // Mock the gateway model catalog endpoint
+    await mockModels(page);
   });
 
   test('full rewrite flow: paste → parse → title/artist appear', async ({ page }) => {

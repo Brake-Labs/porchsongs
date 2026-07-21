@@ -3,23 +3,18 @@ import userEvent from '@testing-library/user-event';
 import ModelSelector from '@/components/ModelSelector';
 
 describe('ModelSelector', () => {
-  const savedModels = [
-    { id: 1, profile_id: 1, provider: 'openai', model: 'gpt-4o', api_base: null, created_at: '2024-01-01T00:00:00Z' },
-    { id: 2, profile_id: 1, provider: 'anthropic', model: 'claude-sonnet', api_base: null, created_at: '2024-01-01T00:00:00Z' },
-  ];
+  const models = ['personal-ps-anthropic:claude-sonnet-4-6', 'ds4'];
 
-  it('shows "No models configured" when no models and no provider', () => {
+  it('shows "No models available" when no models and no model selected', () => {
     render(
       <ModelSelector
-        provider=""
         model=""
-        savedModels={[]}
-        onChangeProvider={vi.fn()}
+        models={[]}
         onChangeModel={vi.fn()}
         onOpenSettings={vi.fn()}
       />
     );
-    expect(screen.getByText(/No models configured/)).toBeInTheDocument();
+    expect(screen.getByText(/No models available/)).toBeInTheDocument();
   });
 
   it('calls onOpenSettings when "Open Settings" link is clicked', async () => {
@@ -27,10 +22,8 @@ describe('ModelSelector', () => {
     const onOpenSettings = vi.fn();
     render(
       <ModelSelector
-        provider=""
         model=""
-        savedModels={[]}
-        onChangeProvider={vi.fn()}
+        models={[]}
         onChangeModel={vi.fn()}
         onOpenSettings={onOpenSettings}
       />
@@ -39,20 +32,33 @@ describe('ModelSelector', () => {
     expect(onOpenSettings).toHaveBeenCalledOnce();
   });
 
-  it('renders a select with saved models', () => {
+  it('renders a select with the available models', () => {
     render(
       <ModelSelector
-        provider="openai"
-        model="gpt-4o"
-        savedModels={savedModels}
-        onChangeProvider={vi.fn()}
+        model="ds4"
+        models={models}
         onChangeModel={vi.fn()}
         onOpenSettings={vi.fn()}
       />
     );
-    expect(screen.getByText('openai / gpt-4o')).toBeInTheDocument();
-    expect(screen.getByText('anthropic / claude-sonnet')).toBeInTheDocument();
+    expect(screen.getByText('personal-ps-anthropic:claude-sonnet-4-6')).toBeInTheDocument();
+    expect(screen.getByText('ds4')).toBeInTheDocument();
     expect(screen.getByText('Manage models...')).toBeInTheDocument();
+  });
+
+  it('calls onChangeModel when a model is selected', async () => {
+    const user = userEvent.setup();
+    const onChangeModel = vi.fn();
+    render(
+      <ModelSelector
+        model="ds4"
+        models={models}
+        onChangeModel={onChangeModel}
+        onOpenSettings={vi.fn()}
+      />
+    );
+    await user.selectOptions(screen.getByRole('combobox'), 'personal-ps-anthropic:claude-sonnet-4-6');
+    expect(onChangeModel).toHaveBeenCalledWith('personal-ps-anthropic:claude-sonnet-4-6');
   });
 
   it('calls onOpenSettings when "Manage models..." is selected', async () => {
@@ -60,10 +66,8 @@ describe('ModelSelector', () => {
     const onOpenSettings = vi.fn();
     render(
       <ModelSelector
-        provider="openai"
-        model="gpt-4o"
-        savedModels={savedModels}
-        onChangeProvider={vi.fn()}
+        model="ds4"
+        models={models}
         onChangeModel={vi.fn()}
         onOpenSettings={onOpenSettings}
       />

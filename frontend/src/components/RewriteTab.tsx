@@ -33,7 +33,7 @@ import { cn } from '@/lib/utils';
 import { QuotaBanner, OnboardingBanner, isQuotaError, QuotaUpgradeLink } from '@/extensions/quota';
 import { SAMPLE_SONGS, sampleToParseResult } from '@/data/sample-songs';
 import type { AppShellContext } from '@/layouts/AppShell';
-import type { Profile, Song, RewriteResult, RewriteMeta, ChatMessage, LlmSettings, SavedModel, ParseResult } from '@/types';
+import type { Profile, Song, RewriteResult, RewriteMeta, ChatMessage, LlmSettings, ParseResult } from '@/types';
 import type { SampleSong } from '@/data/sample-songs';
 
 interface RewriteTabProps {
@@ -49,11 +49,10 @@ interface RewriteTabProps {
   onSongSaved: (song: Song) => void;
   onContentUpdated: (content: string) => void;
   onOriginalContentUpdated: (content: string) => void;
-  onChangeProvider: (provider: string) => void;
   onChangeModel: (model: string) => void;
   reasoningEffort: string;
   onChangeReasoningEffort: (value: string) => void;
-  savedModels: SavedModel[];
+  models: string[];
   onOpenSettings: () => void;
   isPremium?: boolean;
   // Parse state (lifted to AppShell so it survives tab navigation)
@@ -88,11 +87,10 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     onSongSaved,
     onContentUpdated,
     onOriginalContentUpdated: onOriginalContentUpdatedCtx,
-    onChangeProvider,
     onChangeModel,
     reasoningEffort,
     onChangeReasoningEffort,
-    savedModels,
+    models,
     onOpenSettings,
     isPremium,
     // Parse state from AppShell
@@ -233,7 +231,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   }, [saveStatus]);
 
   const hasProfile = !!profile?.id;
-  const hasModel = isPremium || (llmSettings.provider && llmSettings.model);
+  const hasModel = isPremium || !!llmSettings.model;
   const canParse = hasProfile && hasModel && !parseLoading && input.trim().length > 0;
 
   const parseBlocker = !hasModel
@@ -282,7 +280,6 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
       const result = await api.parseImage({
         profile_id: profile.id,
         image: dataUrl,
-        provider: llmSettings.provider,
         model: llmSettings.model,
       });
       setInput(result.text);
@@ -450,7 +447,6 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
             source_url: pendingSourceUrlRef.current || null,
             original_content: result.original_content,
             rewritten_content: result.original_content,
-            llm_provider: llmSettings.provider,
             llm_model: llmSettings.model,
           });
           pendingSourceUrlRef.current = null;
@@ -493,7 +489,6 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
           artist: result.artist || null,
           original_content: result.original_content,
           rewritten_content: result.original_content,
-          llm_provider: llmSettings.provider,
           llm_model: llmSettings.model,
         });
         localStorage.setItem(STORAGE_KEYS.HAS_REWRITTEN, '1');
@@ -519,7 +514,6 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
       artist: songArtist || null,
       original_content: parsedContent,
       rewritten_content: parsedContent,
-      llm_provider: llmSettings.provider,
       llm_model: llmSettings.model,
     });
     localStorage.setItem(STORAGE_KEYS.HAS_REWRITTEN, '1');
@@ -541,7 +535,6 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
           profile_id: profile?.id,
           title: songTitle || undefined,
           artist: songArtist || undefined,
-          llm_provider: llmSettings.provider,
           llm_model: llmSettings.model,
         },
       );
@@ -672,10 +665,8 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const modelControls = (disabled?: boolean) => (
     <div className={cn('flex items-end gap-3 flex-wrap', disabled && 'opacity-50 pointer-events-none')}>
       <ModelSelector
-        provider={llmSettings.provider}
         model={llmSettings.model}
-        savedModels={savedModels}
-        onChangeProvider={onChangeProvider}
+        models={models}
         onChangeModel={onChangeModel}
         onOpenSettings={onOpenSettings}
       />
@@ -699,8 +690,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
 
   // Compact model + effort selects for ChatPanel header
   const compactModelControls = () => {
-    const activeModel = savedModels.find(m => m.provider === llmSettings.provider && m.model === llmSettings.model);
-    const hasUnsaved = llmSettings.provider && llmSettings.model && !activeModel;
+    const hasCurrent = !!llmSettings.model && models.includes(llmSettings.model);
 
     const handleModelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
       const val = e.target.value;
@@ -709,31 +699,25 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
         return;
       }
       if (!val) return;
-      const sm = savedModels.find(m => m.id === Number(val));
-      if (sm) {
-        onChangeProvider(sm.provider);
-        onChangeModel(sm.model);
-      }
+      onChangeModel(val);
     };
 
     return (
       <>
         <Select
           className="hidden sm:inline w-auto py-1 px-2 text-xs"
-          value={activeModel ? String(activeModel.id) : (hasUnsaved ? '__unsaved__' : '')}
+          value={llmSettings.model}
           onChange={handleModelChange}
           aria-label="Model"
         >
-          {hasUnsaved && (
-            <option value="__unsaved__">{llmSettings.provider} / {llmSettings.model}</option>
-          )}
-          {!hasUnsaved && !activeModel && (
+          {!llmSettings.model && (
             <option value="">Model...</option>
           )}
-          {savedModels.map(sm => (
-            <option key={sm.id} value={String(sm.id)}>
-              {sm.provider} / {sm.model}
-            </option>
+          {llmSettings.model && !hasCurrent && (
+            <option value={llmSettings.model}>{llmSettings.model}</option>
+          )}
+          {models.map(m => (
+            <option key={m} value={m}>{m}</option>
           ))}
           <option value="__manage__">Manage models...</option>
         </Select>

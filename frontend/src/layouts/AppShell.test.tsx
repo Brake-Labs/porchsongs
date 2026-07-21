@@ -16,21 +16,13 @@ vi.mock('@/contexts/AuthContext', () => ({
 vi.mock('@/api', () => ({
   default: {
     listProfiles: vi.fn().mockResolvedValue([{ id: 1, is_default: true }]),
+    listModels: vi.fn().mockResolvedValue([]),
   },
   STORAGE_KEYS: {
-    PROVIDER: 'test_provider',
     MODEL: 'test_model',
     REASONING_EFFORT: 'test_effort',
     CURRENT_SONG_ID: 'test_song_id',
   },
-}));
-
-// Mock hooks that call the backend
-vi.mock('@/hooks/useProviderConnections', () => ({
-  default: () => ({ connections: [], addConnection: vi.fn(), removeConnection: vi.fn() }),
-}));
-vi.mock('@/hooks/useSavedModels', () => ({
-  default: () => ({ savedModels: [], addModel: vi.fn(), removeModel: vi.fn(), refresh: vi.fn() }),
 }));
 
 // Stub heavy children so the test focuses on layout structure

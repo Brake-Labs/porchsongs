@@ -2,7 +2,7 @@ import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithRouter } from '@/test/test-utils';
 import LibraryTab from '@/components/LibraryTab';
 import type { AppShellContext } from '@/layouts/AppShell';
-import type { Song, ChatMessage, SavedModel } from '@/types';
+import type { Song, ChatMessage } from '@/types';
 
 // Mock react-router-dom: provide useOutletContext + useParams
 const mockOutletContext: Partial<AppShellContext> = {};
@@ -68,7 +68,7 @@ function makeSong(overrides: Partial<Song> = {}): Song {
 function setupContext(overrides: Partial<AppShellContext> = {}): void {
   Object.assign(mockOutletContext, {
     profile: { id: 1, user_id: 'u1', display_name: 'Test', parse_prompt: '', chat_prompt: '' },
-    llmSettings: { provider: 'openai', model: 'gpt-4o', reasoning_effort: 'high' },
+    llmSettings: { model: 'gpt-4o', reasoning_effort: 'high' },
     rewriteResult: null,
     rewriteMeta: null,
     currentSongId: null,
@@ -78,11 +78,10 @@ function setupContext(overrides: Partial<AppShellContext> = {}): void {
     onNewRewrite: vi.fn(),
     onSongSaved: vi.fn(),
     onContentUpdated: vi.fn(),
-    onChangeProvider: vi.fn(),
     onChangeModel: vi.fn(),
     reasoningEffort: 'high',
     onChangeReasoningEffort: vi.fn(),
-    savedModels: [] as SavedModel[],
+    models: [] as string[],
     onOpenSettings: vi.fn(),
     onLoadSong: vi.fn(),
     ...overrides,

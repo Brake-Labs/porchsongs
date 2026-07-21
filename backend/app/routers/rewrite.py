@@ -35,9 +35,9 @@ from ..schemas import (
     FileExtractResponse,
     ImageExtractRequest,
     ImageExtractResponse,
+    ModelsResponse,
     ParseRequest,
     ParseResponse,
-    ProvidersResponse,
     TokenUsage,
     UrlScrapeRequest,
     UrlScrapeResponse,
@@ -50,19 +50,18 @@ logger = logging.getLogger(__name__)
 # Strong references to background tasks so they aren't GC'd before completion.
 _background_tasks: set[asyncio.Task[None]] = set()
 
-# Maps provider names to the env var they need for authentication.
-_PROVIDER_KEY_ENV_VARS: dict[str, str] = {
-    "anthropic": "ANTHROPIC_API_KEY",
-    "openai": "OPENAI_API_KEY",
-    "google": "GOOGLE_API_KEY",
-    "mistral": "MISTRAL_API_KEY",
-    "cohere": "COHERE_API_KEY",
-    "groq": "GROQ_API_KEY",
-    "together": "TOGETHER_API_KEY",
-    "fireworks": "FIREWORKS_API_KEY",
-    "deepseek": "DEEPSEEK_API_KEY",
-    "openrouter": "OPENROUTER_API_KEY",
-}
+
+def _require_gateway() -> None:
+    """Raise 503 when no LLM gateway is configured (``LLM_API_BASE`` unset)."""
+    if not settings.llm_api_base:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "detail": "No AI gateway is configured. Set LLM_API_BASE (and "
+                "LLM_API_KEY) on the server to enable AI features.",
+                "error_type": "gateway_not_configured",
+            },
+        )
 
 
 def _format_llm_error(e: Exception, provider: str | None = None) -> dict[str, str]:
@@ -96,20 +95,11 @@ def _format_llm_error(e: Exception, provider: str | None = None) -> dict[str, st
             "error_type": "context_length",
         }
     if isinstance(e, (LLMAuthError, MissingApiKeyError)):
-        env_var = _PROVIDER_KEY_ENV_VARS.get(provider or "")
-        if env_var:
-            detail = (
-                f"No API key configured for {provider}. "
-                f"Set the {env_var} environment variable on the server "
-                f"and restart. Example: export {env_var}=sk-..."
-            )
-        else:
-            detail = (
-                f"No API key configured for {provider or 'this provider'}. "
-                "Set the appropriate API key environment variable "
-                "on the server and restart."
-            )
-        return {"detail": detail, "error_type": "auth_error"}
+        return {
+            "detail": "The AI gateway rejected the request (authentication failed). "
+            "Check the LLM_API_KEY configured on the server.",
+            "error_type": "auth_error",
+        }
     if isinstance(e, ModelNotFoundError):
         return {
             "detail": "The selected model is not available. Please choose a different model.",
@@ -168,17 +158,17 @@ async def parse(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ParseResponse:
+    _require_gateway()
     profile = get_user_profile(db, current_user, req.profile_id)
-    api_base = settings.llm_api_base
 
     try:
         result = await _cancellable(
             request,
             llm_service.parse_content(
                 content=req.content,
-                provider=req.provider,
+                provider=settings.llm_provider,
                 model=req.model,
-                api_base=api_base,
+                api_base=settings.llm_api_base,
                 reasoning_effort=req.reasoning_effort,
                 instruction=req.instruction,
                 system_prompt=profile.system_prompt_parse,
@@ -189,7 +179,9 @@ async def parse(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=502, detail=_format_llm_error(e, req.provider)) from None
+        raise HTTPException(
+            status_code=502, detail=_format_llm_error(e, settings.llm_provider)
+        ) from None
 
     usage_data = result.get("usage")
     usage = TokenUsage(**usage_data) if usage_data else None
@@ -210,8 +202,8 @@ async def parse_stream(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
+    _require_gateway()
     profile = get_user_profile(db, current_user, req.profile_id)
-    api_base = settings.llm_api_base
 
     # Extract ORM value before the generator runs — the DB session may be
     # closed by then, making ORM attribute access raise DetachedInstanceError.
@@ -224,9 +216,9 @@ async def parse_stream(
         try:
             stream = llm_service.parse_content_stream(
                 content=req.content,
-                provider=req.provider,
+                provider=settings.llm_provider,
                 model=req.model,
-                api_base=api_base,
+                api_base=settings.llm_api_base,
                 reasoning_effort=req.reasoning_effort,
                 instruction=req.instruction,
                 system_prompt=system_prompt,
@@ -246,7 +238,7 @@ async def parse_stream(
                     yield f"event: token\ndata: {json.dumps(text)}\n\n"
         except Exception as e:
             logger.exception("Parse stream LLM error")
-            yield f"event: error\ndata: {json.dumps(_format_llm_error(e, req.provider))}\n\n"
+            yield f"event: error\ndata: {json.dumps(_format_llm_error(e, settings.llm_provider))}\n\n"
             return
 
         # Parse the accumulated response
@@ -275,17 +267,17 @@ async def parse_image(
     db: Session = Depends(get_db),
 ) -> ImageExtractResponse:
     """Extract song text from an uploaded image using LLM vision."""
+    _require_gateway()
     get_user_profile(db, current_user, req.profile_id)
-    api_base = settings.llm_api_base
 
     try:
         result = await _cancellable(
             request,
             llm_service.extract_text_from_image(
                 image_data_url=req.image,
-                provider=req.provider,
+                provider=settings.llm_provider,
                 model=req.model,
-                api_base=api_base,
+                api_base=settings.llm_api_base,
                 max_tokens=req.max_tokens,
                 api_key=settings.llm_api_key,
             ),
@@ -293,7 +285,9 @@ async def parse_image(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=502, detail=_format_llm_error(e, req.provider)) from None
+        raise HTTPException(
+            status_code=502, detail=_format_llm_error(e, settings.llm_provider)
+        ) from None
 
     usage_data = result.get("usage")
     usage = TokenUsage(**usage_data) if usage_data else None
@@ -586,9 +580,9 @@ async def chat(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ChatResponse:
+    _require_gateway()
     song = get_user_song(db, current_user, req.song_id)
     messages, history_len = _load_chat_messages(db, song.id, req.messages)
-    api_base = settings.llm_api_base
     profile = db.query(Profile).filter(Profile.id == song.profile_id).first()
 
     # Extract ORM values before commit (commit expires cached attributes).
@@ -611,9 +605,9 @@ async def chat(
             llm_service.chat_edit_content(
                 original_content=original_content,
                 messages=messages,
-                provider=req.provider,
+                provider=settings.llm_provider,
                 model=req.model,
-                api_base=api_base,
+                api_base=settings.llm_api_base,
                 reasoning_effort=req.reasoning_effort,
                 system_prompt=system_prompt,
                 max_tokens=req.max_tokens,
@@ -625,7 +619,9 @@ async def chat(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=502, detail=_format_llm_error(e, req.provider)) from None
+        raise HTTPException(
+            status_code=502, detail=_format_llm_error(e, settings.llm_provider)
+        ) from None
 
     usage_data = result.get("usage")
     _persist_chat_result(
@@ -662,9 +658,9 @@ async def chat_stream(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
+    _require_gateway()
     song = get_user_song(db, current_user, req.song_id)
     messages, history_len = _load_chat_messages(db, song.id, req.messages)
-    api_base = settings.llm_api_base
     profile = db.query(Profile).filter(Profile.id == song.profile_id).first()
 
     # Extract ORM values before commit.  commit() expires all cached attributes
@@ -694,9 +690,9 @@ async def chat_stream(
             stream = llm_service.chat_edit_content_stream(
                 original_content=original_content,
                 messages=messages,
-                provider=req.provider,
+                provider=settings.llm_provider,
                 model=req.model,
-                api_base=api_base,
+                api_base=settings.llm_api_base,
                 reasoning_effort=req.reasoning_effort,
                 system_prompt=system_prompt,
                 max_tokens=req.max_tokens,
@@ -744,7 +740,7 @@ async def chat_stream(
         except Exception as e:
             _completed = True
             logger.exception("Chat stream LLM error")
-            yield f"event: error\ndata: {json.dumps(_format_llm_error(e, req.provider))}\n\n"
+            yield f"event: error\ndata: {json.dumps(_format_llm_error(e, settings.llm_provider))}\n\n"
             return
         finally:
             if not _completed and stream is not None:
@@ -825,23 +821,20 @@ async def chat_stream(
     )
 
 
-@router.get("/providers", response_model=ProvidersResponse, tags=["providers"])
-async def list_providers(
+@router.get("/models", response_model=ModelsResponse, tags=["providers"])
+async def list_models(
     current_user: User = Depends(get_current_user),
-) -> ProvidersResponse:
-    return ProvidersResponse(
-        providers=llm_service.get_configured_providers(),
-        platform_enabled=llm_service.is_platform_enabled(),
-    )
-
-
-@router.get("/providers/{provider}/models")
-async def list_provider_models(
-    provider: str,
-    api_base: str | None = None,
-    current_user: User = Depends(get_current_user),
-) -> list[str]:
+) -> ModelsResponse:
+    """List the models the configured gateway exposes for the current API key."""
+    _require_gateway()
     try:
-        return await llm_service.get_models(provider, api_base=api_base)
+        models = await llm_service.get_models(
+            settings.llm_provider,
+            api_base=settings.llm_api_base,
+            api_key=settings.llm_api_key,
+        )
     except Exception as e:
-        raise HTTPException(status_code=502, detail=_format_llm_error(e, provider)) from None
+        raise HTTPException(
+            status_code=502, detail=_format_llm_error(e, settings.llm_provider)
+        ) from None
+    return ModelsResponse(models=models)

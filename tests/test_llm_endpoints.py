@@ -8,7 +8,6 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -58,7 +57,6 @@ def _make_profile_and_song(client: TestClient) -> tuple[dict[str, Any], dict[str
 
 
 LLM_SETTINGS = {
-    "provider": "openai",
     "model": "gpt-4o-mini",
 }
 
@@ -256,11 +254,11 @@ def test_parse_model_not_found_error(mock_amessages: MagicMock, client: TestClie
 
 @patch("app.services.llm_service.amessages")
 def test_parse_auth_error(mock_amessages: MagicMock, client: TestClient) -> None:
-    """MissingApiKeyError should return auth_error with env var hint."""
+    """MissingApiKeyError should return auth_error pointing at the gateway key."""
     from any_llm import MissingApiKeyError
 
     profile = client.post("/api/profiles", json={"name": "Test"}).json()
-    mock_amessages.side_effect = MissingApiKeyError("openai", "OPENAI_API_KEY")
+    mock_amessages.side_effect = MissingApiKeyError("otari", "LLM_API_KEY")
 
     resp = client.post(
         "/api/parse",
@@ -269,7 +267,7 @@ def test_parse_auth_error(mock_amessages: MagicMock, client: TestClient) -> None
     assert resp.status_code == 502
     detail = resp.json()["detail"]
     assert detail["error_type"] == "auth_error"
-    assert "OPENAI_API_KEY" in detail["detail"]
+    assert "LLM_API_KEY" in detail["detail"]
 
 
 # --- POST /api/parse/image ---
@@ -573,119 +571,82 @@ def test_chat_song_not_found(client: TestClient) -> None:
     assert resp.status_code == 404
 
 
-# --- GET /api/providers/{provider}/models ---
+# --- GET /api/models (gateway catalog) ---
 
 
 @patch("app.services.llm_service.alist_models")
-def test_list_provider_models_success(mock_list_models: MagicMock, client: TestClient) -> None:
-    mock_model = MagicMock()
-    mock_model.id = "gpt-4o"
-    mock_list_models.return_value = [mock_model]
+def test_list_models_success(mock_list_models: MagicMock, client: TestClient) -> None:
+    m1, m2 = MagicMock(), MagicMock()
+    m1.id, m2.id = "work-anthropic:claude-sonnet-5", "ds4"
+    mock_list_models.return_value = [m1, m2]
 
-    resp = client.get("/api/providers/openai/models")
+    resp = client.get("/api/models")
     assert resp.status_code == 200
-    data = resp.json()
-    assert "gpt-4o" in data
+    assert resp.json()["models"] == ["work-anthropic:claude-sonnet-5", "ds4"]
+
+    # Model discovery is routed through the configured gateway credentials.
+    call_kwargs = mock_list_models.call_args.kwargs
+    assert call_kwargs["provider"] == "otari"
+    assert call_kwargs["api_base"] == "https://gateway.test/v1"
+    assert call_kwargs["api_key"] == "test-gateway-key"
 
 
 @patch("app.services.llm_service.alist_models")
-def test_list_provider_models_failure(mock_list_models: MagicMock, client: TestClient) -> None:
+def test_list_models_failure(mock_list_models: MagicMock, client: TestClient) -> None:
     from any_llm import MissingApiKeyError
 
-    mock_list_models.side_effect = MissingApiKeyError("openai", "OPENAI_API_KEY")
+    mock_list_models.side_effect = MissingApiKeyError("otari", "LLM_API_KEY")
 
-    resp = client.get("/api/providers/openai/models")
+    resp = client.get("/api/models")
     assert resp.status_code == 502
     detail = resp.json()["detail"]
     assert detail["error_type"] == "auth_error"
-    assert "OPENAI_API_KEY" in detail["detail"]
+    assert "LLM_API_KEY" in detail["detail"]
 
 
-# --- api_base passthrough tests ---
+# --- gateway credential passthrough ---
 
 
 @patch("app.services.llm_service.amessages")
-def test_parse_routes_through_gateway(
-    mock_amessages: MagicMock, client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Hard cutover: LLM_API_BASE/LLM_API_KEY drive the call; ProfileModel is ignored."""
+def test_parse_uses_gateway_credentials(mock_amessages: MagicMock, client: TestClient) -> None:
+    """Parse routes through the configured gateway provider/base/key."""
+    profile = client.post("/api/profiles", json={"name": "User"}).json()
+
+    mock_amessages.return_value = _fake_message_response(
+        "<meta>\nTitle: UNKNOWN\nArtist: UNKNOWN\n</meta>\n<original>\nHello world\n</original>"
+    )
+
+    resp = client.post(
+        "/api/parse",
+        json={"profile_id": profile["id"], "content": "Hello world", **LLM_SETTINGS},
+    )
+    assert resp.status_code == 200
+
+    assert mock_amessages.call_count == 1
+    call_kwargs = mock_amessages.call_args.kwargs
+    assert call_kwargs["provider"] == "otari"
+    assert call_kwargs["api_base"] == "https://gateway.test/v1"
+    assert call_kwargs["api_key"] == "test-gateway-key"
+    # The client-selected model still flows through to the gateway.
+    assert call_kwargs["model"] == "gpt-4o-mini"
+
+
+def test_rewrite_requires_gateway(client: TestClient) -> None:
+    """With no gateway configured, rewrite endpoints return 503."""
     from app.config import settings
 
-    monkeypatch.setattr(settings, "llm_api_base", "http://gateway:9000")
-    monkeypatch.setattr(settings, "llm_api_key", "gw-key")
-
-    profile = client.post("/api/profiles", json={"name": "Local LLM User"}).json()
-
-    # A ProfileModel api_base used to drive generation; after the cutover it is ignored.
-    client.post(
-        f"/api/profiles/{profile['id']}/models",
-        json={"provider": "ollama", "model": "llama3", "api_base": "http://localhost:11434"},
-    )
-
-    mock_amessages.return_value = _fake_message_response(
-        "<meta>\nTitle: UNKNOWN\nArtist: UNKNOWN\n</meta>\n<original>\nHello world\n</original>"
-    )
-
-    resp = client.post(
-        "/api/parse",
-        json={
-            "profile_id": profile["id"],
-            "content": "Hello world",
-            "provider": "ollama",
-            "model": "llama3",
-        },
-    )
-    assert resp.status_code == 200
-
-    assert mock_amessages.call_count == 1
-    assert mock_amessages.call_args.kwargs.get("api_base") == "http://gateway:9000"
-    assert mock_amessages.call_args.kwargs.get("api_key") == "gw-key"
-
-
-@patch("app.services.llm_service.amessages")
-def test_parse_no_api_base_when_gateway_unset(
-    mock_amessages: MagicMock, client: TestClient
-) -> None:
-    """With the gateway unset, api_base is not passed (any-llm uses provider defaults)."""
-    profile = client.post(
-        "/api/profiles",
-        json={
-            "name": "Cloud User",
-        },
-    ).json()
-
-    mock_amessages.return_value = _fake_message_response(
-        "<meta>\nTitle: UNKNOWN\nArtist: UNKNOWN\n</meta>\n<original>\nHello world\n</original>"
-    )
-
-    resp = client.post(
-        "/api/parse",
-        json={
-            "profile_id": profile["id"],
-            "content": "Hello world",
-            **LLM_SETTINGS,
-        },
-    )
-    assert resp.status_code == 200
-
-    assert mock_amessages.call_count == 1
-    assert mock_amessages.call_args.kwargs.get("api_base") is None
-
-
-@patch("app.services.llm_service.alist_models")
-def test_list_models_with_api_base(mock_list_models: MagicMock, client: TestClient) -> None:
-    """GET /providers/{provider}/models?api_base= should pass api_base to alist_models."""
-    mock_model = MagicMock()
-    mock_model.id = "llama3"
-    mock_list_models.return_value = [mock_model]
-
-    resp = client.get("/api/providers/ollama/models?api_base=http://localhost:11434")
-    assert resp.status_code == 200
-    assert "llama3" in resp.json()
-
-    mock_list_models.assert_called_once()
-    call_kwargs = mock_list_models.call_args.kwargs
-    assert call_kwargs.get("api_base") == "http://localhost:11434"
+    profile = client.post("/api/profiles", json={"name": "User"}).json()
+    orig = settings.llm_api_base
+    settings.llm_api_base = None
+    try:
+        resp = client.post(
+            "/api/parse",
+            json={"profile_id": profile["id"], "content": "Hi", **LLM_SETTINGS},
+        )
+    finally:
+        settings.llm_api_base = orig
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["error_type"] == "gateway_not_configured"
 
 
 # --- GET /api/prompts/defaults ---
@@ -1121,13 +1082,15 @@ def test_finish_chat_in_background_zero_accumulated(
 
 
 @patch("app.services.llm_service.amessages")
-def test_chat_anthropic_adds_cache_breakpoint(
+def test_chat_forces_gateway_provider_no_cache(
     mock_amessages: MagicMock, client: TestClient
 ) -> None:
-    """For anthropic provider, history messages should get cache breakpoints."""
+    """The gateway provider is forced regardless of the client-sent value, and
+    the gateway does not honor Anthropic cache_control, so no breakpoints are
+    added (they would only mangle the request)."""
     _, song = _make_profile_and_song(client)
 
-    # First chat: builds history
+    # First chat: builds history. Client asks for anthropic; server ignores it.
     mock_amessages.return_value = _fake_message_response("First response.")
     client.post(
         "/api/chat",
@@ -1139,7 +1102,6 @@ def test_chat_anthropic_adds_cache_breakpoint(
         },
     )
 
-    # Second chat: should add cache breakpoint to last history message
     mock_amessages.return_value = _fake_message_response("Second response.")
     client.post(
         "/api/chat",
@@ -1151,16 +1113,14 @@ def test_chat_anthropic_adds_cache_breakpoint(
         },
     )
 
-    call_messages = mock_amessages.call_args.kwargs.get("messages", [])
-    # The last history message (assistant's first response) should have cache_control
-    # History is [user1, assistant1], new is [user2]
-    # assistant1 is at index 1, and should have cache breakpoint
-    history_assistant_msg = call_messages[1]
-    assert history_assistant_msg["role"] == "assistant"
-    content = history_assistant_msg["content"]
-    # Content should be converted to block format with cache_control
-    assert isinstance(content, list)
-    assert content[0].get("cache_control") == {"type": "ephemeral"}
+    # Provider is forced to the gateway, regardless of the client value.
+    assert mock_amessages.call_args.kwargs["provider"] == "otari"
+    # No cache_control breakpoints anywhere.
+    for msg in mock_amessages.call_args.kwargs.get("messages", []):
+        content = msg["content"]
+        if isinstance(content, list):
+            for block in content:
+                assert "cache_control" not in block
 
 
 @patch("app.services.llm_service.amessages")

@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import RewriteTab from '@/components/RewriteTab';
 import type { AppShellContext } from '@/layouts/AppShell';
-import type { ChatMessage, SavedModel, ParseResult } from '@/types';
+import type { ChatMessage, ParseResult } from '@/types';
 
 // Mock react-router-dom: provide useOutletContext
 const mockOutletContext: Partial<AppShellContext> = {};
@@ -53,7 +53,7 @@ import api, { STORAGE_KEYS } from '@/api';
 function makeProps(overrides: Partial<AppShellContext> = {}): AppShellContext {
   return {
     profile: { id: 1, user_id: 'u1', display_name: 'Test', parse_prompt: '', chat_prompt: '' },
-    llmSettings: { provider: 'openai', model: 'gpt-4o', reasoning_effort: 'high' },
+    llmSettings: { model: 'gpt-4o', reasoning_effort: 'high' },
     rewriteResult: null,
     rewriteMeta: null,
     currentSongId: null,
@@ -63,11 +63,10 @@ function makeProps(overrides: Partial<AppShellContext> = {}): AppShellContext {
     onSongSaved: vi.fn(),
     onContentUpdated: vi.fn(),
     onOriginalContentUpdated: vi.fn(),
-    onChangeProvider: vi.fn(),
     onChangeModel: vi.fn(),
     reasoningEffort: 'high',
     onChangeReasoningEffort: vi.fn(),
-    savedModels: [] as SavedModel[],
+    models: [] as string[],
     onOpenSettings: vi.fn(),
     // Parse state (lifted to AppShell)
     parseLoading: false,
@@ -815,7 +814,7 @@ describe('RewriteTab', () => {
   });
 
   it('disables Import from Photo when no model is selected', () => {
-    const props = makeProps({ llmSettings: { provider: '', model: '', reasoning_effort: '' } });
+    const props = makeProps({ llmSettings: { model: '', reasoning_effort: '' } });
     Object.assign(mockOutletContext, props);
     render(<RewriteTab />);
     const photoBtn = screen.getByText('Import from Photo');

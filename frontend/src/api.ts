@@ -5,9 +5,6 @@ import type {
   ChatResult,
   ParseResult,
   Profile,
-  ProviderConnection,
-  ProvidersResponse,
-  SavedModel,
   Song,
   SongRevision,
   UrlScrapeResult,
@@ -28,7 +25,6 @@ const STORAGE_KEYS = {
   DRAFT_INSTRUCTION: 'porchsongs_draft_instruction',
   SPLIT_PERCENT: 'porchsongs_split_pct',
   WAKE_LOCK: 'porchsongs_wake_lock',
-  PROVIDER: 'porchsongs_provider',
   MODEL: 'porchsongs_model',
   REASONING_EFFORT: 'porchsongs_reasoning_effort',
   THEME: 'porchsongs_theme',
@@ -249,7 +245,7 @@ const api = {
   ): Promise<ParseResult> => _streamSse<ParseResult>('/parse/stream', data, onToken, signal, onReasoning),
 
   // Image extract (vision OCR)
-  parseImage: async (body: { profile_id: number; image: string; provider: string; model: string; api_key?: string }) => {
+  parseImage: async (body: { profile_id: number; image: string; model: string }) => {
     const res = await fetch('/api/parse/image', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ..._getAuthHeaders() },
@@ -413,52 +409,6 @@ const api = {
     return data as ChatHistoryRow[];
   },
 
-  // Profile Models (saved provider+model combos)
-  listProfileModels: async (profileId: number) => {
-    const { data, error } = await client.GET('/api/profiles/{profile_id}/models', {
-      params: { path: { profile_id: profileId } },
-    });
-    if (error) _throwApiError(error, 'Failed to list models');
-    return data as SavedModel[];
-  },
-  addProfileModel: async (profileId: number, body: { provider: string; model: string }) => {
-    const { data, error } = await client.POST('/api/profiles/{profile_id}/models', {
-      params: { path: { profile_id: profileId } },
-      body,
-    });
-    if (error) _throwApiError(error, 'Failed to add model');
-    return data as SavedModel;
-  },
-  deleteProfileModel: async (profileId: number, modelId: number) => {
-    const { error } = await client.DELETE('/api/profiles/{profile_id}/models/{model_id}', {
-      params: { path: { profile_id: profileId, model_id: modelId } },
-    });
-    if (error) _throwApiError(error, 'Failed to delete model');
-  },
-
-  // Provider Connections
-  listProviderConnections: async (profileId: number) => {
-    const { data, error } = await client.GET('/api/profiles/{profile_id}/connections', {
-      params: { path: { profile_id: profileId } },
-    });
-    if (error) _throwApiError(error, 'Failed to list connections');
-    return data as ProviderConnection[];
-  },
-  addProviderConnection: async (profileId: number, body: { provider: string; api_base?: string }) => {
-    const { data, error } = await client.POST('/api/profiles/{profile_id}/connections', {
-      params: { path: { profile_id: profileId } },
-      body: body as never,
-    });
-    if (error) _throwApiError(error, 'Failed to add connection');
-    return data as ProviderConnection;
-  },
-  deleteProviderConnection: async (profileId: number, connectionId: number) => {
-    const { error } = await client.DELETE('/api/profiles/{profile_id}/connections/{connection_id}', {
-      params: { path: { profile_id: profileId, connection_id: connectionId } },
-    });
-    if (error) _throwApiError(error, 'Failed to delete connection');
-  },
-
   // PDF (uses UUID)
   downloadSongPdf: async (songUuid: string, title: string | null, artist: string | null) => {
     const filename = `${title || 'Untitled'} - ${artist || 'Unknown'}.pdf`;
@@ -476,18 +426,11 @@ const api = {
     _downloadBlob(await res.blob(), filename);
   },
 
-  // Providers
-  listProviders: async () => {
-    const { data, error } = await client.GET('/api/providers');
-    if (error) _throwApiError(error, 'Failed to list providers');
-    return data as ProvidersResponse;
-  },
-  listProviderModels: async (provider: string, apiBase?: string) => {
-    const { data, error } = await client.GET('/api/providers/{provider}/models', {
-      params: { path: { provider }, query: { api_base: apiBase } },
-    });
+  // Models (gateway catalog)
+  listModels: async (): Promise<string[]> => {
+    const { data, error } = await client.GET('/api/models');
     if (error) _throwApiError(error, 'Failed to list models');
-    return data as string[];
+    return (data as { models: string[] }).models;
   },
 };
 
