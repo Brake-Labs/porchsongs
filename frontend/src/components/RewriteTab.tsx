@@ -135,7 +135,6 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const [songTitle, setSongTitle] = useState('');
   const [songArtist, setSongArtist] = useState('');
   const [scrapDialogOpen, setScrapDialogOpen] = useState(false);
-  const [newSongDialogOpen, setNewSongDialogOpen] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
   const [showHints, setShowHints] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
@@ -157,6 +156,13 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const [hasSongs, setHasSongs] = useState(
     () => !!localStorage.getItem(STORAGE_KEYS.HAS_REWRITTEN),
   );
+  // Whether we've actually confirmed the user's song count, either via the
+  // localStorage shortcut or a completed server check. Until then we don't
+  // show first-time-only UI, so the welcome banner can't flash for a returning
+  // user signing in on a fresh device (where localStorage starts empty).
+  const [songsChecked, setSongsChecked] = useState(
+    () => !!localStorage.getItem(STORAGE_KEYS.HAS_REWRITTEN),
+  );
 
   // Check server for existing songs when localStorage has no record.
   // This handles the cross-browser case: user created songs on another device.
@@ -167,10 +173,14 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
         localStorage.setItem(STORAGE_KEYS.HAS_REWRITTEN, '1');
         setHasSongs(true);
       }
+      setSongsChecked(true);
     }).catch(() => {});
   }, [hasSongs, profile?.id]);
 
   const isFirstTime = !hasSongs;
+  // Show the welcome banner only for a server-confirmed new user (no songs), so
+  // it stops reappearing for long-time users on every new device/browser.
+  const isConfirmedNewUser = songsChecked && isFirstTime;
 
   // Keep the synchronous ref in sync with prop changes (e.g. loading a song from library)
   useEffect(() => {
@@ -560,14 +570,6 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     setChatMessages([]);
   };
 
-  const handleNewSongClick = () => {
-    if (isWorkshopping || (isParsed && chatMessages.length > 0)) {
-      setNewSongDialogOpen(true);
-    } else {
-      handleNewSong();
-    }
-  };
-
   // The global "New Song" button (tab bar / mobile nav) clears the shared parse
   // and rewrite state in AppShell. When this tab is already mounted, mirror that
   // by resetting the local-only fields so a stale input/title/artist can't leak
@@ -792,7 +794,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
           <Button
             variant="secondary"
             className="h-7 px-2.5 text-xs"
-            onClick={handleNewSongClick}
+            onClick={handleNewSong}
           >
             + New
           </Button>
@@ -852,7 +854,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
 
       {/* INPUT state */}
       {isInput && !parseLoading && (
-        <OnboardingBanner>
+        <OnboardingBanner show={isConfirmedNewUser}>
           {!isPremium && modelControls()}
 
           <Card
@@ -1200,15 +1202,6 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
         confirmLabel="Scrap"
         variant="destructive"
         onConfirm={handleScrap}
-      />
-
-      <ConfirmDialog
-        open={newSongDialogOpen}
-        onOpenChange={setNewSongDialogOpen}
-        title="Start New Song"
-        description="Starting a new song will discard your current work. Any unsaved changes will be lost."
-        confirmLabel="New Song"
-        onConfirm={handleNewSong}
       />
     </div>
   );
