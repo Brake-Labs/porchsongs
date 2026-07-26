@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, fireEvent } from '@testing-library/react';
 import { renderWithRouter } from '@/test/test-utils';
 import Tabs, { buildTabItems, activeKeyFromPath } from '@/components/Tabs';
 
@@ -24,6 +24,22 @@ describe('Tabs', () => {
   it('defaults to rewrite tab for unknown paths', () => {
     renderWithRouter(<Tabs />, { route: '/app/unknown' });
     expect(screen.getByText('Rewrite')).toHaveAttribute('data-state', 'active');
+  });
+
+  it('renders a New Song button when onNewSong is provided and calls it on click', () => {
+    const onNewSong = vi.fn();
+    renderWithRouter(<Tabs onNewSong={onNewSong} />, { route: '/app/library' });
+
+    const button = screen.getByRole('button', { name: '+ New Song' });
+    expect(button).toBeInTheDocument();
+
+    fireEvent.click(button);
+    expect(onNewSong).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits the New Song button when onNewSong is not provided', () => {
+    renderWithRouter(<Tabs />, { route: '/app/rewrite' });
+    expect(screen.queryByRole('button', { name: '+ New Song' })).not.toBeInTheDocument();
   });
 });
 

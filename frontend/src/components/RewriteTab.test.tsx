@@ -532,7 +532,11 @@ describe('RewriteTab', () => {
     expect(sampleText.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
   });
 
-  describe('New Song button', () => {
+  // The always-visible "+ New Song" button now lives in the global chrome
+  // (tab bar / mobile nav, see Tabs/MobileNav tests). RewriteTab keeps a
+  // contextual mobile "+ New" button in the song toolbar that runs the same
+  // discard flow.
+  describe('New Song button (mobile toolbar)', () => {
     it('renders in PARSED state', () => {
       const props = makeProps({
         parseResult: { title: 'Test', artist: 'Test', original_content: 'content' } as ParseResult,
@@ -540,8 +544,6 @@ describe('RewriteTab', () => {
       });
       render(<RewriteTab {...props} />);
 
-      // Should show "+ New Song" (desktop) and "+ New" (mobile)
-      expect(screen.getByRole('button', { name: '+ New Song' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: '+ New' })).toBeInTheDocument();
     });
 
@@ -557,7 +559,6 @@ describe('RewriteTab', () => {
       });
       render(<RewriteTab {...props} />);
 
-      expect(screen.getByRole('button', { name: '+ New Song' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: '+ New' })).toBeInTheDocument();
     });
 
@@ -565,7 +566,6 @@ describe('RewriteTab', () => {
       const props = makeProps();
       render(<RewriteTab {...props} />);
 
-      expect(screen.queryByRole('button', { name: '+ New Song' })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: '+ New' })).not.toBeInTheDocument();
     });
 
@@ -581,7 +581,7 @@ describe('RewriteTab', () => {
       });
       render(<RewriteTab {...props} />);
 
-      fireEvent.click(screen.getByRole('button', { name: '+ New Song' }));
+      fireEvent.click(screen.getByRole('button', { name: '+ New' }));
 
       expect(screen.getByText('Start New Song')).toBeInTheDocument();
       expect(screen.getByText(/Starting a new song will discard your current work/)).toBeInTheDocument();
@@ -601,7 +601,7 @@ describe('RewriteTab', () => {
       });
       render(<RewriteTab {...props} />);
 
-      fireEvent.click(screen.getByRole('button', { name: '+ New Song' }));
+      fireEvent.click(screen.getByRole('button', { name: '+ New' }));
       fireEvent.click(screen.getByRole('button', { name: 'New Song' }));
 
       expect(onNewRewrite).toHaveBeenCalledWith(null, null);
@@ -621,14 +621,14 @@ describe('RewriteTab', () => {
       });
       render(<RewriteTab {...props} />);
 
-      fireEvent.click(screen.getByRole('button', { name: '+ New Song' }));
+      fireEvent.click(screen.getByRole('button', { name: '+ New' }));
       fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
       // onNewRewrite should not have been called (except initial render effects)
       expect(onNewRewrite).not.toHaveBeenCalledWith(null, null);
     });
 
-    it('calls onClearParse when New Song is clicked in PARSED state', () => {
+    it('calls onClearParse when New is clicked in PARSED state', () => {
       const onClearParse = vi.fn();
       const onNewRewrite = vi.fn();
       const props = makeProps({
@@ -640,7 +640,7 @@ describe('RewriteTab', () => {
       });
       render(<RewriteTab {...props} />);
 
-      fireEvent.click(screen.getByRole('button', { name: '+ New Song' }));
+      fireEvent.click(screen.getByRole('button', { name: '+ New' }));
 
       // Should not show dialog (parsed state with no chat messages)
       expect(screen.queryByText('Start New Song')).not.toBeInTheDocument();
@@ -648,6 +648,29 @@ describe('RewriteTab', () => {
       // Should have called onClearParse to clear parse state in AppShell
       expect(onClearParse).toHaveBeenCalled();
       expect(onNewRewrite).toHaveBeenCalledWith(null, null);
+    });
+
+    it('resets local input when the global newSongNonce changes', () => {
+      const props = makeProps({
+        parseResult: { title: 'Test', artist: 'Test', original_content: 'content' } as ParseResult,
+        parsedContent: 'content',
+        newSongNonce: 0,
+      });
+      const { rerender } = render(<RewriteTab {...props} />);
+
+      // Simulate the global button: AppShell clears shared state and bumps the nonce.
+      rerender(
+        <RewriteTab
+          {...props}
+          parseResult={null}
+          parsedContent=""
+          rewriteResult={null}
+          newSongNonce={1}
+        />,
+      );
+
+      // Back to the INPUT view with an empty textarea (no leftover title/input).
+      expect(screen.getByPlaceholderText(/Paste lyrics/)).toHaveValue('');
     });
   });
 

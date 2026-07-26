@@ -818,8 +818,8 @@ export default function LibraryTab() {
     const showColumnSelect = maxCols >= 2;
     const sliderValue = perfFontSize ?? 16;
     return (
-      <div className="flex flex-col h-full min-h-0 w-full bg-card rounded-lg p-3 sm:p-4">
-        <div className="shrink-0 mb-2">
+      <div className="flex flex-col h-full min-h-0 w-auto bg-card rounded-none p-1 -mx-2 -mt-4 sm:w-full sm:rounded-lg sm:p-4 sm:mx-0 sm:mt-0">
+        <div className="shrink-0 mb-1 sm:mb-2">
           <div className="flex items-center gap-3">
             <button
               onClick={handleBack}

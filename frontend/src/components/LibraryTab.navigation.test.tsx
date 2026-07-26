@@ -76,6 +76,7 @@ const stubContext: AppShellContext = {
   onCancelParse: vi.fn(),
   onClearParse: vi.fn(),
   onChatStreamingChange: vi.fn(),
+  newSongNonce: 0,
 };
 
 /** Layout wrapper that provides AppShellContext via Outlet */
