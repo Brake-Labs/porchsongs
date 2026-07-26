@@ -1,5 +1,6 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Tabs as TabsRoot, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { getDefaultSettingsTab, getExtraTopLevelTabs } from '@/extensions';
 import type { TopLevelTab } from '@/extensions';
@@ -29,7 +30,11 @@ export function activeKeyFromPath(pathname: string): string {
   return 'rewrite';
 }
 
-export default function Tabs() {
+interface TabsProps {
+  onNewSong?: () => void;
+}
+
+export default function Tabs({ onNewSong }: TabsProps) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { isPremium, currentAuthUser } = useAuth();
@@ -43,18 +48,29 @@ export default function Tabs() {
   };
 
   return (
-    <TabsRoot value={active}>
-      <TabsList>
-        {tabItems.map(t => (
-          <TabsTrigger
-            key={t.key}
-            value={t.key}
-            onClick={() => handleTabClick(t.key)}
-          >
-            {t.label}
-          </TabsTrigger>
-        ))}
-      </TabsList>
-    </TabsRoot>
+    <div className="flex items-center max-w-[1800px] mx-auto">
+      <TabsRoot value={active} className="min-w-0 flex-1">
+        <TabsList className="mx-0">
+          {tabItems.map(t => (
+            <TabsTrigger
+              key={t.key}
+              value={t.key}
+              onClick={() => handleTabClick(t.key)}
+            >
+              {t.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </TabsRoot>
+      {onNewSong && (
+        <Button
+          size="sm"
+          className="shrink-0 mr-4 sm:mr-8 my-1.5"
+          onClick={onNewSong}
+        >
+          + New Song
+        </Button>
+      )}
+    </div>
   );
 }

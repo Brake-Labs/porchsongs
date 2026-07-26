@@ -74,4 +74,32 @@ describe('MobileNav', () => {
     expect(screen.getByRole('link', { name: 'GitHub' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'X (Twitter)' })).toBeInTheDocument();
   });
+
+  it('renders a New Song action when onNewSong is provided', () => {
+    const onNewSong = vi.fn();
+    renderWithRouter(<MobileNav onNewSong={onNewSong} />, { route: '/app/library' });
+
+    fireEvent.click(screen.getByRole('button', { name: /open navigation menu/i }));
+
+    expect(screen.getByRole('button', { name: '+ New Song' })).toBeInTheDocument();
+  });
+
+  it('omits the New Song action when onNewSong is not provided', () => {
+    renderWithRouter(<MobileNav />, { route: '/app/library' });
+
+    fireEvent.click(screen.getByRole('button', { name: /open navigation menu/i }));
+
+    expect(screen.queryByRole('button', { name: '+ New Song' })).not.toBeInTheDocument();
+  });
+
+  it('calls onNewSong and closes the sidebar when New Song is clicked', () => {
+    const onNewSong = vi.fn();
+    renderWithRouter(<MobileNav onNewSong={onNewSong} />, { route: '/app/library' });
+
+    fireEvent.click(screen.getByRole('button', { name: /open navigation menu/i }));
+    fireEvent.click(screen.getByRole('button', { name: '+ New Song' }));
+
+    expect(onNewSong).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Navigation')).not.toBeInTheDocument();
+  });
 });

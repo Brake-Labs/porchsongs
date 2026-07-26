@@ -2,12 +2,17 @@ import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Sheet, SheetContent, SheetClose } from '@/components/ui/sheet';
+import { Button } from '@/components/ui/button';
 import { buildTabItems, activeKeyFromPath } from '@/components/Tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { getFeatureRequestUrl, getReportIssueUrl } from '@/extensions';
 import { cn } from '@/lib/utils';
 
-export default function MobileNav() {
+interface MobileNavProps {
+  onNewSong?: () => void;
+}
+
+export default function MobileNav({ onNewSong }: MobileNavProps) {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -52,6 +57,19 @@ export default function MobileNav() {
               </button>
             </SheetClose>
           </div>
+          {onNewSong && (
+            <div className="px-4 pt-3">
+              <Button
+                className="w-full"
+                onClick={() => {
+                  onNewSong();
+                  setOpen(false);
+                }}
+              >
+                + New Song
+              </Button>
+            </div>
+          )}
           <nav className="flex flex-col py-2 flex-1">
             {navItems.map(item => (
               <button

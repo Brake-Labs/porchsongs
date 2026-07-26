@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, fireEvent } from '@testing-library/react';
 import { renderWithRouter } from '@/test/test-utils';
 
 // Mock auth context: ready state with no auth required
@@ -22,6 +22,8 @@ vi.mock('@/api', () => ({
     MODEL: 'test_model',
     REASONING_EFFORT: 'test_effort',
     CURRENT_SONG_ID: 'test_song_id',
+    DRAFT_INPUT: 'test_draft_input',
+    DRAFT_INSTRUCTION: 'test_draft_instruction',
   },
 }));
 
@@ -30,7 +32,11 @@ vi.mock('@/components/Header', () => ({
   default: () => <div data-testid="header">Header</div>,
 }));
 vi.mock('@/components/Tabs', () => ({
-  default: () => <div data-testid="tabs">Tabs</div>,
+  default: ({ onNewSong }: { onNewSong?: () => void }) => (
+    <div data-testid="tabs">
+      <button onClick={onNewSong}>tab-new-song</button>
+    </div>
+  ),
 }));
 vi.mock('@/components/MobileNav', () => ({
   default: () => <div data-testid="mobile-nav">MobileNav</div>,
@@ -115,6 +121,58 @@ describe('AppShell layout', () => {
     Object.defineProperty(navigator, 'userAgent', {
       value: 'Mozilla/5.0 (X11; Linux x86_64)',
       configurable: true,
+    });
+  });
+
+  describe('global New Song', () => {
+    afterEach(() => {
+      sessionStorage.clear();
+    });
+
+    it('starts a new song without confirmation when there is nothing to discard', async () => {
+      renderWithRouter(<AppShell />, { route: '/app/library' });
+      await screen.findByTestId('tabs');
+
+      fireEvent.click(screen.getByRole('button', { name: 'tab-new-song' }));
+
+      // No discardable work: skip the confirm dialog and start immediately.
+      expect(screen.queryByText('Start New Song')).not.toBeInTheDocument();
+    });
+
+    it('confirms before discarding typed-but-unimported draft lyrics', async () => {
+      sessionStorage.setItem('test_draft_input', 'some pasted lyrics');
+      renderWithRouter(<AppShell />, { route: '/app/library' });
+      await screen.findByTestId('tabs');
+
+      fireEvent.click(screen.getByRole('button', { name: 'tab-new-song' }));
+
+      // A non-empty INPUT draft is discardable work, so confirm first.
+      expect(screen.getByText('Start New Song')).toBeInTheDocument();
+      expect(
+        screen.getByText(/Starting a new song will discard your current work/),
+      ).toBeInTheDocument();
+    });
+
+    it('treats a whitespace-only draft as nothing to discard', async () => {
+      sessionStorage.setItem('test_draft_input', '   \n  ');
+      renderWithRouter(<AppShell />, { route: '/app/library' });
+      await screen.findByTestId('tabs');
+
+      fireEvent.click(screen.getByRole('button', { name: 'tab-new-song' }));
+
+      expect(screen.queryByText('Start New Song')).not.toBeInTheDocument();
+    });
+
+    it('clears the draft keys when a new song is started', async () => {
+      sessionStorage.setItem('test_draft_input', 'some pasted lyrics');
+      renderWithRouter(<AppShell />, { route: '/app/library' });
+      await screen.findByTestId('tabs');
+
+      fireEvent.click(screen.getByRole('button', { name: 'tab-new-song' }));
+      // Confirm the discard.
+      fireEvent.click(screen.getByRole('button', { name: 'New Song' }));
+
+      expect(sessionStorage.getItem('test_draft_input')).toBeNull();
     });
   });
 });

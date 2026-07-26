@@ -9,6 +9,7 @@ import Header from '@/components/Header';
 import Tabs from '@/components/Tabs';
 import MobileNav from '@/components/MobileNav';
 import { Button } from '@/components/ui/button';
+import ConfirmDialog from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { getFeatureRequestUrl, getReportIssueUrl } from '@/extensions';
 import type { Profile, RewriteResult, RewriteMeta, ChatMessage, Song, ParseResult } from '@/types';
@@ -54,6 +55,9 @@ export interface AppShellContext {
   onCancelParse: () => void;
   onClearParse: () => void;
   onChatStreamingChange: (streaming: boolean) => void;
+  // Bumped whenever a new song is started from the global "New Song" button, so
+  // RewriteTab can reset its local (input/title/artist) state even while mounted.
+  newSongNonce: number;
 }
 
 export default function AppShell() {
@@ -313,6 +317,36 @@ export default function AppShell() {
     }
   }, [navigate, setCurrentSong]);
 
+  // Global "New Song" flow. Lives here (not in RewriteTab) so it can be
+  // triggered from the tab bar / mobile nav on any tab. The nonce lets
+  // RewriteTab reset its local state when it's already mounted.
+  const [newSongNonce, setNewSongNonce] = useState(0);
+  const [newSongConfirmOpen, setNewSongConfirmOpen] = useState(false);
+
+  const startNewSong = useCallback(() => {
+    handleClearParse();
+    handleNewRewrite(null, null);
+    sessionStorage.removeItem(STORAGE_KEYS.DRAFT_INPUT);
+    sessionStorage.removeItem(STORAGE_KEYS.DRAFT_INSTRUCTION);
+    setNewSongNonce(n => n + 1);
+    navigate('/app/rewrite');
+  }, [handleClearParse, handleNewRewrite, navigate]);
+
+  const requestNewSong = useCallback(() => {
+    // Confirm only when there's in-progress work to discard: a workshopped
+    // song, a parsed draft with chat history, or unimported lyrics the user
+    // has typed/pasted into the INPUT textarea (kept in DRAFT_INPUT). The
+    // last case is only reachable via this global button (the old in-tab
+    // button never rendered in the INPUT state).
+    const draftInput = sessionStorage.getItem(STORAGE_KEYS.DRAFT_INPUT) ?? '';
+    const hasWork =
+      !!rewriteResult ||
+      (!!parseResult && chatMessages.length > 0) ||
+      draftInput.trim().length > 0;
+    if (hasWork) setNewSongConfirmOpen(true);
+    else startNewSong();
+  }, [rewriteResult, parseResult, chatMessages.length, startNewSong]);
+
   // Redirect to login if not authenticated
   if (authState === 'login') {
     return <Navigate to="/app/login" replace />;
@@ -365,6 +399,7 @@ export default function AppShell() {
     onCancelParse: handleCancelParse,
     onClearParse: handleClearParse,
     onChatStreamingChange: setChatStreaming,
+    newSongNonce,
   };
 
   return (
@@ -375,10 +410,10 @@ export default function AppShell() {
           authRequired={authConfig?.required ?? false}
           onLogout={handleLogout}
           isPremium={isPremium}
-          leftSlot={<MobileNav />}
+          leftSlot={<MobileNav onNewSong={requestNewSong} />}
         />
         <div className="hidden md:block bg-card border-b border-border">
-          <Tabs />
+          <Tabs onNewSong={requestNewSong} />
         </div>
       </div>
       <main className="flex-1 min-h-0 flex flex-col overflow-y-auto max-w-[1800px] w-full mx-auto px-2 sm:px-4 py-4">
@@ -429,6 +464,14 @@ export default function AppShell() {
           </div>
         </div>
       </footer>
+      <ConfirmDialog
+        open={newSongConfirmOpen}
+        onOpenChange={setNewSongConfirmOpen}
+        title="Start New Song"
+        description="Starting a new song will discard your current work. Any unsaved changes will be lost."
+        confirmLabel="New Song"
+        onConfirm={startNewSong}
+      />
       <Toaster position="bottom-right" richColors />
     </div>
   );

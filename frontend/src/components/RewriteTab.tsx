@@ -70,6 +70,8 @@ interface RewriteTabProps {
   onCancelParse: () => void;
   onClearParse: () => void;
   onChatStreamingChange?: (streaming: boolean) => void;
+  // Bumped by the global "New Song" button; resets this tab's local state.
+  newSongNonce?: number;
 }
 
 export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
@@ -108,6 +110,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     onCancelParse,
     onClearParse,
     onChatStreamingChange,
+    newSongNonce,
   } = { ...ctx, ...directProps } as RewriteTabProps;
   const [input, setInputRaw] = useState(
     () => sessionStorage.getItem(STORAGE_KEYS.DRAFT_INPUT) || ''
@@ -548,6 +551,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     onClearParse();
     onNewRewrite(null, null);
     setInput('');
+    setInstruction('');
     setParseReasoningExpanded(false);
     setSaveStatus(null);
     setIsDirty(false);
@@ -563,6 +567,23 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
       handleNewSong();
     }
   };
+
+  // The global "New Song" button (tab bar / mobile nav) clears the shared parse
+  // and rewrite state in AppShell. When this tab is already mounted, mirror that
+  // by resetting the local-only fields so a stale input/title/artist can't leak
+  // back into the fresh INPUT view.
+  const newSongNonceRef = useRef(newSongNonce);
+  useEffect(() => {
+    if (newSongNonce === newSongNonceRef.current) return;
+    newSongNonceRef.current = newSongNonce;
+    setInput('');
+    setInstruction('');
+    setParseReasoningExpanded(false);
+    setSaveStatus(null);
+    setIsDirty(false);
+    setSongTitle('');
+    setSongArtist('');
+  }, [newSongNonce, setInput, setInstruction]);
 
   const handleScrap = async () => {
     if (!currentSongUuid) return;
@@ -1022,13 +1043,6 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                   )}
                 </>
               )}
-              <Button
-                variant="secondary"
-                className="h-7 px-2.5 text-xs"
-                onClick={handleNewSongClick}
-              >
-                + New Song
-              </Button>
               {((isParsed && parseResult?.reasoning) || isWorkshopping) && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
