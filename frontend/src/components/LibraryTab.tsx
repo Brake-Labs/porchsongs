@@ -249,7 +249,7 @@ function SongMenu({ song, onDelete, onRename, onEdit, folders, onMoveToFolder, o
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={() => onEdit(song)}>
-          Edit
+          Rewrite
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => onRename(song)}>
           Rename
@@ -837,7 +837,7 @@ export default function LibraryTab() {
               )}
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
-              <Button variant="default" size="sm" onClick={() => onLoadSong(song)}>Edit</Button>
+              <Button variant="default" size="sm" onClick={() => onLoadSong(song)}>Rewrite</Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button

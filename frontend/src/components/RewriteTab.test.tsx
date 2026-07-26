@@ -3,11 +3,12 @@ import RewriteTab from '@/components/RewriteTab';
 import type { AppShellContext } from '@/layouts/AppShell';
 import type { ChatMessage, ParseResult } from '@/types';
 
-// Mock react-router-dom: provide useOutletContext
+// Mock react-router-dom: provide useOutletContext + a captured useNavigate
 const mockOutletContext: Partial<AppShellContext> = {};
+const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
-  return { ...actual, useOutletContext: () => mockOutletContext };
+  return { ...actual, useOutletContext: () => mockOutletContext, useNavigate: () => mockNavigate };
 });
 
 // Mock api module
@@ -104,8 +105,8 @@ describe('RewriteTab', () => {
     const textarea = screen.getByPlaceholderText(/Paste lyrics/);
     fireEvent.change(textarea, { target: { value: 'Some lyrics here' } });
 
-    // Click Parse to start the streaming request
-    const parseButton = screen.getByText('Import Song');
+    // Click "Add to library" to start the streaming import request
+    const parseButton = screen.getByText('Add to library');
     fireEvent.click(parseButton);
 
     // Verify onParse was called (delegated to AppShell)
@@ -123,21 +124,24 @@ describe('RewriteTab', () => {
     expect(props.onCancelParse).not.toHaveBeenCalled();
   });
 
-  it('shows step 1 indicator in INPUT state', () => {
+  it('shows the import heading in INPUT state', () => {
     const props = makeProps();
     render(<RewriteTab {...props} />);
 
-    expect(screen.getByText('Step 1: Import your song')).toBeInTheDocument();
+    expect(screen.getByText('Import a song')).toBeInTheDocument();
+    // Both import destinations are offered.
+    expect(screen.getByRole('button', { name: 'Add to library' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import & rewrite' })).toBeInTheDocument();
   });
 
-  it('shows step 2 indicator in PARSED state', () => {
+  it('shows the rewrite heading in PARSED state', () => {
     const props = makeProps({
       parseResult: { title: 'Test', artist: 'Test', original_content: 'content' } as ParseResult,
       parsedContent: 'content',
     });
     render(<RewriteTab {...props} />);
 
-    expect(screen.getByText('Step 2: Edit your song')).toBeInTheDocument();
+    expect(screen.getByText('Rewrite your song')).toBeInTheDocument();
   });
 
   it('input card expands to fill available space with flex layout', () => {
@@ -643,12 +647,12 @@ describe('RewriteTab', () => {
   describe('Import from Link', () => {
     it('renders the Import from Link button in INPUT state', () => {
       render(<RewriteTab {...makeProps()} />);
-      expect(screen.getByText('Import from Link')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Link' })).toBeInTheDocument();
     });
 
     it('opens a dialog with a URL field when clicked', () => {
       render(<RewriteTab {...makeProps()} />);
-      fireEvent.click(screen.getByText('Import from Link'));
+      fireEvent.click(screen.getByRole('button', { name: 'Link' }));
       expect(screen.getByText('Import from a link')).toBeInTheDocument();
       expect(screen.getByPlaceholderText(/ultimate-guitar/)).toBeInTheDocument();
     });
@@ -662,7 +666,7 @@ describe('RewriteTab', () => {
       });
 
       render(<RewriteTab {...makeProps()} />);
-      fireEvent.click(screen.getByText('Import from Link'));
+      fireEvent.click(screen.getByRole('button', { name: 'Link' }));
 
       const urlInput = screen.getByPlaceholderText(/ultimate-guitar/);
       fireEvent.change(urlInput, {
@@ -701,8 +705,8 @@ describe('RewriteTab', () => {
 
       render(<RewriteTab {...makeProps({ onParse })} />);
 
-      // Import from link
-      fireEvent.click(screen.getByText('Import from Link'));
+      // Add content from a link
+      fireEvent.click(screen.getByRole('button', { name: 'Link' }));
       fireEvent.change(screen.getByPlaceholderText(/ultimate-guitar/), {
         target: { value: 'https://tabs.ultimate-guitar.com/tab/jason-mraz/im-yours' },
       });
@@ -710,9 +714,9 @@ describe('RewriteTab', () => {
 
       await waitFor(() => expect(api.scrapeUrl).toHaveBeenCalled());
 
-      // Then run the import (parse)
-      await waitFor(() => screen.getByText('Import Song'));
-      fireEvent.click(screen.getByText('Import Song'));
+      // Then run the import
+      await waitFor(() => screen.getByText('Add to library'));
+      fireEvent.click(screen.getByText('Add to library'));
 
       await waitFor(() => {
         expect(api.saveSong).toHaveBeenCalledWith(expect.objectContaining({
@@ -726,7 +730,7 @@ describe('RewriteTab', () => {
       vi.mocked(api.scrapeUrl).mockRejectedValue(new Error('That site blocked the request.'));
 
       render(<RewriteTab {...makeProps({ setParseError })} />);
-      fireEvent.click(screen.getByText('Import from Link'));
+      fireEvent.click(screen.getByRole('button', { name: 'Link' }));
       fireEvent.change(screen.getByPlaceholderText(/ultimate-guitar/), {
         target: { value: 'https://example.com/song' },
       });
@@ -783,7 +787,7 @@ describe('RewriteTab', () => {
     const props = makeProps();
     Object.assign(mockOutletContext, props);
     render(<RewriteTab />);
-    expect(screen.getByText('Import from Photo')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Photo' })).toBeInTheDocument();
   });
 
   it('shows extracting state when image is being processed', async () => {
@@ -797,7 +801,7 @@ describe('RewriteTab', () => {
     render(<RewriteTab />);
 
     // The button should exist and be enabled
-    const photoBtn = screen.getByText('Import from Photo');
+    const photoBtn = screen.getByRole('button', { name: 'Photo' });
     expect(photoBtn).toBeInTheDocument();
     expect(photoBtn.closest('button')).not.toBeDisabled();
   });
@@ -806,7 +810,7 @@ describe('RewriteTab', () => {
     const props = makeProps({ llmSettings: { model: '', reasoning_effort: '' } });
     Object.assign(mockOutletContext, props);
     render(<RewriteTab />);
-    const photoBtn = screen.getByText('Import from Photo');
+    const photoBtn = screen.getByRole('button', { name: 'Photo' });
     expect(photoBtn.closest('button')).toBeDisabled();
   });
 
@@ -815,15 +819,15 @@ describe('RewriteTab', () => {
       const props = makeProps();
       render(<RewriteTab {...props} />);
 
-      expect(screen.getByText('Import from Photo')).toBeInTheDocument();
-      expect(screen.getByText('Import from File')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Photo' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'File' })).toBeInTheDocument();
     });
 
     it('is disabled when no profile exists', () => {
       const props = makeProps({ profile: null });
       render(<RewriteTab {...props} />);
 
-      const fileBtn = screen.getByText('Import from File');
+      const fileBtn = screen.getByRole('button', { name: 'File' });
       expect(fileBtn.closest('button')).toBeDisabled();
     });
 
@@ -857,10 +861,10 @@ describe('RewriteTab', () => {
       const props = makeProps({ onParse, onSongSaved });
       render(<RewriteTab {...props} />);
 
-      // Type input and click Import
+      // Type input and click "Import & rewrite" (stays in the workshop)
       const textarea = screen.getByPlaceholderText(/Paste lyrics/);
       fireEvent.change(textarea, { target: { value: 'Amazing grace' } });
-      fireEvent.click(screen.getByText('Import Song'));
+      fireEvent.click(screen.getByText('Import & rewrite'));
 
       await waitFor(() => {
         expect(api.saveSong).toHaveBeenCalledWith(expect.objectContaining({
@@ -874,6 +878,31 @@ describe('RewriteTab', () => {
 
       expect(onSongSaved).toHaveBeenCalledWith(expect.objectContaining({ id: 42, uuid: 'uuid-42' }));
       expect(localStorage.getItem(STORAGE_KEYS.HAS_REWRITTEN)).toBe('1');
+    });
+
+    it('add to library saves then navigates to the play view, skipping the workshop', async () => {
+      const parseResult = {
+        title: 'Amazing Grace',
+        artist: 'John Newton',
+        original_content: '[G]Amazing grace',
+      } as ParseResult;
+      const onParse = vi.fn().mockResolvedValue(parseResult);
+      const onSongSaved = vi.fn();
+      const onClearParse = vi.fn();
+      vi.mocked(api.saveSong).mockResolvedValue({ id: 77, uuid: 'uuid-77', profile_id: 1 } as never);
+
+      render(<RewriteTab {...makeProps({ onParse, onSongSaved, onClearParse })} />);
+
+      const textarea = screen.getByPlaceholderText(/Paste lyrics/);
+      fireEvent.change(textarea, { target: { value: 'Amazing grace' } });
+      fireEvent.click(screen.getByText('Add to library'));
+
+      await waitFor(() => expect(api.saveSong).toHaveBeenCalled());
+      // Goes straight to the song's play view and resets the import surface.
+      await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/app/library/uuid-77'));
+      expect(onClearParse).toHaveBeenCalled();
+      // Not routed into the workshop (no current-song handoff).
+      expect(onSongSaved).not.toHaveBeenCalled();
     });
 
     it('saves sample song to library when sample is clicked', async () => {

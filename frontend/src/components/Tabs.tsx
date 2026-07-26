@@ -1,7 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Tabs as TabsRoot, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { getDefaultSettingsTab, getExtraTopLevelTabs } from '@/extensions';
 import type { TopLevelTab } from '@/extensions';
@@ -14,7 +12,7 @@ export interface TabItem {
 
 export function buildTabItems(isPremium: boolean, isAdmin: boolean): TabItem[] {
   const tabs: TabItem[] = [
-    { key: 'rewrite', path: '/app/rewrite', label: 'Rewrite' },
+    { key: 'rewrite', path: '/app/rewrite', label: 'New Song' },
     { key: 'library', path: '/app/library', label: 'Library' },
     { key: 'settings', path: `/app/settings/${getDefaultSettingsTab(isPremium)}`, label: 'Settings' },
   ];
@@ -44,41 +42,30 @@ export default function Tabs({ onNewSong }: TabsProps) {
   const active = activeKeyFromPath(pathname);
 
   const handleTabClick = (key: string) => {
+    // The "New Song" tab starts a fresh song (reset + go to the import surface)
+    // rather than just navigating, so it doubles as the always-visible create
+    // action. Falls back to plain navigation if no handler is wired.
+    if (key === 'rewrite' && onNewSong) {
+      onNewSong();
+      return;
+    }
     const tab = tabItems.find(t => t.key === key);
     if (tab) navigate(tab.path);
   };
 
   return (
-    <div className="flex items-center max-w-[1800px] mx-auto">
-      {/* Primary "create" action leads the bar, set off from the nav tabs by a
-          divider. Rendered before the tabs so it reads first. */}
-      {onNewSong && (
-        <>
-          <Button
-            size="sm"
-            className="shrink-0 ml-4 sm:ml-8 my-1.5"
-            onClick={onNewSong}
+    <TabsRoot value={active}>
+      <TabsList>
+        {tabItems.map(t => (
+          <TabsTrigger
+            key={t.key}
+            value={t.key}
+            onClick={() => handleTabClick(t.key)}
           >
-            + New Song
-          </Button>
-          <div className="w-px h-5 bg-border shrink-0 mx-3" aria-hidden="true" />
-        </>
-      )}
-      <TabsRoot value={active} className="min-w-0 flex-1">
-        {/* Drop the list's own left padding when the button supplies the left
-            edge, so the tabs sit right after the divider instead of doubling up. */}
-        <TabsList className={cn('mx-0', onNewSong && 'pl-0 sm:pl-0')}>
-          {tabItems.map(t => (
-            <TabsTrigger
-              key={t.key}
-              value={t.key}
-              onClick={() => handleTabClick(t.key)}
-            >
-              {t.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </TabsRoot>
-    </div>
+            {t.label}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </TabsRoot>
   );
 }

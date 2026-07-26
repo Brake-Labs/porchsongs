@@ -7,9 +7,9 @@ vi.mock('@/contexts/AuthContext', () => ({
 }));
 
 describe('Tabs', () => {
-  it('renders all three tab labels', () => {
+  it('renders all three tab labels (import tab is "New Song")', () => {
     renderWithRouter(<Tabs />, { route: '/app/rewrite' });
-    expect(screen.getByText('Rewrite')).toBeInTheDocument();
+    expect(screen.getByText('New Song')).toBeInTheDocument();
     expect(screen.getByText('Library')).toBeInTheDocument();
     expect(screen.getByText('Settings')).toBeInTheDocument();
   });
@@ -18,40 +18,28 @@ describe('Tabs', () => {
     renderWithRouter(<Tabs />, { route: '/app/library' });
     const libraryTab = screen.getByText('Library');
     expect(libraryTab).toHaveAttribute('data-state', 'active');
-    expect(screen.getByText('Rewrite')).toHaveAttribute('data-state', 'inactive');
+    expect(screen.getByText('New Song')).toHaveAttribute('data-state', 'inactive');
   });
 
-  it('defaults to rewrite tab for unknown paths', () => {
+  it('defaults to the New Song tab for unknown paths', () => {
     renderWithRouter(<Tabs />, { route: '/app/unknown' });
-    expect(screen.getByText('Rewrite')).toHaveAttribute('data-state', 'active');
+    expect(screen.getByText('New Song')).toHaveAttribute('data-state', 'active');
   });
 
-  it('renders a New Song button when onNewSong is provided and calls it on click', () => {
+  it('New Song tab starts a fresh song via onNewSong instead of plain navigation', () => {
     const onNewSong = vi.fn();
     renderWithRouter(<Tabs onNewSong={onNewSong} />, { route: '/app/library' });
 
-    const button = screen.getByRole('button', { name: '+ New Song' });
-    expect(button).toBeInTheDocument();
-
-    fireEvent.click(button);
+    fireEvent.click(screen.getByText('New Song'));
     expect(onNewSong).toHaveBeenCalledTimes(1);
   });
 
-  it('places the New Song button before the nav tabs (leftmost)', () => {
-    renderWithRouter(<Tabs onNewSong={vi.fn()} />, { route: '/app/rewrite' });
+  it('other tabs navigate normally (do not trigger onNewSong)', () => {
+    const onNewSong = vi.fn();
+    renderWithRouter(<Tabs onNewSong={onNewSong} />, { route: '/app/rewrite' });
 
-    const button = screen.getByRole('button', { name: '+ New Song' });
-    const rewriteTab = screen.getByText('Rewrite');
-
-    // DOCUMENT_POSITION_FOLLOWING (4) => button comes before the Rewrite tab.
-    expect(
-      button.compareDocumentPosition(rewriteTab) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-  });
-
-  it('omits the New Song button when onNewSong is not provided', () => {
-    renderWithRouter(<Tabs />, { route: '/app/rewrite' });
-    expect(screen.queryByRole('button', { name: '+ New Song' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Library'));
+    expect(onNewSong).not.toHaveBeenCalled();
   });
 });
 
