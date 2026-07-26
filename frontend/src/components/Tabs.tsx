@@ -1,6 +1,7 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Tabs as TabsRoot, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { getDefaultSettingsTab, getExtraTopLevelTabs } from '@/extensions';
 import type { TopLevelTab } from '@/extensions';
@@ -49,8 +50,24 @@ export default function Tabs({ onNewSong }: TabsProps) {
 
   return (
     <div className="flex items-center max-w-[1800px] mx-auto">
+      {/* Primary "create" action leads the bar, set off from the nav tabs by a
+          divider. Rendered before the tabs so it reads first. */}
+      {onNewSong && (
+        <>
+          <Button
+            size="sm"
+            className="shrink-0 ml-4 sm:ml-8 my-1.5"
+            onClick={onNewSong}
+          >
+            + New Song
+          </Button>
+          <div className="w-px h-5 bg-border shrink-0 mx-3" aria-hidden="true" />
+        </>
+      )}
       <TabsRoot value={active} className="min-w-0 flex-1">
-        <TabsList className="mx-0">
+        {/* Drop the list's own left padding when the button supplies the left
+            edge, so the tabs sit right after the divider instead of doubling up. */}
+        <TabsList className={cn('mx-0', onNewSong && 'pl-0 sm:pl-0')}>
           {tabItems.map(t => (
             <TabsTrigger
               key={t.key}
@@ -62,15 +79,6 @@ export default function Tabs({ onNewSong }: TabsProps) {
           ))}
         </TabsList>
       </TabsRoot>
-      {onNewSong && (
-        <Button
-          size="sm"
-          className="shrink-0 mr-4 sm:mr-8 my-1.5"
-          onClick={onNewSong}
-        >
-          + New Song
-        </Button>
-      )}
     </div>
   );
 }

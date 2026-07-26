@@ -37,6 +37,18 @@ describe('Tabs', () => {
     expect(onNewSong).toHaveBeenCalledTimes(1);
   });
 
+  it('places the New Song button before the nav tabs (leftmost)', () => {
+    renderWithRouter(<Tabs onNewSong={vi.fn()} />, { route: '/app/rewrite' });
+
+    const button = screen.getByRole('button', { name: '+ New Song' });
+    const rewriteTab = screen.getByText('Rewrite');
+
+    // DOCUMENT_POSITION_FOLLOWING (4) => button comes before the Rewrite tab.
+    expect(
+      button.compareDocumentPosition(rewriteTab) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it('omits the New Song button when onNewSong is not provided', () => {
     renderWithRouter(<Tabs />, { route: '/app/rewrite' });
     expect(screen.queryByRole('button', { name: '+ New Song' })).not.toBeInTheDocument();
