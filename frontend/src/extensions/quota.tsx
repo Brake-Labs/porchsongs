@@ -6,7 +6,13 @@ export function QuotaBanner(): null {
   return null;
 }
 
-export function OnboardingBanner({ children }: { children?: ReactNode }): ReactNode {
+export function OnboardingBanner({
+  children,
+}: {
+  children?: ReactNode;
+  /** Whether the viewer is a confirmed new user. Ignored by the OSS stub. */
+  show?: boolean;
+}): ReactNode {
   return children ?? null;
 }
 

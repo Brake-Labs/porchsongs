@@ -146,10 +146,10 @@ describe('AppShell layout', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'tab-new-song' }));
 
-      // A non-empty INPUT draft is discardable work, so confirm first.
-      expect(screen.getByText('Start New Song')).toBeInTheDocument();
+      // A non-empty INPUT draft is genuinely unsaved, so confirm first.
+      expect(screen.getByText('Discard unsaved lyrics?')).toBeInTheDocument();
       expect(
-        screen.getByText(/Starting a new song will discard your current work/),
+        screen.getByText(/lyrics you pasted haven't been imported yet/),
       ).toBeInTheDocument();
     });
 
@@ -170,7 +170,7 @@ describe('AppShell layout', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'tab-new-song' }));
       // Confirm the discard.
-      fireEvent.click(screen.getByRole('button', { name: 'New Song' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Start new song' }));
 
       expect(sessionStorage.getItem('test_draft_input')).toBeNull();
     });

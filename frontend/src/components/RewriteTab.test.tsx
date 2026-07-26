@@ -569,26 +569,9 @@ describe('RewriteTab', () => {
       expect(screen.queryByRole('button', { name: '+ New' })).not.toBeInTheDocument();
     });
 
-    it('shows confirmation dialog when clicked in WORKSHOPPING state', () => {
-      const props = makeProps({
-        rewriteResult: {
-          original_content: '[C]Hello [G]World',
-          rewritten_content: '[C]Hello [G]World',
-          changes_summary: 'No changes',
-        },
-        rewriteMeta: { title: 'Test', artist: 'Test' },
-        currentSongId: 1,
-      });
-      render(<RewriteTab {...props} />);
-
-      fireEvent.click(screen.getByRole('button', { name: '+ New' }));
-
-      expect(screen.getByText('Start New Song')).toBeInTheDocument();
-      expect(screen.getByText(/Starting a new song will discard your current work/)).toBeInTheDocument();
-    });
-
-    it('calls onNewRewrite(null, null) when confirmation dialog is confirmed', () => {
+    it('starts a new song immediately (no dialog) in WORKSHOPPING state', () => {
       const onNewRewrite = vi.fn();
+      const onClearParse = vi.fn();
       const props = makeProps({
         rewriteResult: {
           original_content: '[C]Hello [G]World',
@@ -598,34 +581,17 @@ describe('RewriteTab', () => {
         rewriteMeta: { title: 'Test', artist: 'Test' },
         currentSongId: 1,
         onNewRewrite,
+        onClearParse,
       });
       render(<RewriteTab {...props} />);
 
       fireEvent.click(screen.getByRole('button', { name: '+ New' }));
-      fireEvent.click(screen.getByRole('button', { name: 'New Song' }));
 
+      // The song is autosaved to the Library, so no discard confirmation is
+      // shown; it just clears the workspace.
+      expect(screen.queryByText('Discard unsaved lyrics?')).not.toBeInTheDocument();
+      expect(onClearParse).toHaveBeenCalled();
       expect(onNewRewrite).toHaveBeenCalledWith(null, null);
-    });
-
-    it('does not clear state when confirmation dialog is cancelled', () => {
-      const onNewRewrite = vi.fn();
-      const props = makeProps({
-        rewriteResult: {
-          original_content: '[C]Hello [G]World',
-          rewritten_content: '[C]Hello [G]World',
-          changes_summary: 'No changes',
-        },
-        rewriteMeta: { title: 'Test', artist: 'Test' },
-        currentSongId: 1,
-        onNewRewrite,
-      });
-      render(<RewriteTab {...props} />);
-
-      fireEvent.click(screen.getByRole('button', { name: '+ New' }));
-      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-
-      // onNewRewrite should not have been called (except initial render effects)
-      expect(onNewRewrite).not.toHaveBeenCalledWith(null, null);
     });
 
     it('calls onClearParse when New is clicked in PARSED state', () => {

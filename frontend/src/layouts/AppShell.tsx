@@ -333,19 +333,16 @@ export default function AppShell() {
   }, [handleClearParse, handleNewRewrite, navigate]);
 
   const requestNewSong = useCallback(() => {
-    // Confirm only when there's in-progress work to discard: a workshopped
-    // song, a parsed draft with chat history, or unimported lyrics the user
-    // has typed/pasted into the INPUT textarea (kept in DRAFT_INPUT). The
-    // last case is only reachable via this global button (the old in-tab
-    // button never rendered in the INPUT state).
+    // A workshopped or imported song is autosaved to the Library, so starting a
+    // new song is non-destructive (the song stays in the Library). The only
+    // genuinely-unsaved state is lyrics typed into the import box that haven't
+    // been imported yet (no saved song, kept only in DRAFT_INPUT) — confirm
+    // just that case so we don't wipe them silently.
     const draftInput = sessionStorage.getItem(STORAGE_KEYS.DRAFT_INPUT) ?? '';
-    const hasWork =
-      !!rewriteResult ||
-      (!!parseResult && chatMessages.length > 0) ||
-      draftInput.trim().length > 0;
-    if (hasWork) setNewSongConfirmOpen(true);
+    const hasUnimportedDraft = !currentSongUuid && draftInput.trim().length > 0;
+    if (hasUnimportedDraft) setNewSongConfirmOpen(true);
     else startNewSong();
-  }, [rewriteResult, parseResult, chatMessages.length, startNewSong]);
+  }, [currentSongUuid, startNewSong]);
 
   // Redirect to login if not authenticated
   if (authState === 'login') {
@@ -467,9 +464,9 @@ export default function AppShell() {
       <ConfirmDialog
         open={newSongConfirmOpen}
         onOpenChange={setNewSongConfirmOpen}
-        title="Start New Song"
-        description="Starting a new song will discard your current work. Any unsaved changes will be lost."
-        confirmLabel="New Song"
+        title="Discard unsaved lyrics?"
+        description="The lyrics you pasted haven't been imported yet. Starting a new song will clear them."
+        confirmLabel="Start new song"
         onConfirm={startNewSong}
       />
       <Toaster position="bottom-right" richColors />
