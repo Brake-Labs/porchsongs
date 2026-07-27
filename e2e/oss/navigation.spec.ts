@@ -17,7 +17,7 @@ test.describe('OSS Navigation', () => {
     await navigateToTab(page, 'Settings');
     await expect(page).toHaveURL(/\/app\/settings\/models$/);
 
-    await navigateToTab(page, 'Rewrite');
+    await navigateToTab(page, 'New Song');
     await expect(page).toHaveURL(/\/app\/rewrite$/);
   });
 

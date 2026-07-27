@@ -4,10 +4,10 @@ import { expect } from '@playwright/test';
 /** Wait for the app to be fully loaded (tabs visible). */
 export async function waitForAppReady(page: Page): Promise<void> {
   // The tab bar renders TabsTrigger elements with role="tab"
-  await expect(page.getByRole('tab', { name: 'Rewrite' })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('tab', { name: 'New Song' })).toBeVisible({ timeout: 15_000 });
 }
 
-/** Click a main tab by name (Rewrite, Library, Settings). */
+/** Click a main tab by name (New Song, Library, Settings). */
 export async function navigateToTab(page: Page, name: string): Promise<void> {
   await page.getByRole('tab', { name }).click();
 }

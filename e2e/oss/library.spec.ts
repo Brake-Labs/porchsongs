@@ -66,7 +66,7 @@ test.describe('OSS Library', () => {
 
     // Should open the song detail view with an "Back to library" back button and "Edit"
     await expect(page.getByRole('button', { name: /Back to library/i })).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByRole('button', { name: /Edit/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Rewrite' })).toBeVisible();
   });
 
   test('Edit loads song into rewrite tab', async ({ page, baseURL }) => {
@@ -82,8 +82,8 @@ test.describe('OSS Library', () => {
     await page.getByText(/by John Newton/).first().click();
 
     // Click "Edit"
-    await expect(page.getByRole('button', { name: /Edit/i })).toBeVisible({ timeout: 5_000 });
-    await page.getByRole('button', { name: /Edit/i }).click();
+    await expect(page.getByRole('button', { name: 'Rewrite' })).toBeVisible({ timeout: 5_000 });
+    await page.getByRole('button', { name: 'Rewrite' }).click();
 
     // Should navigate to the Rewrite tab with song content loaded
     await expect(page).toHaveURL(/\/app\/rewrite/);
