@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, useNavigate } from 'react-router-dom';
 import api, { STORAGE_KEYS } from '@/api';
 import ComparisonView from '@/components/ComparisonView';
 import ChatPanel from '@/components/ChatPanel';
@@ -76,6 +76,7 @@ interface RewriteTabProps {
 
 export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const ctx = useOutletContext<AppShellContext>();
+  const navigate = useNavigate();
   const {
     profile,
     llmSettings,
@@ -254,7 +255,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
         : null;
 
   const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.userAgent);
-  const shortcutHint = `${isMac ? '\u2318' : 'Ctrl'}+Enter to import`;
+  const shortcutHint = `${isMac ? '\u2318' : 'Ctrl'}+Enter to add to library`;
 
   const handlePasteFromClipboard = async () => {
     try {
@@ -434,7 +435,11 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const isParsed = !!parseResult && !rewriteResult;
   const isWorkshopping = !!rewriteResult;
 
-  const handleParse = async () => {
+  // Import cleans up the pasted song and always saves it to the library. `mode`
+  // decides where the user lands afterward:
+  //   'library'  -> straight to the play view (import-and-play, no editing)
+  //   'rewrite'  -> stay here in the workshop to rewrite it
+  const handleImport = async (mode: 'library' | 'rewrite') => {
     const trimmedInput = input.trim();
     if (!trimmedInput) return;
 
@@ -465,8 +470,22 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
           pendingSourceUrlRef.current = null;
           localStorage.setItem(STORAGE_KEYS.HAS_REWRITTEN, '1');
           setHasSongs(true);
-          savedSongRef.current = { id: song.id, uuid: song.uuid };
-          onSongSaved(song);
+          setSongsChecked(true);
+
+          if (mode === 'library') {
+            // Play-first: reset this tab and go straight to the song's play view.
+            onClearParse();
+            onNewRewrite(null, null);
+            setInput('');
+            setSongTitle('');
+            setSongArtist('');
+            setIsDirty(false);
+            setSaveStatus(null);
+            navigate(`/app/library/${song.uuid}`);
+          } else {
+            savedSongRef.current = { id: song.id, uuid: song.uuid };
+            onSongSaved(song);
+          }
         } catch (err) {
           setParseError('Failed to save song. Your edits won\'t be saved until you send a chat message. Error: ' + (err as Error).message);
         }
@@ -884,8 +903,8 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
               )}
 
               <div className="mb-3">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Step 1: Import your song</p>
-                <p className="text-sm text-muted-foreground mt-1">Drop your lyrics and chords in here, any format. We&apos;ll tidy up the formatting so you can start workshopping.</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Import a song</p>
+                <p className="text-sm text-muted-foreground mt-1">Drop your lyrics and chords in here, any format. We&apos;ll tidy up the formatting. Add it to your library to play, or import &amp; rewrite to workshop it.</p>
               </div>
 
               {!input && (
@@ -906,7 +925,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 onKeyDown={e => {
                   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canParse) {
                     e.preventDefault();
-                    handleParse();
+                    handleImport('library');
                   }
                 }}
               />
@@ -929,7 +948,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                     onKeyDown={e => {
                       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canParse) {
                         e.preventDefault();
-                        handleParse();
+                        handleImport('library');
                       }
                     }}
                   />
@@ -950,34 +969,51 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 className="hidden"
                 onChange={handleFileUpload}
               />
-              <div className="flex items-center gap-3 mt-3">
-                <Button onClick={handleParse} disabled={!canParse}>
-                  Import Song
-                </Button>
-                <Button
-                  variant="secondary"
-                  disabled={!hasProfile || !hasModel || imageLoading}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  {imageLoading ? <><Spinner size="sm" className="mr-1.5" /> Extracting...</> : 'Import from Photo'}
-                </Button>
-                <Button
-                  variant="secondary"
-                  disabled={!hasProfile || fileLoading}
-                  onClick={() => docFileInputRef.current?.click()}
-                >
-                  {fileLoading ? <><Spinner size="sm" className="mr-1.5" /> Extracting...</> : 'Import from File'}
-                </Button>
-                <Button
-                  variant="secondary"
-                  disabled={!hasProfile}
-                  onClick={() => setLinkDialogOpen(true)}
-                >
-                  Import from Link
-                </Button>
-                <span className="text-xs text-muted-foreground">
-                  {parseBlocker ?? shortcutHint}
-                </span>
+              <div className="flex flex-col gap-3 mt-3">
+                {/* Primary: what happens after we tidy up the formatting. */}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <Button onClick={() => handleImport('library')} disabled={!canParse}>
+                    Add to library
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => handleImport('rewrite')}
+                    disabled={!canParse}
+                  >
+                    Import &amp; rewrite
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    {parseBlocker ?? shortcutHint}
+                  </span>
+                </div>
+                {/* Content sources: these just fill the box above. */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-muted-foreground">Or add from:</span>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={!hasProfile || !hasModel || imageLoading}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {imageLoading ? <><Spinner size="sm" className="mr-1.5" /> Extracting...</> : 'Photo'}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={!hasProfile || fileLoading}
+                    onClick={() => docFileInputRef.current?.click()}
+                  >
+                    {fileLoading ? <><Spinner size="sm" className="mr-1.5" /> Extracting...</> : 'File'}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={!hasProfile}
+                    onClick={() => setLinkDialogOpen(true)}
+                  >
+                    Link
+                  </Button>
+                </div>
               </div>
 
               {hasProfile && hasModel && !isFirstTime && (
@@ -1023,7 +1059,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
       {(isParsed || isWorkshopping) && (
         <div className="flex flex-col flex-1 min-h-0 mt-2 md:mt-0">
           {isParsed && !isWorkshopping && (
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2 px-4 md:px-0">Step 2: Edit your song</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2 px-4 md:px-0">Rewrite your song</p>
           )}
           {mobilePaneToggle}
 

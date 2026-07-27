@@ -26,7 +26,7 @@ describe('MobileNav', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /open navigation menu/i }));
 
-    expect(screen.getByText('Rewrite')).toBeInTheDocument();
+    expect(screen.getByText('New Song')).toBeInTheDocument();
     expect(screen.getByText('Library')).toBeInTheDocument();
     expect(screen.getByText('Settings')).toBeInTheDocument();
   });
@@ -75,31 +75,24 @@ describe('MobileNav', () => {
     expect(screen.getByRole('link', { name: 'X (Twitter)' })).toBeInTheDocument();
   });
 
-  it('renders a New Song action when onNewSong is provided', () => {
+  it('New Song nav item starts a fresh song via onNewSong and closes the sidebar', () => {
     const onNewSong = vi.fn();
     renderWithRouter(<MobileNav onNewSong={onNewSong} />, { route: '/app/library' });
 
     fireEvent.click(screen.getByRole('button', { name: /open navigation menu/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'New Song' }));
 
-    expect(screen.getByRole('button', { name: '+ New Song' })).toBeInTheDocument();
+    expect(onNewSong).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Navigation')).not.toBeInTheDocument();
   });
 
-  it('omits the New Song action when onNewSong is not provided', () => {
+  it('New Song nav item falls back to navigation when no onNewSong is wired', () => {
     renderWithRouter(<MobileNav />, { route: '/app/library' });
 
     fireEvent.click(screen.getByRole('button', { name: /open navigation menu/i }));
-
-    expect(screen.queryByRole('button', { name: '+ New Song' })).not.toBeInTheDocument();
-  });
-
-  it('calls onNewSong and closes the sidebar when New Song is clicked', () => {
-    const onNewSong = vi.fn();
-    renderWithRouter(<MobileNav onNewSong={onNewSong} />, { route: '/app/library' });
-
-    fireEvent.click(screen.getByRole('button', { name: /open navigation menu/i }));
-    fireEvent.click(screen.getByRole('button', { name: '+ New Song' }));
-
-    expect(onNewSong).toHaveBeenCalledTimes(1);
+    // The item is always present (it is a tab); clicking it should not throw.
+    const item = screen.getByRole('button', { name: 'New Song' });
+    fireEvent.click(item);
     expect(screen.queryByText('Navigation')).not.toBeInTheDocument();
   });
 });
