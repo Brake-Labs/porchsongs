@@ -41,7 +41,7 @@ test.describe('OSS Rewrite Flow', () => {
     await textarea.fill(RAW_LYRICS);
 
     // Click Parse
-    await page.getByRole('button', { name: 'Import Song' }).click();
+    await page.getByRole('button', { name: 'Import & rewrite' }).click();
 
     // Wait for parsed content to appear — title and artist inputs should be visible
     // Scope to the desktop toolbar to avoid matching the mobile-only duplicate
@@ -76,7 +76,7 @@ test.describe('OSS Rewrite Flow', () => {
 
     const textarea = page.getByPlaceholder(/Paste lyrics/);
     await textarea.fill(RAW_LYRICS);
-    await page.getByRole('button', { name: 'Import Song' }).click();
+    await page.getByRole('button', { name: 'Import & rewrite' }).click();
 
     // After the SSE completes (no done event), the app may show an error or
     // return to input state. Verify we can see the input area again.
@@ -96,7 +96,7 @@ test.describe('OSS Rewrite Flow', () => {
 
     const textarea = page.getByPlaceholder(/Paste lyrics/);
     await textarea.fill(RAW_LYRICS);
-    await page.getByRole('button', { name: 'Import Song' }).click();
+    await page.getByRole('button', { name: 'Import & rewrite' }).click();
 
     // Error message should be visible (in a toast or inline)
     await expect(page.getByText(/API key/i)).toBeVisible({ timeout: 10_000 });

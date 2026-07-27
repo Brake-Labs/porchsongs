@@ -17,7 +17,7 @@ test.describe('OSS Smoke Tests', () => {
     await expect(page.getByRole('link', { name: /porchsongs/i })).toBeVisible();
 
     // All three tabs visible
-    await expect(page.getByRole('tab', { name: 'Rewrite' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'New Song' })).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Library' })).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Settings' })).toBeVisible();
 

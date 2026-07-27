@@ -62,7 +62,7 @@ test.describe('Song Lifecycle', () => {
 
     const textarea = page.getByPlaceholder(/Paste lyrics/);
     await textarea.fill(RAW_LYRICS);
-    await page.getByRole('button', { name: 'Import Song' }).click();
+    await page.getByRole('button', { name: 'Import & rewrite' }).click();
 
     // Wait for parse to complete
     await expect(page.getByLabel('Song title').first()).toHaveValue(PARSED_TITLE, { timeout: 10_000 });
@@ -110,8 +110,8 @@ test.describe('Song Lifecycle', () => {
     await expect(page.getByText(/by John Newton/).first()).toBeVisible({ timeout: 5_000 });
     await page.getByText(/by John Newton/).first().click();
 
-    await expect(page.getByRole('button', { name: /Edit/i })).toBeVisible({ timeout: 5_000 });
-    await page.getByRole('button', { name: /Edit/i }).click();
+    await expect(page.getByRole('button', { name: 'Rewrite' })).toBeVisible({ timeout: 5_000 });
+    await page.getByRole('button', { name: 'Rewrite' }).click();
     await expect(page).toHaveURL(/\/app\/rewrite/);
 
     // Send a chat message
@@ -144,8 +144,8 @@ test.describe('Song Lifecycle', () => {
 
     await expect(page.getByText(/by John Newton/).first()).toBeVisible({ timeout: 5_000 });
     await page.getByText(/by John Newton/).first().click();
-    await expect(page.getByRole('button', { name: /Edit/i })).toBeVisible({ timeout: 5_000 });
-    await page.getByRole('button', { name: /Edit/i }).click();
+    await expect(page.getByRole('button', { name: 'Rewrite' })).toBeVisible({ timeout: 5_000 });
+    await page.getByRole('button', { name: 'Rewrite' }).click();
 
     // Verify chat history is loaded — both user message and assistant response
     await expect(page.getByText('Change "wretch" to "soul"').first()).toBeVisible({ timeout: 5_000 });
@@ -155,8 +155,8 @@ test.describe('Song Lifecycle', () => {
     await navigateToTab(page, 'Library');
     await expect(page.getByText(PARSED_TITLE).first()).toBeVisible({ timeout: 5_000 });
     await page.getByText(/by John Newton/).first().click();
-    await expect(page.getByRole('button', { name: /Edit/i })).toBeVisible({ timeout: 5_000 });
-    await page.getByRole('button', { name: /Edit/i }).click();
+    await expect(page.getByRole('button', { name: 'Rewrite' })).toBeVisible({ timeout: 5_000 });
+    await page.getByRole('button', { name: 'Rewrite' }).click();
 
     // Chat history still present after round-trip
     await expect(page.getByText('Change "wretch" to "soul"').first()).toBeVisible({ timeout: 5_000 });
