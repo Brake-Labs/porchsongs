@@ -19,6 +19,8 @@ import {
 import ConfirmDialog from '@/components/ui/confirm-dialog';
 import PromptDialog, { type PromptField } from '@/components/ui/prompt-dialog';
 import { cn } from '@/lib/utils';
+import { isFollowDebugEnabled } from '@/lib/followDebug';
+import FollowDebugPanel from '@/components/FollowDebugPanel';
 import usePerformanceLayout from '@/hooks/usePerformanceLayout';
 import { maxColumnsForContent, splitContentForColumns } from '@/lib/performanceLayout';
 import type { AppShellContext } from '@/layouts/AppShell';
@@ -949,6 +951,8 @@ export default function LibraryTab() {
         </div>
 
         <PerformanceSheet song={song} version={activeVersion} className="flex-1 min-h-0" fontSizeOverride={perfFontSize} columnsPref={perfColumns} />
+
+        {isFollowDebugEnabled() && <FollowDebugPanel songText={activeContent} />}
 
         <ConfirmDialog
           open={dialogState.kind === 'delete'}
