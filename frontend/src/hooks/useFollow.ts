@@ -84,6 +84,13 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
       cancelledRef.current = false;
       setError(null);
 
+      // Fresh session: clear the rolling window and seed a strong "starting at
+      // the top" prior, so each Follow starts at line 0 instead of a uniform
+      // belief that can lock onto a repeated verse immediately.
+      tracker.reset();
+      setEstimate(tracker.collapseTo(0, nowFn()));
+      setRecentWords([]);
+
       const signal = makeSignal();
       signalRef.current = signal;
 
@@ -113,7 +120,7 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
       }
       setRunning(true);
     },
-    [tracker],
+    [tracker, nowFn],
   );
 
   const reposition = useCallback(

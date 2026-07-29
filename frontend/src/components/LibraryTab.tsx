@@ -169,7 +169,18 @@ function PerformanceSheet({ song, version, className, fontSizeOverride, columnsP
     () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
     [],
   );
-  const activeIndex = followOn ? (follow.estimate?.renderIndex ?? null) : null;
+  // Only commit the highlight/scroll on a confident lock; hold steady while the
+  // tracker is searching or torn between repeated lines, so the page doesn't
+  // chase every ambiguous flicker.
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  useEffect(() => {
+    if (!followOn) {
+      setActiveIndex(null);
+      return;
+    }
+    const e = follow.estimate;
+    if (e && e.status === 'locked' && e.renderIndex != null) setActiveIndex(e.renderIndex);
+  }, [follow.estimate, followOn]);
   const { paused, resume } = useFollowScroll(sheetRef, activeIndex, { enabled: followOn, reducedMotion });
 
   const startMic = useCallback(() => {
