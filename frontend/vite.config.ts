@@ -12,7 +12,9 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://localhost:8000',
+      // Override with VITE_API_PROXY when the backend runs on a non-default port
+      // (e.g. VITE_API_PROXY=http://localhost:8001 for a docker-compose backend).
+      '/api': process.env.VITE_API_PROXY || 'http://localhost:8000',
     },
   },
   build: {

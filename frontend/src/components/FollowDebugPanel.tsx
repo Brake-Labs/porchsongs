@@ -41,36 +41,45 @@ export default function FollowDebugPanel({ songText }: { songText: string }) {
   }, [follow]);
 
   return (
-    <div className="fixed bottom-2 right-2 z-50 w-72 max-w-[90vw]">
-      <FollowDebugOverlay
-        estimate={follow.estimate}
-        lyricStates={song.lyricStates}
-        recentWords={follow.recentWords}
-        running={follow.running}
-        recording={follow.recording}
-        error={follow.error}
-      />
-      <div className="mt-1 flex flex-wrap gap-1">
+    <div className="fixed bottom-3 right-3 z-50 w-80 max-w-[calc(100vw-1.5rem)] max-h-[70vh] overflow-auto rounded-lg border border-border bg-card text-foreground shadow-2xl ring-1 ring-black/10">
+      <div className="flex items-center justify-between border-b border-border px-3 py-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Follow · debug
+        </span>
+      </div>
+
+      <div className="p-3">
+        <FollowDebugOverlay
+          estimate={follow.estimate}
+          lyricStates={song.lyricStates}
+          recentWords={follow.recentWords}
+          running={follow.running}
+          recording={follow.recording}
+          error={follow.error}
+        />
+      </div>
+
+      <div className="flex flex-wrap gap-1.5 border-t border-border bg-panel px-3 py-2">
         {follow.running ? (
-          <Button size="sm" variant="ghost" onClick={follow.stop}>
+          <Button size="sm" variant="danger-outline" onClick={follow.stop}>
             Stop
           </Button>
         ) : (
           <>
-            <Button size="sm" variant="ghost" onClick={playDemo} disabled={!song.hasLyrics}>
+            <Button size="sm" variant="secondary" onClick={playDemo} disabled={!song.hasLyrics}>
               Play demo
             </Button>
-            <Button size="sm" variant="ghost" onClick={listen} disabled={!song.hasLyrics}>
+            <Button size="sm" variant="secondary" onClick={listen} disabled={!song.hasLyrics}>
               Listen (mic)
             </Button>
           </>
         )}
         {follow.recording ? (
-          <Button size="sm" variant="ghost" onClick={downloadJson}>
+          <Button size="sm" variant="secondary" onClick={downloadJson}>
             Save JSON
           </Button>
         ) : (
-          <Button size="sm" variant="ghost" onClick={follow.startRecording}>
+          <Button size="sm" variant="secondary" onClick={follow.startRecording}>
             Record
           </Button>
         )}

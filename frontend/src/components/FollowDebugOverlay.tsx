@@ -38,10 +38,7 @@ export default function FollowDebugOverlay({
 }: FollowDebugOverlayProps) {
   const status = estimate?.status ?? 'searching';
   return (
-    <div
-      className="rounded-md border border-border bg-card/95 p-3 text-xs font-mono shadow-lg"
-      aria-label="Follow debug overlay"
-    >
+    <div className="text-xs font-mono" aria-label="Follow debug overlay">
       <div className="flex items-center gap-2 mb-2">
         <span className={cn('rounded px-2 py-0.5 font-semibold uppercase', STATUS_STYLE[status])}>
           {status}
