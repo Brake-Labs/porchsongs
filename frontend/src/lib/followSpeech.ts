@@ -109,13 +109,22 @@ export function createSpeechSignal(opts: SpeechSignalOptions = {}): AdvanceSigna
 
       r.onresult = (e: SpeechResultEvent) => {
         if (stopped) return;
-        const last = e.results[e.results.length - 1];
-        if (!last) return;
-        const words = (last[0]?.transcript ?? '').trim().split(/\s+/).filter(Boolean);
-        const tail = wordDelta(prevWords, words);
+        // In continuous mode `e.results` accumulates every phrase this session.
+        // Concatenate them all into the full transcript and emit only the new
+        // tail vs what we've already sent. Never reset per-result, so we never
+        // re-dump the whole accumulated transcript into the tracker (which would
+        // flood the rolling window with every line of the song at once).
+        const full: string[] = [];
+        for (let i = 0; i < e.results.length; i++) {
+          const res = e.results[i];
+          const transcript = res?.[0]?.transcript ?? '';
+          for (const word of transcript.trim().split(/\s+/)) {
+            if (word) full.push(word);
+          }
+        }
+        const tail = wordDelta(prevWords, full);
         if (tail.length > 0) onWords({ words: tail, t: now() });
-        // On a final result the next utterance starts fresh.
-        prevWords = last.isFinal ? [] : words;
+        prevWords = full;
       };
 
       r.onerror = (e: SpeechErrorEvent) => {

@@ -119,6 +119,16 @@ const CHORD_TOKEN =
 
 const SECTION_LINE = /^\[.+\]$/;
 
+// Header/metadata lines that are not lyrics even without [Section] markers:
+// "Key: G", "Tempo: 120 BPM", "Time: 4/4", "Capo: 2", "Chords used:", "Title: ..."
+const METADATA_PREFIX = /^(key|tempo|time|capo|bpm|tuning|chords?\s+used|title|artist)\b\s*[:|-]/i;
+// Chord-chart legend rows: "G - 320003", "C - x32010", "D7 - xx0212".
+const CHORD_LEGEND = /^\(?[A-G](#{1,2}|b{1,2})?[A-Za-z0-9/]*\)?\s*[-–—]\s*[xX0-9]{4,6}$/;
+
+function isMetadataLine(trimmed: string): boolean {
+  return METADATA_PREFIX.test(trimmed) || CHORD_LEGEND.test(trimmed);
+}
+
 /** A line is a chord line when it is non-empty and most of its tokens look like chords. */
 function isChordLine(trimmed: string): boolean {
   const tokens = trimmed.split(/\s+/).filter(Boolean);
@@ -149,6 +159,12 @@ export function normalizeSong(text: string): NormalizedSong {
   const lineKind: LineKind[] = [];
   const lyricStates: LyricState[] = [];
 
+  // Preamble (title, "Key: ...", "Chords used:", chord legend) sits before the
+  // first [Section] marker and must NOT become lyric states, otherwise a title
+  // like "When the Saints Go Marching In" competes with the real verses. If the
+  // song has no section markers at all, every lyric line is eligible.
+  const firstSection = lines.findIndex((l) => SECTION_LINE.test(l.trim()));
+
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i]!.trim();
     if (trimmed === '') {
@@ -157,6 +173,12 @@ export function normalizeSong(text: string): NormalizedSong {
     }
     if (SECTION_LINE.test(trimmed)) {
       lineKind.push('section');
+      continue;
+    }
+    if (isMetadataLine(trimmed)) {
+      // Title/key/tempo/chord-legend: render it, but never a lyric target. This
+      // is section-independent, so it also protects songs with no [Section]s.
+      lineKind.push('blank');
       continue;
     }
     if (isChordLine(trimmed)) {
@@ -170,7 +192,9 @@ export function normalizeSong(text: string): NormalizedSong {
       continue;
     }
     lineKind.push('lyric');
-    lyricStates.push({ renderIndex: i, tokens });
+    if (firstSection < 0 || i > firstSection) {
+      lyricStates.push({ renderIndex: i, tokens });
+    }
   }
 
   return { lineKind, lyricStates, hasLyrics: lyricStates.length > 0 };

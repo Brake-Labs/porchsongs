@@ -25,6 +25,14 @@ function resultEvent(transcript: string, isFinal: boolean) {
   return { resultIndex: 0, results: Object.assign([result], { length: 1 }) };
 }
 
+/** Build an event whose results list accumulates several finalized phrases. */
+function multiResultEvent(segments: [string, boolean][]) {
+  const results = segments.map(([transcript, isFinal]) =>
+    Object.assign([{ transcript }], { isFinal, length: 1 }),
+  );
+  return { resultIndex: 0, results: Object.assign(results, { length: results.length }) };
+}
+
 const win = window as unknown as Record<string, unknown>;
 
 beforeEach(() => {
@@ -61,6 +69,25 @@ describe('createSpeechSignal', () => {
     expect(got.map((g) => g.words)).toEqual([['walking'], ['down'], ['the'], ['thinking']]);
     expect(rec.continuous).toBe(true);
     expect(rec.interimResults).toBe(true);
+  });
+
+  it('emits only new words as the results list accumulates (never re-dumps)', async () => {
+    const got: SignalTokens[] = [];
+    const signal = createSpeechSignal({ now: () => 1000 });
+    await signal.start((tok) => got.push(tok));
+    const rec = MockRecognition.last!;
+
+    // Phrase 1 finalizes, then phrase 2 grows while phrase 1 stays in the list.
+    rec.onresult!(multiResultEvent([['oh when the saints', true]]));
+    rec.onresult!(multiResultEvent([['oh when the saints', true], ['go marching', false]]));
+    rec.onresult!(multiResultEvent([['oh when the saints', true], ['go marching in', false]]));
+
+    // Each event contributes ONLY its new tail, not the whole transcript again.
+    expect(got.map((g) => g.words)).toEqual([
+      ['oh', 'when', 'the', 'saints'],
+      ['go', 'marching'],
+      ['in'],
+    ]);
   });
 
   it('restarts on end while running, but not after stop()', async () => {

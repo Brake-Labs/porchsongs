@@ -179,7 +179,13 @@ function PerformanceSheet({ song, version, className, fontSizeOverride, columnsP
       return;
     }
     const e = follow.estimate;
-    if (e && e.status === 'locked' && e.renderIndex != null) setActiveIndex(e.renderIndex);
+    // Commit the current best line once there's modest confidence. The argmax is
+    // reliable with a clean signal; the scroll hook's band + rate-limit smooth
+    // the rest. Below the floor we hold position (e.g. on lines shared across
+    // every verse) rather than chase noise.
+    if (e && e.renderIndex != null && e.status !== 'disabled' && e.confidence >= 0.3) {
+      setActiveIndex(e.renderIndex);
+    }
   }, [follow.estimate, followOn]);
   const { paused, resume } = useFollowScroll(sheetRef, activeIndex, { enabled: followOn, reducedMotion });
 
