@@ -12,11 +12,32 @@ import type {
   SignalFactory,
   SignalTokens,
 } from '@/lib/followSignal';
+import { requestDisambiguation, type ArbiterRequest } from '@/lib/followArbiter';
+
+/** Configuration for the gated LLM arbiter. Omit (or enabled:false) to disable. */
+export interface FollowArbiterConfig {
+  enabled: boolean;
+  /** LLM model to use for the arbiter call (from the app's model setting). */
+  model: string;
+  /** Injectable request fn for tests; defaults to the real backend call. */
+  request?: (req: ArbiterRequest) => Promise<number | null>;
+  /** Sustained ambiguity (ms) before consulting the arbiter (default 1200). */
+  ambiguousMs?: number;
+  /** Minimum ms between arbiter calls (default 3000). */
+  cooldownMs?: number;
+}
+
+export interface FollowArbiterEvent {
+  at: number;
+  choice: number | null;
+  candidates: number[];
+}
 
 export interface UseFollowOptions {
   config?: Partial<FollowConfig>;
   /** Clock for reposition/recording timestamps (default Date.now). Injectable for tests. */
   now?: () => number;
+  arbiter?: FollowArbiterConfig;
 }
 
 export interface UseFollowResult {
@@ -27,6 +48,8 @@ export interface UseFollowResult {
   recording: boolean;
   /** Most-recent recognized words (for the debug overlay). */
   recentWords: string[];
+  /** The last LLM-arbiter consultation (for the debug overlay), or null. */
+  lastArbiter: FollowArbiterEvent | null;
   /** Begin listening via the given signal. */
   start: (makeSignal: SignalFactory) => Promise<void>;
   stop: () => void;
@@ -39,36 +62,96 @@ export interface UseFollowResult {
 
 /**
  * Runtime glue for Follow mode: owns the position tracker, drives it from an
- * AdvanceSignal, and exposes the live estimate plus a record-to-JSON capture.
- * The tracker is the single source of line-mapping truth; this hook just feeds
- * it recognized words and surfaces state. Rebuilds the tracker when the song
- * text changes (version toggle, edit).
+ * AdvanceSignal, exposes the live estimate + a record-to-JSON capture, and
+ * consults the gated LLM arbiter when the tracker is sustained-ambiguous.
  */
 export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFollowResult {
   const nowFn = opts.now ?? Date.now;
   const configRef = useRef(opts.config);
   configRef.current = opts.config;
+  const arbiterRef = useRef(opts.arbiter);
+  arbiterRef.current = opts.arbiter;
 
   const tracker = useMemo(
     () => createFollowTracker(songText, configRef.current),
     [songText],
   );
+  const songLines = useMemo(() => songText.split('\n'), [songText]);
 
   const signalRef = useRef<AdvanceSignal | null>(null);
   const cancelledRef = useRef(false);
   const recordingRef = useRef<{ start: number; events: CannedEvent[] } | null>(null);
+  const recentRef = useRef<string[]>([]);
+  // Arbiter gating state.
+  const ambiguousSinceRef = useRef<number | null>(null);
+  const arbiterInFlightRef = useRef(false);
+  const lastArbiterAtRef = useRef(-Infinity);
 
   const [estimate, setEstimate] = useState<FollowEstimate | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<SignalError | null>(null);
   const [recording, setRecording] = useState(false);
   const [recentWords, setRecentWords] = useState<string[]>([]);
+  const [lastArbiter, setLastArbiter] = useState<FollowArbiterEvent | null>(null);
 
   // Reset when the song changes under us.
   useEffect(() => {
     setEstimate(null);
     setRecentWords([]);
+    recentRef.current = [];
   }, [tracker]);
+
+  /** A few lines of lyric context around a rendered line, for the arbiter prompt. */
+  const contextFor = useCallback(
+    (renderIndex: number) => songLines.slice(renderIndex, renderIndex + 3).join('\n').trim(),
+    [songLines],
+  );
+
+  /** Consult the arbiter when ambiguity has persisted, rate-limited and non-blocking. */
+  const maybeConsultArbiter = useCallback(
+    (est: FollowEstimate, t: number) => {
+      const arb = arbiterRef.current;
+      if (!arb?.enabled || !arb.model || est.stateIndex == null) {
+        ambiguousSinceRef.current = null;
+        return;
+      }
+      if (!est.ambiguous) {
+        ambiguousSinceRef.current = null;
+        return;
+      }
+      if (ambiguousSinceRef.current == null) {
+        ambiguousSinceRef.current = t;
+        return;
+      }
+      if (t - ambiguousSinceRef.current < (arb.ambiguousMs ?? 1200)) return;
+      if (arbiterInFlightRef.current) return;
+      if (t - lastArbiterAtRef.current < (arb.cooldownMs ?? 3000)) return;
+
+      const candidates = est.top.map((c) => ({
+        stateIndex: c.stateIndex,
+        context: contextFor(c.renderIndex),
+      }));
+      arbiterInFlightRef.current = true;
+      lastArbiterAtRef.current = t;
+      const send = arb.request ?? ((r: ArbiterRequest) => requestDisambiguation(r));
+      send({
+        recentWords: recentRef.current.join(' '),
+        candidates,
+        currentStateIndex: est.stateIndex,
+        model: arb.model,
+      })
+        .then((choice) => {
+          arbiterInFlightRef.current = false;
+          if (cancelledRef.current) return;
+          setLastArbiter({ at: t, choice, candidates: candidates.map((c) => c.stateIndex) });
+          if (choice != null) setEstimate(tracker.nudge(choice, nowFn()));
+        })
+        .catch(() => {
+          arbiterInFlightRef.current = false;
+        });
+    },
+    [contextFor, tracker, nowFn],
+  );
 
   const stop = useCallback(() => {
     cancelledRef.current = true;
@@ -90,16 +173,26 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
       tracker.reset();
       setEstimate(tracker.collapseTo(0, nowFn()));
       setRecentWords([]);
+      recentRef.current = [];
+      ambiguousSinceRef.current = null;
+      arbiterInFlightRef.current = false;
+      lastArbiterAtRef.current = -Infinity;
+      setLastArbiter(null);
 
       const signal = makeSignal();
       signalRef.current = signal;
 
       const onWords = ({ words, t }: SignalTokens) => {
         if (cancelledRef.current) return;
-        setEstimate(tracker.observe(words, t));
-        if (words.length > 0) setRecentWords((prev) => [...prev, ...words].slice(-16));
+        const est = tracker.observe(words, t);
+        setEstimate(est);
+        if (words.length > 0) {
+          recentRef.current = [...recentRef.current, ...words].slice(-16);
+          setRecentWords(recentRef.current);
+        }
         const rec = recordingRef.current;
         if (rec) rec.events.push({ at: t - rec.start, words });
+        maybeConsultArbiter(est, t);
       };
       const onError = (err: SignalError) => {
         if (cancelledRef.current) return;
@@ -120,7 +213,7 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
       }
       setRunning(true);
     },
-    [tracker, nowFn],
+    [tracker, nowFn, maybeConsultArbiter],
   );
 
   const reposition = useCallback(
@@ -157,6 +250,7 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
     error,
     recording,
     recentWords,
+    lastArbiter,
     start,
     stop,
     reposition,

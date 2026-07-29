@@ -88,4 +88,32 @@ describe('useFollow', () => {
     expect(result.current.estimate?.stateIndex).toBe(2);
     expect(result.current.estimate?.confidence).toBeGreaterThan(0.8);
   });
+
+  it('consults the arbiter when sustained-ambiguous and applies its choice', async () => {
+    vi.useFakeTimers();
+    const request = vi.fn().mockResolvedValue(3);
+    // Five identical lines -> singing the shared words is ambiguous.
+    const song = [
+      '[A]', 'hello world', '[B]', 'hello world', '[C]', 'hello world',
+      '[D]', 'hello world', '[E]', 'hello world',
+    ].join('\n');
+    const { result } = renderHook(() =>
+      useFollow(song, { arbiter: { enabled: true, model: 'm', request, ambiguousMs: 400, cooldownMs: 0 } }),
+    );
+    const script = Array.from({ length: 10 }, (_, i) => ({ at: i * 700, words: ['hello', 'world'] }));
+
+    await act(async () => {
+      await result.current.start(() => createCannedSignal(script));
+    });
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(request).toHaveBeenCalled();
+    const req = request.mock.calls[0]![0];
+    expect(req.model).toBe('m');
+    expect(req.candidates.length).toBeGreaterThan(0);
+    expect(result.current.lastArbiter?.choice).toBe(3);
+    expect(result.current.estimate?.stateIndex).toBe(3);
+  });
 });

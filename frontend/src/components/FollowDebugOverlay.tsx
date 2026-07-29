@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils';
 import type { FollowEstimate, LyricState } from '@/lib/followAlign';
 import type { SignalError } from '@/lib/followSignal';
+import type { FollowArbiterEvent } from '@/hooks/useFollow';
 
 interface FollowDebugOverlayProps {
   estimate: FollowEstimate | null;
@@ -9,6 +10,7 @@ interface FollowDebugOverlayProps {
   running: boolean;
   recording: boolean;
   error: SignalError | null;
+  lastArbiter?: FollowArbiterEvent | null;
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -35,6 +37,7 @@ export default function FollowDebugOverlay({
   running,
   recording,
   error,
+  lastArbiter,
 }: FollowDebugOverlayProps) {
   const status = estimate?.status ?? 'searching';
   return (
@@ -83,6 +86,16 @@ export default function FollowDebugOverlay({
         <span className="mr-1 uppercase">heard:</span>
         <span className="text-foreground">{recentWords.join(' ') || '—'}</span>
       </div>
+
+      {lastArbiter && (
+        <div className="mt-1 text-muted-foreground">
+          <span className="mr-1 uppercase">llm:</span>
+          <span className="text-foreground">
+            {lastArbiter.choice != null ? `chose line #${lastArbiter.choice}` : 'unsure'} of{' '}
+            [{lastArbiter.candidates.join(', ')}]
+          </span>
+        </div>
+      )}
     </div>
   );
 }

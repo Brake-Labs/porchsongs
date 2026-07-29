@@ -291,6 +291,12 @@ export interface FollowTracker {
   observe(words: string[], now: number): FollowEstimate;
   /** Human reposition (manual scroll/tap): collapse the posterior onto a line. */
   collapseTo(stateIndex: number, now: number): FollowEstimate;
+  /**
+   * Soft reposition from the LLM arbiter: firmly favor a state to resolve an
+   * ambiguity, but less absolutely than a human reposition, so a wrong arbiter
+   * call is still recoverable from subsequent audio.
+   */
+  nudge(stateIndex: number, now: number): FollowEstimate;
   /** Clear the window and reset to a uniform prior. */
   reset(): void;
 }
@@ -416,6 +422,17 @@ export function createFollowTracker(
       posterior = new Array<number>(L).fill(spread);
       posterior[clamped]! += 0.98;
       posterior = normalize(posterior);
+      lastObserve = now;
+      return estimateFrom(posterior, now);
+    },
+
+    nudge(stateIndex: number, now: number): FollowEstimate {
+      if (L === 0) return estimateFrom(posterior, now);
+      const clamped = Math.max(0, Math.min(L - 1, stateIndex));
+      // Blend the current posterior toward the chosen state: firm enough to
+      // resolve a near-tie, soft enough that later audio can still override it.
+      const blended = posterior.map((p, i) => 0.5 * p + (i === clamped ? 0.5 : 0));
+      posterior = normalize(blended);
       lastObserve = now;
       return estimateFrom(posterior, now);
     },

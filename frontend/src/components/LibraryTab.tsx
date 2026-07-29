@@ -132,6 +132,8 @@ interface PerformanceSheetProps {
   className?: string;
   fontSizeOverride?: number | null;
   columnsPref?: ColumnPref;
+  /** LLM model for the Follow arbiter; empty string disables it. */
+  llmModel?: string;
 }
 
 /** Trigger a browser download of a recorded Follow session as JSON. */
@@ -145,7 +147,7 @@ function downloadRecording(data: unknown, name: string): void {
   URL.revokeObjectURL(url);
 }
 
-function PerformanceSheet({ song, version, className, fontSizeOverride, columnsPref = 'auto' }: PerformanceSheetProps) {
+function PerformanceSheet({ song, version, className, fontSizeOverride, columnsPref = 'auto', llmModel }: PerformanceSheetProps) {
   const text = version === 'original' ? song.original_content : song.rewritten_content;
   const sheetRef = useRef<HTMLDivElement>(null);
 
@@ -157,7 +159,11 @@ function PerformanceSheet({ song, version, className, fontSizeOverride, columnsP
   const fontStyle = effectiveSize !== undefined ? { fontSize: `${effectiveSize}px` } : undefined;
 
   // --- Follow mode ---
-  const follow = useFollow(text);
+  const arbiter = useMemo(
+    () => ({ enabled: !!llmModel, model: llmModel ?? '' }),
+    [llmModel],
+  );
+  const follow = useFollow(text, { arbiter });
   const [followOn, setFollowOn] = useState(false);
   const norm = useMemo(() => normalizeSong(text), [text]);
   const debug = isFollowDebugEnabled();
@@ -1062,7 +1068,7 @@ export default function LibraryTab() {
           </div>
         </div>
 
-        <PerformanceSheet song={song} version={activeVersion} className="flex-1 min-h-0" fontSizeOverride={perfFontSize} columnsPref={perfColumns} />
+        <PerformanceSheet song={song} version={activeVersion} className="flex-1 min-h-0" fontSizeOverride={perfFontSize} columnsPref={perfColumns} llmModel={ctx.llmSettings?.model} />
 
         <ConfirmDialog
           open={dialogState.kind === 'delete'}

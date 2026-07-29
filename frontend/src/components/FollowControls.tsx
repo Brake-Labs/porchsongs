@@ -103,6 +103,7 @@ export default function FollowControls({
               running={follow.running}
               recording={follow.recording}
               error={follow.error}
+              lastArbiter={follow.lastArbiter}
             />
           </div>
           <div className="flex flex-wrap gap-1.5 border-t border-border bg-panel px-3 py-2">

@@ -16,6 +16,7 @@ from app.services.llm_service import (
     _parse_clean_response,
     _resolve_thinking,
     chat_edit_content_stream,
+    disambiguate_position,
     extract_text_from_image,
     parse_content_stream,
 )
@@ -252,9 +253,7 @@ def test_build_chat_params_includes_rewritten_in_user_message() -> None:
     original = "G  Am\nHello world"
     rewritten = "G  Am\nHello changed world"
     messages = [{"role": "user", "content": "make it sadder"}]
-    params = _build_chat_params(
-        original, messages, "openai", "gpt-4o", rewritten_content=rewritten
-    )
+    params = _build_chat_params(original, messages, "openai", "gpt-4o", rewritten_content=rewritten)
     last_msg = params.messages[-1]["content"]
     assert rewritten in last_msg
     assert "make it sadder" in last_msg
@@ -266,9 +265,7 @@ def test_build_chat_params_no_rewritten_prefix_when_same_as_original() -> None:
     """When rewritten_content matches original, user message is unchanged."""
     original = "G  Am\nHello world"
     messages = [{"role": "user", "content": "make it sadder"}]
-    params = _build_chat_params(
-        original, messages, "openai", "gpt-4o", rewritten_content=original
-    )
+    params = _build_chat_params(original, messages, "openai", "gpt-4o", rewritten_content=original)
     assert params.messages[-1]["content"] == "make it sadder"
 
 
@@ -276,9 +273,7 @@ def test_build_chat_params_no_rewritten_prefix_when_none() -> None:
     """When rewritten_content is None, user message is unchanged."""
     original = "G  Am\nHello world"
     messages = [{"role": "user", "content": "make it sadder"}]
-    params = _build_chat_params(
-        original, messages, "openai", "gpt-4o", rewritten_content=None
-    )
+    params = _build_chat_params(original, messages, "openai", "gpt-4o", rewritten_content=None)
     assert params.messages[-1]["content"] == "make it sadder"
 
 
@@ -604,3 +599,64 @@ def test_chat_stream_thinking_deltas(mock_amessages: AsyncMock) -> None:
     results = asyncio.run(_run())
     reasoning = [(k, t) for k, t in results if k == "reasoning"]
     assert reasoning == [("reasoning", "hmm")]
+
+
+# --- Follow-mode arbiter ---
+
+
+def _arbiter_response(text: str) -> SimpleNamespace:
+    block = SimpleNamespace(type="text", text=text, thinking=None)
+    usage = SimpleNamespace(
+        input_tokens=10,
+        output_tokens=2,
+        cache_creation_input_tokens=None,
+        cache_read_input_tokens=None,
+    )
+    return SimpleNamespace(content=[block], usage=usage)
+
+
+@patch("app.services.llm_service.amessages", new_callable=AsyncMock)
+def test_disambiguate_position_picks_a_candidate(mock_amessages: AsyncMock) -> None:
+    mock_amessages.return_value = _arbiter_response("The answer is 20.")
+    result = asyncio.run(
+        disambiguate_position(
+            recent_words="when the saints go marching in",
+            candidates=[{"index": 20, "context": "..."}, {"index": 60, "context": "..."}],
+            current_index=18,
+            provider="otari",
+            model="fast",
+        )
+    )
+    assert result["choice"] == 20
+
+
+@patch("app.services.llm_service.amessages", new_callable=AsyncMock)
+def test_disambiguate_position_rejects_out_of_set_and_unsure(mock_amessages: AsyncMock) -> None:
+    # id not among candidates -> None
+    mock_amessages.return_value = _arbiter_response("99")
+    assert (
+        asyncio.run(
+            disambiguate_position(
+                recent_words="x",
+                candidates=[{"index": 20, "context": ""}],
+                current_index=None,
+                provider="otari",
+                model="fast",
+            )
+        )["choice"]
+        is None
+    )
+    # explicit "unsure" sentinel -> None
+    mock_amessages.return_value = _arbiter_response("-1")
+    assert (
+        asyncio.run(
+            disambiguate_position(
+                recent_words="x",
+                candidates=[{"index": 20, "context": ""}],
+                current_index=None,
+                provider="otari",
+                model="fast",
+            )
+        )["choice"]
+        is None
+    )

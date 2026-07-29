@@ -14,7 +14,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .config import settings
 from .database import get_db
-from .routers import auth, profiles, rewrite, songs
+from .routers import auth, follow, profiles, rewrite, songs
 from .schemas import HealthResponse
 
 load_dotenv()
@@ -59,6 +59,7 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(profiles.router, prefix="/api")
 app.include_router(songs.router, prefix="/api")
 app.include_router(rewrite.router, prefix="/api")
+app.include_router(follow.router, prefix="/api")
 
 
 @app.get("/api/health", response_model=HealthResponse, tags=["health"])

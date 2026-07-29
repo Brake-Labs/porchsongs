@@ -181,4 +181,13 @@ describe('createFollowTracker — out-of-order / manual reposition', () => {
     expect(est.confidence).toBeGreaterThan(0.8);
     expect(est.status).toBe('locked');
   });
+
+  it('nudge softly favors a state (firmer than a tie, softer than a human snap)', () => {
+    const t = createFollowTracker(SONG);
+    const est = t.nudge(3, 1000);
+    expect(est.stateIndex).toBe(3);
+    // Firm enough to lead, but not the near-certain 0.98 of collapseTo.
+    expect(est.confidence).toBeGreaterThan(0.4);
+    expect(est.confidence).toBeLessThan(0.85);
+  });
 });
