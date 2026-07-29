@@ -20,7 +20,12 @@ import ConfirmDialog from '@/components/ui/confirm-dialog';
 import PromptDialog, { type PromptField } from '@/components/ui/prompt-dialog';
 import { cn } from '@/lib/utils';
 import { isFollowDebugEnabled } from '@/lib/followDebug';
-import FollowDebugPanel from '@/components/FollowDebugPanel';
+import FollowControls from '@/components/FollowControls';
+import { useFollow } from '@/hooks/useFollow';
+import { useFollowScroll } from '@/hooks/useFollowScroll';
+import { normalizeSong } from '@/lib/followAlign';
+import { createCannedSignal, scriptFromSong } from '@/lib/followSignal';
+import { createSpeechSignal } from '@/lib/followSpeech';
 import usePerformanceLayout from '@/hooks/usePerformanceLayout';
 import { maxColumnsForContent, splitContentForColumns } from '@/lib/performanceLayout';
 import type { AppShellContext } from '@/layouts/AppShell';
@@ -129,6 +134,17 @@ interface PerformanceSheetProps {
   columnsPref?: ColumnPref;
 }
 
+/** Trigger a browser download of a recorded Follow session as JSON. */
+function downloadRecording(data: unknown, name: string): void {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function PerformanceSheet({ song, version, className, fontSizeOverride, columnsPref = 'auto' }: PerformanceSheetProps) {
   const text = version === 'original' ? song.original_content : song.rewritten_content;
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -140,36 +156,115 @@ function PerformanceSheet({ song, version, className, fontSizeOverride, columnsP
   const effectiveSize = fontSizeOverride ?? layout.fontSize;
   const fontStyle = effectiveSize !== undefined ? { fontSize: `${effectiveSize}px` } : undefined;
 
+  // --- Follow mode ---
+  const follow = useFollow(text);
+  const [followOn, setFollowOn] = useState(false);
+  const norm = useMemo(() => normalizeSong(text), [text]);
+  const debug = isFollowDebugEnabled();
+  const micSupported = useMemo(
+    () => typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window),
+    [],
+  );
+  const reducedMotion = useMemo(
+    () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
+    [],
+  );
+  const activeIndex = followOn ? (follow.estimate?.renderIndex ?? null) : null;
+  const { paused, resume } = useFollowScroll(sheetRef, activeIndex, { enabled: followOn, reducedMotion });
+
+  const startMic = useCallback(() => {
+    setFollowOn(true);
+    follow.start(() => createSpeechSignal());
+  }, [follow]);
+  const startDemo = useCallback(() => {
+    setFollowOn(true);
+    follow.start(() => createCannedSignal(scriptFromSong(text)));
+  }, [follow, text]);
+  const stopFollow = useCallback(() => {
+    setFollowOn(false);
+    follow.stop();
+  }, [follow]);
+  const toggleFollow = useCallback(() => {
+    if (followOn) stopFollow();
+    else startMic();
+  }, [followOn, stopFollow, startMic]);
+  const saveJson = useCallback(() => {
+    downloadRecording(follow.stopRecording(), `follow-recording-${Date.now()}.json`);
+  }, [follow]);
+
+  // While following we present a single scrolling column (teleprompter) with the
+  // current line highlighted; when off, the sheet renders exactly as before.
+  const lines = useMemo(() => text.split('\n'), [text]);
+
   return (
-    <div
-      ref={sheetRef}
-      className={cn(
-        'overflow-y-auto',
-        // Multi-column is sized to fit the screen, so it never scrolls sideways.
-        // Single column allows horizontal scroll only as a last resort: when one
-        // chart line is wider than the screen even at the minimum font, scrolling
-        // beats clipping a chord off the edge.
-        isMultiCol ? 'overflow-x-hidden' : 'overflow-x-auto',
-        isMultiCol && GRID_COL_CLASSES[numCols],
-        className,
-      )}
-    >
-      {isMultiCol && columns ? (
-        columns.map((col, i) => (
-          <pre
-            key={i}
-            className={cn(
-              PRE_BASE_CLASS,
-              'min-w-0',
-              i < columns.length - 1 && 'border-r border-border pr-4'
-            )}
-            style={fontStyle}
-          >
-            {col}
+    <div className={cn('relative', className)}>
+      <div
+        ref={sheetRef}
+        className={cn(
+          'relative h-full overflow-y-auto',
+          // Multi-column is sized to fit the screen, so it never scrolls sideways.
+          // Single column allows horizontal scroll only as a last resort: when one
+          // chart line is wider than the screen even at the minimum font, scrolling
+          // beats clipping a chord off the edge.
+          followOn || !isMultiCol ? 'overflow-x-auto' : 'overflow-x-hidden',
+          !followOn && isMultiCol && GRID_COL_CLASSES[numCols],
+        )}
+      >
+        {followOn ? (
+          <pre className={PRE_BASE_CLASS} style={fontStyle}>
+            {lines.map((ln, i) => {
+              const isActive =
+                activeIndex != null &&
+                (i === activeIndex || (i === activeIndex - 1 && norm.lineKind[i] === 'chord'));
+              return (
+                <span
+                  key={i}
+                  data-line={i}
+                  className="block"
+                  // Inset shadow + tint highlight: no border/padding, so monospace
+                  // chord/lyric alignment stays pixel-identical.
+                  style={
+                    isActive
+                      ? {
+                          boxShadow: 'inset 3px 0 0 0 var(--color-primary)',
+                          background: 'color-mix(in oklab, var(--color-primary) 12%, transparent)',
+                        }
+                      : undefined
+                  }
+                >
+                  {ln === '' ? '\u200b' : ln}
+                </span>
+              );
+            })}
           </pre>
-        ))
-      ) : (
-        <pre className={PRE_BASE_CLASS} style={fontStyle}>{text}</pre>
+        ) : isMultiCol && columns ? (
+          columns.map((col, i) => (
+            <pre
+              key={i}
+              className={cn(PRE_BASE_CLASS, 'min-w-0', i < columns.length - 1 && 'border-r border-border pr-4')}
+              style={fontStyle}
+            >
+              {col}
+            </pre>
+          ))
+        ) : (
+          <pre className={PRE_BASE_CLASS} style={fontStyle}>{text}</pre>
+        )}
+      </div>
+
+      {(norm.hasLyrics || debug) && (
+        <FollowControls
+          follow={follow}
+          followOn={followOn}
+          paused={paused}
+          micSupported={micSupported}
+          lyricStates={norm.lyricStates}
+          debug={debug}
+          onToggleFollow={toggleFollow}
+          onResume={resume}
+          onDemo={startDemo}
+          onSaveJson={saveJson}
+        />
       )}
     </div>
   );
@@ -951,8 +1046,6 @@ export default function LibraryTab() {
         </div>
 
         <PerformanceSheet song={song} version={activeVersion} className="flex-1 min-h-0" fontSizeOverride={perfFontSize} columnsPref={perfColumns} />
-
-        {isFollowDebugEnabled() && <FollowDebugPanel songText={activeContent} />}
 
         <ConfirmDialog
           open={dialogState.kind === 'delete'}
