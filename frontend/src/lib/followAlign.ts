@@ -106,7 +106,7 @@ export const DEFAULT_FOLLOW_CONFIG: FollowConfig = {
   confThreshold: 0.45,
   marginThreshold: 0.12,
   teleport: 0.008,
-  maxForward: 6,
+  maxForward: 2,
   maxBackward: 4,
   backwardBias: 0.4,
   emissionFloor: 0.01,

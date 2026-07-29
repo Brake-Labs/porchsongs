@@ -119,7 +119,10 @@ export function createSpeechSignal(opts: SpeechSignalOptions = {}): AdvanceSigna
           const res = e.results[i];
           const transcript = res?.[0]?.transcript ?? '';
           for (const word of transcript.trim().split(/\s+/)) {
-            if (word) full.push(word);
+            // Lowercase so a phrase re-capitalizing when it finalizes ("when the
+            // saints" -> "When the Saints") is not seen as new words and
+            // re-dumped into the tracker.
+            if (word) full.push(word.toLowerCase());
           }
         }
         const tail = wordDelta(prevWords, full);
