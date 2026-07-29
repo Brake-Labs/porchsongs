@@ -428,12 +428,20 @@ export function createFollowTracker(
   };
 }
 
-/** Transition weight for a step of `delta` lines (unnormalized). */
+/**
+ * Transition weight for a step of `delta` lines (unnormalized). Staying and
+ * advancing-by-one are weighted EQUALLY on purpose: a forward preference would,
+ * over a long run of identical lines (a chorus that opens and closes the song),
+ * slowly concentrate belief on the later copy until it wins outright and the
+ * ambiguity guard stops firing. With no forward bias, identical copies stay
+ * genuinely tied (so the UI holds), and real advancement still happens because a
+ * different line's words give it higher emission.
+ */
 function transitionWeight(delta: number, cfg: FollowConfig): number {
-  if (delta === 0) return 3;
-  if (delta === 1) return 4; // forward-by-one is the singing mode
-  if (delta === 2) return 2;
-  if (delta >= 3 && delta <= cfg.maxForward) return 2 * Math.pow(0.55, delta - 2);
+  if (delta === 0) return 4; // stay
+  if (delta === 1) return 4; // advance-by-one, equally weighted (no forward bias)
+  if (delta === 2) return 1.5;
+  if (delta >= 3 && delta <= cfg.maxForward) return 1.5 * Math.pow(0.5, delta - 2);
   if (delta < 0 && -delta <= cfg.maxBackward) return cfg.backwardBias * Math.pow(0.6, -delta - 1);
   return 0;
 }
