@@ -135,7 +135,9 @@ export function createSpeechSignal(opts: SpeechSignalOptions = {}): AdvanceSigna
       };
 
       r.onend = () => {
-        prevWords = [];
+        // Do NOT clear prevWords here: Chrome keeps the accumulated results list
+        // across this internal restart, so clearing it would re-emit the entire
+        // transcript as "new" and flood the tracker. Keep dedup state.
         // The recognizer stops after pauses; keep listening until WE stop it.
         if (!stopped) {
           try {

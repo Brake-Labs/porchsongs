@@ -80,4 +80,32 @@ describe('followAlign on a real repetitive performance (Saints)', () => {
     expect(at(52000)).toBeLessThanOrEqual(50);
     expect(at(59500)).toBeGreaterThanOrEqual(54); // verse 5 (final)
   });
+
+  it('holds during an undecidable identical-verse stretch, then moves on a distinguishing line', () => {
+    // Verse 1 and verse 5 are word-for-word identical, so the opening "saints go
+    // marching in" stretch cannot say which verse you're on. The UI commit rule
+    // (confident AND unambiguous) must hold rather than drift to the last verse.
+    const t = createFollowTracker(SONG);
+    t.collapseTo(0, 0);
+    const canCommit = (e: ReturnType<typeof t.observe>) =>
+      e.renderIndex != null && e.status !== 'disabled' && !e.ambiguous && e.confidence >= 0.3;
+    let committed = 14;
+
+    const saints = ['oh', 'when', 'the', 'saints', 'go', 'marching', 'in'];
+    for (let k = 0; k < 6; k++) {
+      const e = t.observe(saints, 1000 + k * 2500);
+      if (canCommit(e)) committed = e.renderIndex!;
+    }
+    // Never drifts past verse 1/2 into a later identical verse during the stretch.
+    expect(committed).toBeLessThan(34);
+
+    const sun = ['when', 'the', 'sun', 'refuse', 'to', 'shine'];
+    for (let k = 0; k < 3; k++) {
+      const e = t.observe(sun, 20000 + k * 2500);
+      if (canCommit(e)) committed = e.renderIndex!;
+    }
+    // The distinguishing line moves it into verse 2.
+    expect(committed).toBeGreaterThanOrEqual(22);
+    expect(committed).toBeLessThanOrEqual(30);
+  });
 });
