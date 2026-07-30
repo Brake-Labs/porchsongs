@@ -8,7 +8,10 @@ interface FollowControlsProps {
   follow: UseFollowResult;
   followOn: boolean;
   paused: boolean;
-  micSupported: boolean;
+  /** Whether any recognizer is available in this browser. */
+  supported: boolean;
+  /** True when the active provider runs on-device (whisper), which downloads a model. */
+  onDevice: boolean;
   lyricStates: LyricState[];
   debug: boolean;
   onToggleFollow: () => void;
@@ -17,16 +20,51 @@ interface FollowControlsProps {
   onSaveJson: () => void;
 }
 
+const ERROR_MESSAGES: Record<string, string> = {
+  'permission-denied': 'Microphone blocked',
+  'not-found': 'No microphone found',
+  unsupported: 'Not supported here',
+  'insecure-context': 'Needs a secure (https) page',
+  aborted: 'Mic stopped',
+  network: 'Network error',
+  'model-download-failed': "Couldn't download voice model",
+  'model-init-failed': "Voice model couldn't start",
+};
+
+/** The pill's short label for each lifecycle phase. */
+function phaseLabel(follow: UseFollowResult, followOn: boolean, paused: boolean): string {
+  if (!followOn) return 'Follow';
+  if (follow.error) return 'Mic error';
+  switch (follow.phase) {
+    case 'preparing':
+      return 'Preparing';
+    case 'downloading': {
+      const f = follow.progress?.fraction;
+      return f != null ? `Downloading ${Math.round(f * 100)}%` : 'Downloading';
+    }
+    case 'ready':
+    case 'listening':
+      return 'Listening';
+    case 'tracking':
+      return paused ? 'Paused' : 'Following';
+    default:
+      return paused ? 'Paused' : 'Following';
+  }
+}
+
 /**
- * The visible Follow-mode chrome layered over the performance sheet: the
- * primary Follow toggle, the "Resume follow" affordance after a manual scroll,
- * and (only under ?followdebug) the diagnostics HUD with demo/record controls.
+ * The visible Follow-mode chrome layered over the performance sheet: the primary
+ * Follow toggle (whose label honestly reflects the on-device model's
+ * prepare/download phases rather than claiming "Following" while a model is
+ * still downloading), the "Resume follow" affordance after a manual scroll, and
+ * (only under ?followdebug) the diagnostics HUD with demo/record controls.
  */
 export default function FollowControls({
   follow,
   followOn,
   paused,
-  micSupported,
+  supported,
+  onDevice,
   lyricStates,
   debug,
   onToggleFollow,
@@ -34,13 +72,14 @@ export default function FollowControls({
   onDemo,
   onSaveJson,
 }: FollowControlsProps) {
-  const label = !followOn
-    ? 'Follow'
-    : follow.error
-      ? 'Mic error'
-      : paused
-        ? 'Paused'
-        : 'Following';
+  const label = phaseLabel(follow, followOn, paused);
+  const isTracking = followOn && !follow.error && follow.phase === 'tracking' && !paused;
+  const isPreparing = followOn && !follow.error && (follow.phase === 'preparing' || follow.phase === 'downloading');
+  const tooltip = !supported
+    ? 'Hands-free follow needs Chrome, Edge, or a browser with on-device speech support'
+    : onDevice
+      ? 'Hands-free follow, runs on your device'
+      : 'Hands-free follow';
 
   return (
     <>
@@ -51,7 +90,7 @@ export default function FollowControls({
           onClick={onToggleFollow}
           aria-pressed={followOn}
           aria-label={`Follow mode: ${label}`}
-          title={!micSupported ? 'Voice follow needs Chrome or Edge' : 'Hands-free follow'}
+          title={tooltip}
           className={cn(
             'flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm transition-colors cursor-pointer',
             followOn
@@ -62,18 +101,41 @@ export default function FollowControls({
           <span
             className={cn(
               'inline-block h-2 w-2 rounded-full',
-              followOn && !paused && !follow.error
+              isTracking
                 ? 'animate-pulse bg-white'
-                : followOn
-                  ? 'bg-white/70'
-                  : 'bg-primary',
+                : isPreparing
+                  ? 'animate-pulse bg-white/70'
+                  : followOn
+                    ? 'bg-white/70'
+                    : 'bg-primary',
             )}
           />
           {label}
         </button>
+
+        {/* Honest first-run setup note: progress + the privacy win, only for the
+            on-device path (Web Speech routes audio to a third party, so the
+            "stays on your device" line would be false there). */}
+        {isPreparing && onDevice && (
+          <div className="max-w-[220px] rounded-md border border-border bg-card px-2.5 py-1.5 text-[11px] leading-snug text-muted-foreground shadow-sm">
+            <div className="font-medium text-foreground">
+              {follow.phase === 'downloading' ? 'Setting up hands-free Follow' : 'Starting voice model'}
+            </div>
+            <div>One-time setup on this browser. Your voice never leaves your device.</div>
+            {follow.phase === 'downloading' && follow.progress?.fraction != null && (
+              <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-panel">
+                <div
+                  className="h-full bg-primary transition-[width]"
+                  style={{ width: `${Math.round(follow.progress.fraction * 100)}%` }}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         {followOn && follow.error && (
           <span className="rounded bg-danger-light px-2 py-0.5 text-[11px] text-danger" role="alert">
-            {follow.error.type}
+            {ERROR_MESSAGES[follow.error.type] ?? follow.error.type}
           </span>
         )}
       </div>

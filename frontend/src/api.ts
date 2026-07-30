@@ -32,6 +32,7 @@ const STORAGE_KEYS = {
   LIBRARY_LAYOUT: 'porchsongs_library_layout',
   PERFORMANCE_LAYOUT: 'porchsongs_performance_layout',
   PERFORMANCE_VERSION: 'porchsongs_performance_version',
+  FOLLOW_MODEL_READY: 'porchsongs_follow_model_ready',
 } as const;
 
 export { STORAGE_KEYS };

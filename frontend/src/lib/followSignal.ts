@@ -29,19 +29,44 @@ export type SignalErrorType =
   | 'unsupported'
   | 'insecure-context'
   | 'aborted'
-  | 'network';
+  | 'network'
+  // On-device recognizer (whisper) lifecycle. Kept distinct from `unsupported`
+  // so a transient model-fetch blip does not tell a supported browser the
+  // feature does not exist.
+  | 'model-download-failed'
+  | 'model-init-failed';
 
 export interface SignalError {
   type: SignalErrorType;
   message?: string;
 }
 
+/**
+ * Preparation progress for signals that must load before they can listen (the
+ * on-device recognizer downloads and initializes a model). Web Speech and the
+ * canned signal never emit this. Reported through `start`'s optional
+ * `onProgress` so the seam can drive a "downloading 40%" UI without the tracker
+ * ever learning that models exist.
+ */
+export interface SignalProgress {
+  phase: 'downloading' | 'initializing' | 'ready';
+  /** 0..1 when known (download only); undefined while indeterminate. */
+  fraction?: number;
+  loaded?: number;
+  total?: number;
+}
+
 export type OnWords = (tokens: SignalTokens) => void;
 export type OnError = (err: SignalError) => void;
+export type OnProgress = (progress: SignalProgress) => void;
 
 export interface AdvanceSignal {
-  /** Begin emitting words. Resolves once started (permission granted, etc.). */
-  start(onWords: OnWords, onError?: OnError): Promise<void>;
+  /**
+   * Begin emitting words. Resolves once started (permission granted, model
+   * loaded, etc.). `onProgress` is optional and only fires for signals with a
+   * load phase; instant signals resolve without ever calling it.
+   */
+  start(onWords: OnWords, onError?: OnError, onProgress?: OnProgress): Promise<void>;
   /** Stop emitting and release any resources. Safe to call more than once. */
   stop(): void;
 }
@@ -62,6 +87,13 @@ export interface FollowRecording {
   truth?: { at: number; renderIndex: number }[];
   recordedAt?: string;
   provider?: string;
+  /**
+   * Sample rate of the companion WAV, when audio was captured alongside the
+   * tokens. The audio itself downloads as a separate .wav so the same sung
+   * signal can be replayed through an offline recognizer to measure feasibility.
+   */
+  audioSampleRate?: number;
+  audioFile?: string;
 }
 
 export interface CannedOptions {
