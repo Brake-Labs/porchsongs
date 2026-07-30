@@ -26,6 +26,8 @@ import { useFollowScroll } from '@/hooks/useFollowScroll';
 import { normalizeSong } from '@/lib/followAlign';
 import { createCannedSignal, scriptFromSong } from '@/lib/followSignal';
 import { createSpeechSignal } from '@/lib/followSpeech';
+import { createClientWhisperSignal } from '@/lib/followWhisper';
+import { chooseProvider } from '@/lib/followProvider';
 import usePerformanceLayout from '@/hooks/usePerformanceLayout';
 import { maxColumnsForContent, splitContentForColumns } from '@/lib/performanceLayout';
 import type { AppShellContext } from '@/layouts/AppShell';
@@ -136,15 +138,19 @@ interface PerformanceSheetProps {
   llmModel?: string;
 }
 
-/** Trigger a browser download of a recorded Follow session as JSON. */
-function downloadRecording(data: unknown, name: string): void {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+/** Trigger a browser download of a blob under the given filename. */
+function downloadBlob(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = name;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/** Trigger a browser download of a recorded Follow session as JSON. */
+function downloadRecording(data: unknown, name: string): void {
+  downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), name);
 }
 
 function PerformanceSheet({ song, version, className, fontSizeOverride, columnsPref = 'auto', llmModel }: PerformanceSheetProps) {
@@ -165,12 +171,13 @@ function PerformanceSheet({ song, version, className, fontSizeOverride, columnsP
   );
   const follow = useFollow(text, { arbiter });
   const [followOn, setFollowOn] = useState(false);
+  const [modelConsentOpen, setModelConsentOpen] = useState(false);
   const norm = useMemo(() => normalizeSong(text), [text]);
   const debug = isFollowDebugEnabled();
-  const micSupported = useMemo(
-    () => typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window),
-    [],
-  );
+  // Capability + policy selection (not "is the API present"): Chrome/Edge use
+  // Web Speech; Safari/Firefox use the on-device recognizer where WebGPU allows.
+  const providerChoice = useMemo(() => chooseProvider(), []);
+  const micSupported = providerChoice.provider !== 'none';
   const reducedMotion = useMemo(
     () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
     [],
@@ -196,9 +203,17 @@ function PerformanceSheet({ song, version, className, fontSizeOverride, columnsP
   const { paused, resume } = useFollowScroll(sheetRef, activeIndex, { enabled: followOn, reducedMotion });
 
   const startMic = useCallback(() => {
+    if (providerChoice.provider === 'none') {
+      toast.error('Hands-free Follow needs Chrome, Edge, or a browser with on-device speech support.');
+      return;
+    }
     setFollowOn(true);
-    follow.start(() => createSpeechSignal());
-  }, [follow]);
+    if (providerChoice.provider === 'whisper') {
+      follow.start(() => createClientWhisperSignal());
+    } else {
+      follow.start(() => createSpeechSignal());
+    }
+  }, [follow, providerChoice]);
   const startDemo = useCallback(() => {
     setFollowOn(true);
     follow.start(() => createCannedSignal(scriptFromSong(text)));
@@ -208,11 +223,44 @@ function PerformanceSheet({ song, version, className, fontSizeOverride, columnsP
     follow.stop();
   }, [follow]);
   const toggleFollow = useCallback(() => {
-    if (followOn) stopFollow();
-    else startMic();
-  }, [followOn, stopFollow, startMic]);
+    if (followOn) {
+      stopFollow();
+      return;
+    }
+    // First-run consent before a large one-time model download (esp. on cellular).
+    let alreadyReady = false;
+    try {
+      alreadyReady = localStorage.getItem(STORAGE_KEYS.FOLLOW_MODEL_READY) === '1';
+    } catch {
+      alreadyReady = false;
+    }
+    if (providerChoice.provider === 'whisper' && providerChoice.needsModelDownload && !alreadyReady) {
+      setModelConsentOpen(true);
+      return;
+    }
+    startMic();
+  }, [followOn, stopFollow, startMic, providerChoice]);
+  const confirmModelSetup = useCallback(() => {
+    setModelConsentOpen(false);
+    startMic();
+  }, [startMic]);
+
+  // Remember the model is cached so returning users skip the consent card.
+  useEffect(() => {
+    if (follow.phase === 'ready' || follow.phase === 'tracking') {
+      try {
+        localStorage.setItem(STORAGE_KEYS.FOLLOW_MODEL_READY, '1');
+      } catch {
+        /* storage unavailable; consent shows again, harmless */
+      }
+    }
+  }, [follow.phase]);
   const saveJson = useCallback(() => {
-    downloadRecording(follow.stopRecording(), `follow-recording-${Date.now()}.json`);
+    const ts = Date.now();
+    const { recording, audio } = follow.stopRecording();
+    downloadRecording(recording, `follow-recording-${ts}.json`);
+    // Companion WAV: the same sung audio, for offline recognizer feasibility runs.
+    if (audio) downloadBlob(audio, `follow-recording-${ts}.wav`);
   }, [follow]);
 
   // While following we present a single scrolling column (teleprompter) with the
@@ -280,7 +328,8 @@ function PerformanceSheet({ song, version, className, fontSizeOverride, columnsP
           follow={follow}
           followOn={followOn}
           paused={paused}
-          micSupported={micSupported}
+          supported={micSupported}
+          onDevice={providerChoice.provider === 'whisper'}
           lyricStates={norm.lyricStates}
           debug={debug}
           onToggleFollow={toggleFollow}
@@ -289,8 +338,29 @@ function PerformanceSheet({ song, version, className, fontSizeOverride, columnsP
           onSaveJson={saveJson}
         />
       )}
+
+      <ConfirmDialog
+        open={modelConsentOpen}
+        onOpenChange={setModelConsentOpen}
+        title="Set up hands-free Follow?"
+        description={
+          'Follow needs a small voice model on this browser (about 40 MB, downloaded once). ' +
+          (isMeteredConnection()
+            ? "You're on a metered connection, so this may use your data. "
+            : '') +
+          'It runs on your device and your voice never leaves it.'
+        }
+        confirmLabel="Download and start"
+        onConfirm={confirmModelSetup}
+      />
     </div>
   );
+}
+
+/** Best-effort metered/cellular detection (Network Information API, advisory). */
+function isMeteredConnection(): boolean {
+  const conn = (navigator as unknown as { connection?: { type?: string; saveData?: boolean } }).connection;
+  return !!conn && (conn.type === 'cellular' || conn.saveData === true);
 }
 
 function EditableTitle({ song, onSaved }: { song: Song; onSaved: (song: Song) => void }) {

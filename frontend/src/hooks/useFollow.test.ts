@@ -35,6 +35,7 @@ describe('useFollow', () => {
       vi.advanceTimersByTime(0);
     });
     expect(result.current.running).toBe(true);
+    expect(result.current.phase).toBe('tracking');
     expect(result.current.estimate?.stateIndex).toBe(0);
 
     await act(async () => {
@@ -56,13 +57,13 @@ describe('useFollow', () => {
       vi.advanceTimersByTime(3000);
     });
 
-    let recording!: ReturnType<typeof result.current.stopRecording>;
+    let out!: ReturnType<typeof result.current.stopRecording>;
     act(() => {
-      recording = result.current.stopRecording();
+      out = result.current.stopRecording();
     });
-    expect(recording.songText).toBe(SONG);
-    expect(recording.events.length).toBeGreaterThanOrEqual(3);
-    expect(recording.events[0]!.at).toBe(0);
+    expect(out.recording.songText).toBe(SONG);
+    expect(out.recording.events.length).toBeGreaterThanOrEqual(3);
+    expect(out.recording.events[0]!.at).toBe(0);
     expect(result.current.recording).toBe(false);
   });
 
@@ -80,6 +81,7 @@ describe('useFollow', () => {
       await result.current.start(failing);
     });
     expect(result.current.error?.type).toBe('permission-denied');
+    expect(result.current.phase).toBe('error');
   });
 
   it('repositions the tracker to a chosen line with high confidence', () => {
