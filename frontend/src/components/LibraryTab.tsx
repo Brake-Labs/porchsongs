@@ -244,13 +244,12 @@ function PerformanceSheet({ song, version, className, fontSizeOverride, columnsP
                   key={i}
                   data-line={i}
                   className="block"
-                  // Inset shadow + tint highlight: no border/padding, so monospace
+                  // Tint-only highlight: no border/padding, so monospace
                   // chord/lyric alignment stays pixel-identical.
                   style={
                     isActive
                       ? {
-                          boxShadow: 'inset 3px 0 0 0 var(--color-primary)',
-                          background: 'color-mix(in oklab, var(--color-primary) 12%, transparent)',
+                          background: 'color-mix(in oklab, var(--color-primary) 8%, transparent)',
                         }
                       : undefined
                   }
