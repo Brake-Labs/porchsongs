@@ -52,4 +52,20 @@ describe('useFollowScroll', () => {
     renderHook(() => useFollowScroll(ref, 5, { enabled: false }));
     expect(el.scrollTo).not.toHaveBeenCalled();
   });
+
+  it('animates smoothly for a small in-view move', () => {
+    // line center 310 vs viewport center 200: outside the 8% band, distance 110 < 400.
+    const { el } = makeContainer({ clientHeight: 400, scrollTop: 0, lineTop: 300, lineH: 20 });
+    const ref = { current: el };
+    renderHook(() => useFollowScroll(ref, 5, { enabled: true }));
+    expect(el.scrollTo).toHaveBeenCalledWith({ top: 110, behavior: 'smooth' });
+  });
+
+  it('jumps instantly for a large catch-up (even without reduced motion)', () => {
+    const { el } = makeContainer({ clientHeight: 400, scrollTop: 0, lineTop: 1000, lineH: 20 });
+    const ref = { current: el };
+    renderHook(() => useFollowScroll(ref, 5, { enabled: true }));
+    // desired 810, distance > one viewport -> instant.
+    expect(el.scrollTo).toHaveBeenCalledWith({ top: 810, behavior: 'auto' });
+  });
 });

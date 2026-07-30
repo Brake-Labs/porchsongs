@@ -30,7 +30,7 @@ export function useFollowScroll(
   targetIndex: number | null,
   opts: UseFollowScrollOptions,
 ): UseFollowScrollResult {
-  const { enabled, reducedMotion = false, minIntervalMs = 400, bandRatio = 0.22 } = opts;
+  const { enabled, reducedMotion = false, minIntervalMs = 250, bandRatio = 0.08 } = opts;
   const [paused, setPaused] = useState(false);
   const lastScrollAtRef = useRef(0);
 
@@ -74,10 +74,14 @@ export function useFollowScroll(
     const band = el.clientHeight * bandRatio;
     if (Math.abs(viewportCenter - targetCenter) < band) return; // already centered enough
 
+    const desiredTop = Math.max(0, targetCenter - el.clientHeight / 2);
+    // Small line-to-line moves animate smoothly; a big catch-up (verse jump, or
+    // the arbiter relocating us) jumps instantly so it can't lag behind the song.
+    const bigJump = Math.abs(desiredTop - el.scrollTop) > el.clientHeight;
     lastScrollAtRef.current = now;
     el.scrollTo({
-      top: Math.max(0, targetCenter - el.clientHeight / 2),
-      behavior: reducedMotion ? 'auto' : 'smooth',
+      top: desiredTop,
+      behavior: reducedMotion || bigJump ? 'auto' : 'smooth',
     });
   }, [targetIndex, enabled, paused, containerRef, minIntervalMs, bandRatio, reducedMotion]);
 
