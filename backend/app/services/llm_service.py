@@ -692,3 +692,61 @@ async def chat_edit_content_stream(
             if cache_read is not None:
                 usage_data["cache_read_input_tokens"] = cache_read
             yield ("usage", json.dumps(usage_data))
+
+
+FOLLOW_ARBITER_SYSTEM_PROMPT = """You help a live lyric-following app decide which line of a song a \
+singer is currently on.
+
+The app already narrowed it to a few candidate lines that all match the recent audio about equally \
+(for example a chorus line that repeats in several verses). Using the recent recognized words and \
+where the singer was a moment ago, pick the single most likely candidate.
+
+Reply with ONLY the numeric id of the best candidate. If you genuinely cannot tell, reply with -1. \
+Output nothing else."""
+
+
+async def disambiguate_position(
+    *,
+    recent_words: str,
+    candidates: list[dict[str, Any]],
+    current_index: int | None,
+    provider: str,
+    model: str,
+    api_base: str | None = None,
+    api_key: str | None = None,
+    max_tokens: int = 64,
+) -> dict[str, int | None]:
+    """Pick the best candidate line id for the lyric follower.
+
+    ``candidates`` is a list of ``{"index": int, "context": str}``. Returns
+    ``{"choice": <candidate index>}`` or ``{"choice": None}`` when the model is
+    unsure or replies with an id outside the candidate set.
+    """
+    valid_ids = {int(c["index"]) for c in candidates}
+    parts = [f'Recent recognized words: "{recent_words}"']
+    if current_index is not None:
+        parts.append(f"A moment ago the singer was near candidate id {current_index}.")
+    parts.append("Candidates:")
+    for c in candidates:
+        parts.append(f"[id {int(c['index'])}]\n{str(c.get('context', '')).strip()}")
+    parts.append("Which candidate id is the singer most likely on? Reply with only the id number.")
+
+    params = LLMCallParams(
+        model=model,
+        provider=provider,
+        messages=[{"role": "user", "content": "\n".join(parts)}],
+        system=FOLLOW_ARBITER_SYSTEM_PROMPT,
+        max_tokens=max_tokens,
+        api_base=api_base,
+        api_key=api_key,
+    )
+    response = cast("MessageResponse", await params.send())
+    text = _get_content(response)
+
+    match = re.search(r"-?\d+", text)
+    choice: int | None = None
+    if match:
+        value = int(match.group())
+        if value in valid_ids:
+            choice = value
+    return {"choice": choice}

@@ -240,3 +240,20 @@ class DefaultPromptsResponse(BaseModel):
 
 class ModelsResponse(BaseModel):
     models: list[str]
+
+
+class FollowCandidate(BaseModel):
+    index: int
+    context: str = ""
+
+
+class FollowDisambiguateRequest(BaseModel):
+    recent_words: str = Field(max_length=2000)
+    candidates: list[FollowCandidate]
+    current_index: int | None = None
+    model: str
+    max_tokens: int = 64
+
+
+class FollowDisambiguateResponse(BaseModel):
+    choice: int | None = None
