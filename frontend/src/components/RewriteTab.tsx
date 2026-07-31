@@ -920,7 +920,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
         <Alert variant="error" className="mt-4 mb-4">
           <div className="flex-1">
             <span>{parseError}</span>
-            {isQuotaError(parseError) && (
+            {isQuotaError(parseError, parseErrorType) && (
               <QuotaUpgradeLink className="ml-2 font-semibold text-primary underline" />
             )}
             {parseErrorType?.startsWith('provider_') && (

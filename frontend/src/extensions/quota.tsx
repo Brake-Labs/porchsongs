@@ -20,7 +20,7 @@ export function QuotaUpgradeLink(_props: { className?: string }): null {
   return null;
 }
 
-export function isQuotaError(_message: string): boolean {
+export function isQuotaError(_message: string, _errorType?: string): boolean {
   return false;
 }
 
