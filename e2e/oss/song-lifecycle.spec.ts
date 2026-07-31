@@ -7,6 +7,8 @@ import {
   createSongViaApi,
   createChatMessagesViaApi,
   getDefaultProfileId,
+  expectOnPlayRoute,
+  rewriteFromChart,
 } from '../fixtures/test-helpers';
 import {
   interceptLlmEndpoints,
@@ -110,9 +112,8 @@ test.describe('Song Lifecycle', () => {
     await expect(page.getByText(/by John Newton/).first()).toBeVisible({ timeout: 5_000 });
     await page.getByText(/by John Newton/).first().click();
 
-    await expect(page.getByRole('button', { name: 'Rewrite' })).toBeVisible({ timeout: 5_000 });
-    await page.getByRole('button', { name: 'Rewrite' }).click();
-    await expect(page).toHaveURL(/\/app\/rewrite/);
+    await expectOnPlayRoute(page);
+    await rewriteFromChart(page);
 
     // Send a chat message
     const chatInput = page.getByPlaceholder('Your song is ready. How would you like to change it?');
@@ -144,8 +145,8 @@ test.describe('Song Lifecycle', () => {
 
     await expect(page.getByText(/by John Newton/).first()).toBeVisible({ timeout: 5_000 });
     await page.getByText(/by John Newton/).first().click();
-    await expect(page.getByRole('button', { name: 'Rewrite' })).toBeVisible({ timeout: 5_000 });
-    await page.getByRole('button', { name: 'Rewrite' }).click();
+    await expectOnPlayRoute(page);
+    await rewriteFromChart(page);
 
     // Verify chat history is loaded — both user message and assistant response
     await expect(page.getByText('Change "wretch" to "soul"').first()).toBeVisible({ timeout: 5_000 });
@@ -155,8 +156,8 @@ test.describe('Song Lifecycle', () => {
     await navigateToTab(page, 'Library');
     await expect(page.getByText(PARSED_TITLE).first()).toBeVisible({ timeout: 5_000 });
     await page.getByText(/by John Newton/).first().click();
-    await expect(page.getByRole('button', { name: 'Rewrite' })).toBeVisible({ timeout: 5_000 });
-    await page.getByRole('button', { name: 'Rewrite' }).click();
+    await expectOnPlayRoute(page);
+    await rewriteFromChart(page);
 
     // Chat history still present after round-trip
     await expect(page.getByText('Change "wretch" to "soul"').first()).toBeVisible({ timeout: 5_000 });

@@ -1,5 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { waitForAppReady, navigateToTab, createSongViaApi, getDefaultProfileId } from '../fixtures/test-helpers';
+import {
+  waitForAppReady,
+  navigateToTab,
+  createSongViaApi,
+  getDefaultProfileId,
+  expectOnPlayRoute,
+  rewriteFromChart,
+} from '../fixtures/test-helpers';
 import { makeSongCreatePayload, makeSecondSongPayload, PARSED_TITLE, PARSED_ARTIST, PARSED_CONTENT } from '../fixtures/mock-data';
 
 test.describe('OSS Library', () => {
@@ -59,14 +66,15 @@ test.describe('OSS Library', () => {
     await waitForAppReady(page);
     await navigateToTab(page, 'Library');
 
-    // Wait for the song list to appear, then click on the artist text
-    // (clicking the title span triggers rename due to stopPropagation, so click the card area instead)
+    // Tapping anywhere on the card opens the chart. The whole card is one target
+    // now: the title used to be an inline rename field that swallowed the click.
     await expect(page.getByText(/by John Newton/).first()).toBeVisible({ timeout: 5_000 });
     await page.getByText(/by John Newton/).first().click();
 
-    // Should open the song detail view with an "Back to library" back button and "Edit"
-    await expect(page.getByRole('button', { name: /Back to library/i })).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByRole('button', { name: 'Rewrite' })).toBeVisible();
+    // Opens the dedicated full-screen play route, not an in-library detail pane.
+    await expectOnPlayRoute(page);
+    // Rewrite lives in the chart actions menu, not as a top-level button.
+    await expect(page.getByRole('button', { name: /Chart actions/i })).toBeVisible();
   });
 
   test('Edit loads song into rewrite tab', async ({ page, baseURL }) => {
@@ -81,12 +89,11 @@ test.describe('OSS Library', () => {
     await expect(page.getByText(/by John Newton/).first()).toBeVisible({ timeout: 5_000 });
     await page.getByText(/by John Newton/).first().click();
 
-    // Click "Edit"
-    await expect(page.getByRole('button', { name: 'Rewrite' })).toBeVisible({ timeout: 5_000 });
-    await page.getByRole('button', { name: 'Rewrite' }).click();
+    // Rewrite from the chart actions menu
+    await expectOnPlayRoute(page);
+    await rewriteFromChart(page);
 
     // Should navigate to the Rewrite tab with song content loaded
-    await expect(page).toHaveURL(/\/app\/rewrite/);
     await expect(page.getByLabel('Song title').first()).toHaveValue(PARSED_TITLE, { timeout: 5_000 });
     await expect(page.getByLabel('Artist').first()).toHaveValue(PARSED_ARTIST);
 
@@ -97,7 +104,14 @@ test.describe('OSS Library', () => {
     await expect(page.getByText(/Amazing grace how/).first()).toBeVisible();
   });
 
-  test('inline title rename persists', async ({ page, baseURL }) => {
+  test('tapping the card title opens the chart, it is not a rename field', async ({
+    page,
+    baseURL,
+  }) => {
+    // Replaces an "inline title rename persists" test. The title was an inline
+    // editor that called stopPropagation, so the largest and most obvious target on
+    // the card opened a text input instead of the song. Renaming now lives in the
+    // per-song menu, covered by "menu rename updates title and artist" below.
     const profileId = await getDefaultProfileId(baseURL!);
     await createSongViaApi(baseURL!, makeSongCreatePayload(profileId));
 
@@ -105,30 +119,12 @@ test.describe('OSS Library', () => {
     await waitForAppReady(page);
     await navigateToTab(page, 'Library');
 
-    // Wait for song to appear, then click title to activate inline edit
-    const titleSpan = page.getByTitle('Click to rename').first();
-    await expect(titleSpan).toBeVisible({ timeout: 5_000 });
-    await titleSpan.click();
+    await expect(page.getByText(PARSED_TITLE).first()).toBeVisible({ timeout: 5_000 });
+    await page.getByText(PARSED_TITLE).first().click();
 
-    // Input should appear — clear and type new title
-    const editInput = page.locator('input[placeholder="Untitled"]');
-    await expect(editInput).toBeVisible({ timeout: 2_000 });
-    await editInput.fill('Grace Reborn');
-    await editInput.press('Enter');
-
-    // Wait for the API update to complete
-    await page.waitForResponse(
-      (res) => res.url().includes('/api/songs/') && res.request().method() === 'PUT' && res.ok(),
-    );
-
-    // Verify new title appears in library
-    await expect(page.getByText('Grace Reborn').first()).toBeVisible({ timeout: 5_000 });
-
-    // Reload and verify persistence
-    await page.reload();
-    await waitForAppReady(page);
-    await navigateToTab(page, 'Library');
-    await expect(page.getByText('Grace Reborn').first()).toBeVisible({ timeout: 5_000 });
+    // The title is plain text now, so the tap reaches the card and opens the chart.
+    await expectOnPlayRoute(page);
+    await expect(page.locator('input[placeholder="Untitled"]')).toHaveCount(0);
   });
 
   test('menu rename updates title and artist', async ({ page, baseURL }) => {
@@ -251,8 +247,9 @@ test.describe('OSS Library', () => {
     await expect(page.getByText(/by John Newton/).first()).toBeVisible({ timeout: 5_000 });
     await page.getByText(/by John Newton/).first().click();
     // Open the actions menu and click Download PDF
-    await expect(page.getByRole('button', { name: /Song actions/i })).toBeVisible({ timeout: 5_000 });
-    await page.getByRole('button', { name: /Song actions/i }).click();
+    await expectOnPlayRoute(page);
+    await expect(page.getByRole('button', { name: /Chart actions/i })).toBeVisible({ timeout: 5_000 });
+    await page.getByRole('button', { name: /Chart actions/i }).click();
     await expect(page.getByRole('menuitem', { name: /Download PDF/i })).toBeVisible();
 
     // Intercept the download
