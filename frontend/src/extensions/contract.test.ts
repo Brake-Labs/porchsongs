@@ -55,6 +55,40 @@ const MANIFEST: Record<string, string[]> = {
 /** Everything the barrel must re-export, flattened from the manifest. */
 const BARREL_EXPORTS = Object.values(MANIFEST).flat().sort();
 
+/**
+ * Members that exist only in the premium copy, and are therefore allowed to be
+ * absent from OSS.
+ *
+ * The contract is a floor, not an equality: OSS code can only import what BOTH
+ * copies export, so the failure that actually breaks a build is a manifest member
+ * missing from one side. A premium-only helper is harmless because it ships
+ * together with the premium code that uses it.
+ *
+ * This list is an allowlist so the drift stays deliberate and visible rather than
+ * accumulating silently, which is how these three got here in the first place.
+ * `getCatchAllRedirect` is imported by nothing and should be deleted.
+ */
+const PREMIUM_ONLY = [
+  'getCatchAllRedirect',
+  'notifyQuotaChanged',
+  'deleteAccount',
+  'verifyCheckoutSession',
+];
+
+/**
+ * True when running against the premium overlay rather than the OSS stubs.
+ *
+ * This file is shared: prepare-frontend.sh copies premium's extensions over the
+ * OSS ones, and this test is not shadowed, so it executes against whichever
+ * implementation is present. The export-shape assertions apply to both. The
+ * inertness assertions describe the OSS stubs specifically, because in premium
+ * these same functions correctly render real UI and fetch real data.
+ *
+ * Discriminated on a premium-only export rather than an env var so it works
+ * identically in both CIs with no configuration.
+ */
+const IS_PREMIUM_OVERLAY = 'verifyCheckoutSession' in extensionsApi;
+
 const MODULES: Record<string, Record<string, unknown>> = {
   auth,
   routes,
@@ -72,8 +106,17 @@ function valueExports(mod: Record<string, unknown>): string[] {
 
 describe('extensions seam contract', () => {
   describe.each(Object.entries(MANIFEST))('module %s', (name, members) => {
-    it('exports exactly the manifest members', () => {
-      expect(valueExports(MODULES[name] ?? {})).toEqual([...members].sort());
+    it('exports every manifest member', () => {
+      const exported = valueExports(MODULES[name] ?? {});
+      for (const member of members) {
+        expect(exported, `'${member}' is missing from extensions/${name}`).toContain(member);
+      }
+    });
+
+    it('exports nothing undocumented', () => {
+      const allowed = new Set([...members, ...PREMIUM_ONLY]);
+      const extras = valueExports(MODULES[name] ?? {}).filter((k) => !allowed.has(k));
+      expect(extras, `undocumented exports in extensions/${name}`).toEqual([]);
     });
   });
 
@@ -87,13 +130,19 @@ describe('extensions seam contract', () => {
     }
   });
 
-  it('the barrel exports nothing beyond the manifest', () => {
-    // Catches a premium-only export leaking into the shared surface, which is how
-    // getCatchAllRedirect ended up existing in one repo and not the other.
-    expect(valueExports(barrel as unknown as Record<string, unknown>)).toEqual(BARREL_EXPORTS);
+  it('the barrel exports nothing undocumented', () => {
+    // Catches a new premium-only export leaking into the shared surface without
+    // being declared, which is how the three in PREMIUM_ONLY got here.
+    const allowed = new Set([...BARREL_EXPORTS, ...PREMIUM_ONLY]);
+    const extras = valueExports(barrel as unknown as Record<string, unknown>).filter(
+      (k) => !allowed.has(k),
+    );
+    expect(extras, 'undocumented exports in extensions/index.ts').toEqual([]);
   });
 
-  describe('OSS stubs are inert and total (rule 1)', () => {
+  // Skipped under the premium overlay: these assert the OSS stubs are inert, and
+  // premium's implementations of the same members render real UI by design.
+  describe.skipIf(IS_PREMIUM_OVERLAY)('OSS stubs are inert and total (rule 1)', () => {
     it('component stubs render nothing', () => {
       expect(quota.QuotaBanner()).toBeNull();
       expect(quota.QuotaUpgradeLink({})).toBeNull();
