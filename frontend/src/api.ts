@@ -68,10 +68,32 @@ function _parseApiError(body: unknown, fallback: string): string {
   return b.detail;
 }
 
-function _extractErrorType(body: unknown): string | undefined {
-  const b = body as { detail?: { error_type?: string }; error_type?: string };
-  if (typeof b.detail === 'object') return b.detail?.error_type;
-  return b.error_type;
+/**
+ * Pull the machine-readable error slug out of an error body.
+ *
+ * Two shapes are in the wild and both must work:
+ *  - `detail.error_type` — what the OSS backend emits (see `_require_gateway`,
+ *    which returns `error_type: "gateway_not_configured"`).
+ *  - `detail.error` — what the premium guard middleware emits for
+ *    `max_songs_exceeded`, `quota_exceeded`, `rate_limited`,
+ *    `service_at_capacity`, `content_too_large` and friends.
+ *
+ * Only the first was read, so every premium guard error arrived with
+ * `errorType === undefined` and the only way to recognise one was substring
+ * matching its English `message`. That coupled the upgrade affordances to exact
+ * prose, so rewording a message silently removed them.
+ */
+export function _extractErrorType(body: unknown): string | undefined {
+  const b = body as { detail?: { error_type?: unknown; error?: unknown }; error_type?: unknown };
+  const candidates =
+    typeof b.detail === 'object' && b.detail !== null
+      ? [b.detail.error_type, b.detail.error]
+      : [b.error_type];
+  // Return the first candidate that is actually a string. `detail.error` is not
+  // guaranteed to hold a slug (nested `{"error": {...}}` bodies exist upstream),
+  // and consumers call `errorType.startsWith('provider_')` (isProviderError,
+  // RewriteTab, ChatPanel), which throws on an object or a boolean.
+  return candidates.find((c): c is string => typeof c === 'string');
 }
 
 /** True when the error originated from the AI provider, not PorchSongs. */
