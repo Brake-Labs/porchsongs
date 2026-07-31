@@ -20,6 +20,7 @@ import ConfirmDialog from '@/components/ui/confirm-dialog';
 import PromptDialog, { type PromptField } from '@/components/ui/prompt-dialog';
 import { cn } from '@/lib/utils';
 import { maxColumnsForContent, splitContentForColumns } from '@/lib/performanceLayout';
+import { SongCapNotice } from '@/extensions';
 import { PerformanceSheet, FontSizeStepper } from '@/components/PlayView';
 import type { ColumnPref, SongVersion } from '@/components/PlayView';
 import type { AppShellContext } from '@/layouts/AppShell';
@@ -905,6 +906,10 @@ export default function LibraryTab() {
 
   return (
     <div className={cn('flex flex-col gap-4', containerClass, scrollDir === 'horizontal' && 'h-full min-h-0')}>
+      {/* Chart-count status. Inert in OSS; premium renders a count as the plan cap
+          approaches and an explanation once it is passed. The library owns the
+          count, so it is passed in rather than refetched. */}
+      <SongCapNotice count={songs.length} />
       <div className="flex flex-col gap-2">
         <div className="flex gap-2">
           <Input

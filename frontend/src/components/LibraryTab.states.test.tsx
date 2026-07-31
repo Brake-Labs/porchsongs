@@ -25,6 +25,18 @@ const MOCK_SONG = vi.hoisted<Song>(() => ({
   updated_at: '2025-01-01T00:00:00Z',
 }) as unknown as Song);
 
+const capNoticeProps = vi.hoisted(() => ({ current: null as { count: number } | null }));
+vi.mock('@/extensions', async () => {
+  const actual = await vi.importActual<typeof import('@/extensions')>('@/extensions');
+  return {
+    ...actual,
+    SongCapNotice: (props: { count: number }) => {
+      capNoticeProps.current = props;
+      return null;
+    },
+  };
+});
+
 vi.mock('@/api', () => ({
   default: {
     listSongs: vi.fn(),
@@ -104,6 +116,17 @@ describe('LibraryTab load states', () => {
     // tab", which described the product this rebrand is moving away from.
     expect(screen.getByText(/Import a chord chart to get started/)).toBeInTheDocument();
     expect(screen.queryByText(/Songs you rewrite will appear here/)).not.toBeInTheDocument();
+  });
+
+  it('gives SongCapNotice the library chart count', async () => {
+    // The library owns the count, so premium's notice is passed it rather than
+    // refetching. Asserting the prop keeps this honest whichever implementation of
+    // the seam member is present: the OSS stub renders nothing.
+    mockListSongs.mockResolvedValue([MOCK_SONG, { ...MOCK_SONG, id: 43, uuid: 'u-43' }]);
+    renderLibrary();
+
+    await waitFor(() => expect(capNoticeProps.current).not.toBeNull());
+    expect(capNoticeProps.current?.count).toBe(2);
   });
 
   it('opens the play route when a card is tapped', async () => {
