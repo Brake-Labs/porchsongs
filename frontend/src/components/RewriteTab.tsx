@@ -32,6 +32,7 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { QuotaBanner, OnboardingBanner, isQuotaError, QuotaUpgradeLink } from '@/extensions/quota';
 import { SAMPLE_SONGS, sampleToParseResult } from '@/data/sample-songs';
+import { guessSongMeta } from '@/lib/songMeta';
 import type { AppShellContext } from '@/layouts/AppShell';
 import type { Profile, Song, RewriteResult, RewriteMeta, ChatMessage, LlmSettings, ParseResult } from '@/types';
 import type { SampleSong } from '@/data/sample-songs';
@@ -246,13 +247,16 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
 
   const hasProfile = !!profile?.id;
   const hasModel = isPremium || !!llmSettings.model;
-  const canParse = hasProfile && hasModel && !parseLoading && input.trim().length > 0;
+  const hasInput = input.trim().length > 0;
 
-  const parseBlocker = !hasModel
-      ? 'Select a model'
-      : input.trim().length === 0
-        ? 'Paste your song above'
-        : null;
+  // Saving a chart as-is needs no model. Only the AI actions do. Gating the plain
+  // save on `hasModel` is what made porchsongs unusable for a self-hoster with no
+  // LLM gateway configured, even though storing and playing charts never needed one.
+  const canSave = hasProfile && !parseLoading && hasInput;
+  const canParse = canSave && hasModel;
+
+  const saveBlocker = !hasInput ? 'Paste your song above' : null;
+  const parseBlocker = !hasModel ? 'Select a model' : saveBlocker;
 
   const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.userAgent);
   const shortcutHint = `${isMac ? '\u2318' : 'Ctrl'}+Enter to add to library`;
@@ -435,9 +439,58 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const isParsed = !!parseResult && !rewriteResult;
   const isWorkshopping = !!rewriteResult;
 
-  // Import cleans up the pasted song and always saves it to the library. `mode`
-  // decides where the user lands afterward:
-  //   'library'  -> straight to the play view (import-and-play, no editing)
+  /**
+   * Save the pasted chart exactly as typed, with no LLM call.
+   *
+   * This is the default import path. Previously every import went through
+   * `/parse/stream`, so adding a chart cost 15 to 20 AI credits and a free user's
+   * 200 lifetime credits bought roughly 13 imports, ever. Storing a chord chart
+   * should not spend an AI budget, and it should not require a model to be
+   * configured at all, which matters for self-hosters with no gateway.
+   *
+   * Title and artist come from `guessSongMeta`, a local heuristic. If it cannot
+   * tell, the song is saved untitled and the user renames it on the chart.
+   */
+  const handleSaveAsIs = async () => {
+    const trimmedInput = input.trim();
+    if (!trimmedInput || !profile?.id) return;
+
+    setSaveStatus('saving');
+    try {
+      const meta = guessSongMeta(trimmedInput);
+      const song = await api.saveSong({
+        profile_id: profile.id,
+        title: meta.title || null,
+        artist: meta.artist || null,
+        source_url: pendingSourceUrlRef.current || null,
+        original_content: trimmedInput,
+        rewritten_content: trimmedInput,
+        // No llm_model: nothing was generated.
+      });
+      pendingSourceUrlRef.current = null;
+      localStorage.setItem(STORAGE_KEYS.HAS_REWRITTEN, '1');
+      setHasSongs(true);
+      setSongsChecked(true);
+
+      onClearParse();
+      onNewRewrite(null, null);
+      setInput('');
+      setInstruction('');
+      setSongTitle('');
+      setSongArtist('');
+      setIsDirty(false);
+      setSaveStatus(null);
+      navigate(`/app/library/${song.uuid}`);
+    } catch (err) {
+      setSaveStatus(null);
+      // The paste is still in the box and in DRAFT_INPUT, so nothing is lost.
+      setParseError('Could not save this chart: ' + (err as Error).message);
+    }
+  };
+
+  // AI import: cleans up the pasted song, then saves it. `mode` decides where the
+  // user lands afterward:
+  //   'library'  -> straight to the play view
   //   'rewrite'  -> stay here in the workshop to rewrite it
   const handleImport = async (mode: 'library' | 'rewrite') => {
     const trimmedInput = input.trim();
@@ -884,7 +937,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
             onDrop={handleInputDrop}
           >
             <CardContent className="pt-6 flex-1 flex flex-col min-h-0">
-              {hasProfile && hasModel && isFirstTime && (
+              {hasProfile && isFirstTime && (
                 <p className="mb-3 text-sm text-muted-foreground">
                   Start with a sample:{' '}
                   {SAMPLE_SONGS.map((s, i) => (
@@ -923,9 +976,9 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 onChange={e => setInput(e.target.value)}
                 placeholder="Paste lyrics, or drop a file here..."
                 onKeyDown={e => {
-                  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canParse) {
+                  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canSave) {
                     e.preventDefault();
-                    handleImport('library');
+                    handleSaveAsIs();
                   }
                 }}
               />
@@ -946,9 +999,9 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                     placeholder='Cleanup hints, e.g. "only grab the first song" or "ignore the intro"'
                     className="mt-2 font-ui"
                     onKeyDown={e => {
-                      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canParse) {
+                      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canSave) {
                         e.preventDefault();
-                        handleImport('library');
+                        handleSaveAsIs();
                       }
                     }}
                   />
@@ -970,22 +1023,42 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 onChange={handleFileUpload}
               />
               <div className="flex flex-col gap-3 mt-3">
-                {/* Primary: what happens after we tidy up the formatting. */}
+                {/* Primary action is free and instant. The AI options are
+                    secondary and labelled as costing credits, because "clean up
+                    the formatting" previously looked free, sat above the plain
+                    option, and quietly spent 15 to 20 credits. */}
                 <div className="flex items-center gap-3 flex-wrap">
-                  <Button onClick={() => handleImport('library')} disabled={!canParse}>
+                  <Button onClick={handleSaveAsIs} disabled={!canSave}>
                     Add to library
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => handleImport('library')}
+                    disabled={!canParse}
+                    title="Reformats the chart with AI before saving. Uses AI credits."
+                  >
+                    Tidy up with AI
                   </Button>
                   <Button
                     variant="secondary"
                     onClick={() => handleImport('rewrite')}
                     disabled={!canParse}
+                    title="Reformats the chart and opens the rewrite workshop. Uses AI credits."
                   >
                     Import &amp; rewrite
                   </Button>
                   <span className="text-xs text-muted-foreground">
-                    {parseBlocker ?? shortcutHint}
+                    {saveBlocker ?? shortcutHint}
                   </span>
                 </div>
+                {/* Only surfaced when the AI actions specifically are unavailable.
+                    Saving and playing still work, so this is a note rather than a
+                    blocker. */}
+                {!hasModel && hasInput && (
+                  <p className="text-xs text-muted-foreground">
+                    {parseBlocker} to use the AI options. Importing and playing work without one.
+                  </p>
+                )}
                 {/* Content sources: these just fill the box above. */}
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs text-muted-foreground">Or add from:</span>
@@ -1016,7 +1089,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 </div>
               </div>
 
-              {hasProfile && hasModel && !isFirstTime && (
+              {hasProfile && !isFirstTime && (
                 <p className="mt-3 text-xs text-muted-foreground">
                   Or try a sample:{' '}
                   {SAMPLE_SONGS.map((s, i) => (

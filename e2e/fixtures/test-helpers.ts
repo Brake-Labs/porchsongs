@@ -12,6 +12,33 @@ export async function navigateToTab(page: Page, name: string): Promise<void> {
   await page.getByRole('tab', { name }).click();
 }
 
+/**
+ * Wait for the full-screen play route to be showing a chart.
+ *
+ * Tapping a song card in the library opens /app/play/:uuid rather than an
+ * in-library detail pane.
+ */
+export async function expectOnPlayRoute(page: Page): Promise<void> {
+  await expect(page).toHaveURL(/\/app\/play\//, { timeout: 5_000 });
+  await expect(page.getByRole('button', { name: /Back to library/i })).toBeVisible({
+    timeout: 5_000,
+  });
+}
+
+/**
+ * From the play route, start an AI rewrite of the open chart.
+ *
+ * Rewrite used to be a top-level button on the song detail pane. It is now an item
+ * in the chart actions menu, because on a performance surface the controls you
+ * need while playing are not the ones that navigate away from it. Centralised here
+ * so a future change to that menu touches one place instead of five specs.
+ */
+export async function rewriteFromChart(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /Chart actions/i }).click();
+  await page.getByRole('menuitem', { name: /Rewrite with AI/i }).click();
+  await expect(page).toHaveURL(/\/app\/rewrite/, { timeout: 5_000 });
+}
+
 /** Create a song via the API (bypassing the UI for seeding test data). */
 export async function createSongViaApi(
   baseUrl: string,

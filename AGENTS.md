@@ -199,7 +199,9 @@ Then navigate to `/app/library/1` to view the song, and click "Edit in Rewrite" 
 
 ### E2E Tests
 
-Playwright e2e tests live in `e2e/oss/` and `e2e/premium/`. The `playwright.config.ts` auto-starts backend servers on ports 8765 (OSS) and 8766 (premium). Run with `cd e2e && npx playwright test`.
+Playwright e2e tests live in `e2e/oss/`. `playwright.config.ts` (at the repo root, not in `e2e/`) defines a single `oss` project and auto-starts a backend on port 8765. Run with `npm run e2e:oss` from the repo root.
+
+There is currently no premium e2e project. Premium behaviour (billing, quotas, the plan seam) has no browser coverage.
 
 ### Design System
 

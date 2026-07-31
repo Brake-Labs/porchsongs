@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from '@/contexts/AuthContext';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import App from '@/App';
+import { getPremiumProviders } from '@/extensions';
 import './index.css';
 
 if ('serviceWorker' in navigator) {
@@ -15,7 +16,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
       <BrowserRouter>
         <AuthProvider>
-          <App />
+          {/* Inside AuthProvider so premium providers can read auth state. */}
+          {getPremiumProviders({ children: <App /> })}
         </AuthProvider>
       </BrowserRouter>
     </ErrorBoundary>
