@@ -187,10 +187,15 @@ export default function AppShell() {
       } catch {
         setChatMessages([]);
       }
-      // Restore route for PWA relaunch: if we're at the generic /app root,
-      // navigate to the rewrite tab where the user's song is.
+      // Restore route for PWA relaunch. manifest.json's start_url is /app, so a
+      // relaunch lands here with a song restored but no idea which surface the
+      // user was on. Someone who force-quit mid-performance should come back to
+      // the chart, not the editor.
       if (location.pathname === '/app' || location.pathname === '/app/') {
-        navigate('/app/rewrite', { replace: true });
+        const lastSurface = localStorage.getItem(STORAGE_KEYS.LAST_SURFACE);
+        navigate(lastSurface === 'workshop' ? '/app/rewrite' : `/app/play/${song.uuid}`, {
+          replace: true,
+        });
       }
     }).catch(() => {
       setCurrentSong(null);

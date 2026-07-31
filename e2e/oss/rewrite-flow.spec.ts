@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { waitForAppReady, mockModels, presetLlmSettings } from '../fixtures/test-helpers';
+import {
+  waitForAppReady,
+  mockModels,
+  presetLlmSettings,
+  navigateToImport,
+} from '../fixtures/test-helpers';
 import {
   interceptLlmEndpoints,
   mockParseStreamResponse,
@@ -34,6 +39,7 @@ test.describe('OSS Rewrite Flow', () => {
 
     await page.goto('/');
     await waitForAppReady(page);
+    await navigateToImport(page);
 
     // Fill lyrics textarea
     const textarea = page.getByPlaceholder(/Paste lyrics/);
@@ -73,6 +79,7 @@ test.describe('OSS Rewrite Flow', () => {
 
     await page.goto('/');
     await waitForAppReady(page);
+    await navigateToImport(page);
 
     const textarea = page.getByPlaceholder(/Paste lyrics/);
     await textarea.fill(RAW_LYRICS);
@@ -93,6 +100,7 @@ test.describe('OSS Rewrite Flow', () => {
 
     await page.goto('/');
     await waitForAppReady(page);
+    await navigateToImport(page);
 
     const textarea = page.getByPlaceholder(/Paste lyrics/);
     await textarea.fill(RAW_LYRICS);

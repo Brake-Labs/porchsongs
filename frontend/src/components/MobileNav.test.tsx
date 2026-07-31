@@ -26,7 +26,7 @@ describe('MobileNav', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /open navigation menu/i }));
 
-    expect(screen.getByText('New Song')).toBeInTheDocument();
+    expect(screen.getByText('Import')).toBeInTheDocument();
     expect(screen.getByText('Library')).toBeInTheDocument();
     expect(screen.getByText('Settings')).toBeInTheDocument();
   });
@@ -75,23 +75,23 @@ describe('MobileNav', () => {
     expect(screen.getByRole('link', { name: 'X (Twitter)' })).toBeInTheDocument();
   });
 
-  it('New Song nav item starts a fresh song via onNewSong and closes the sidebar', () => {
+  it('Import nav item starts a fresh song via onNewSong and closes the sidebar', () => {
     const onNewSong = vi.fn();
     renderWithRouter(<MobileNav onNewSong={onNewSong} />, { route: '/app/library' });
 
     fireEvent.click(screen.getByRole('button', { name: /open navigation menu/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'New Song' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
 
     expect(onNewSong).toHaveBeenCalledTimes(1);
     expect(screen.queryByText('Navigation')).not.toBeInTheDocument();
   });
 
-  it('New Song nav item falls back to navigation when no onNewSong is wired', () => {
+  it('Import nav item falls back to navigation when no onNewSong is wired', () => {
     renderWithRouter(<MobileNav />, { route: '/app/library' });
 
     fireEvent.click(screen.getByRole('button', { name: /open navigation menu/i }));
     // The item is always present (it is a tab); clicking it should not throw.
-    const item = screen.getByRole('button', { name: 'New Song' });
+    const item = screen.getByRole('button', { name: 'Import' });
     fireEvent.click(item);
     expect(screen.queryByText('Navigation')).not.toBeInTheDocument();
   });

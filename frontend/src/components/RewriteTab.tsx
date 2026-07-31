@@ -439,6 +439,15 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const isParsed = !!parseResult && !rewriteResult;
   const isWorkshopping = !!rewriteResult;
 
+  // Records which surface a PWA relaunch should return to. Set here rather than on
+  // navigation because the workshop is also reachable by restoring state, not only
+  // by clicking through to it.
+  useEffect(() => {
+    if (isWorkshopping || isParsed) {
+      localStorage.setItem(STORAGE_KEYS.LAST_SURFACE, 'workshop');
+    }
+  }, [isWorkshopping, isParsed]);
+
   /**
    * Save the pasted chart exactly as typed, with no LLM call.
    *
