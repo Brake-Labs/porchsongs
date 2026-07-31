@@ -113,56 +113,6 @@ function FolderPill({
 // callers import them from this module.
 export type { ColumnPref, SongVersion } from '@/components/PlayView';
 
-function EditableTitle({ song, onSaved }: { song: Song; onSaved: (song: Song) => void }) {
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(song.title || '');
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (editing) inputRef.current?.focus();
-  }, [editing]);
-
-  const save = async () => {
-    const trimmed = value.trim();
-    setEditing(false);
-    if (trimmed === (song.title || '')) return;
-    try {
-      const updated = await api.updateSong(song.uuid, { title: trimmed || null } as Partial<Song>);
-      onSaved(updated);
-    } catch {
-      setValue(song.title || '');
-    }
-  };
-
-  if (editing) {
-    return (
-      <input
-        ref={inputRef}
-        className="text-inherit font-inherit border border-primary rounded-sm px-1 bg-background text-foreground outline-none"
-        value={value}
-        onChange={e => setValue(e.target.value)}
-        onBlur={save}
-        onKeyDown={e => {
-          if (e.key === 'Enter') save();
-          if (e.key === 'Escape') { setValue(song.title || ''); setEditing(false); }
-        }}
-        onClick={e => e.stopPropagation()}
-        placeholder="Untitled"
-      />
-    );
-  }
-
-  return (
-    <span
-      className="cursor-pointer border-b border-dashed border-muted-foreground hover:border-foreground"
-      onClick={e => { e.stopPropagation(); setEditing(true); setValue(song.title || ''); }}
-      title="Click to rename"
-    >
-      {song.title || 'Untitled'}
-    </span>
-  );
-}
-
 interface SongMenuProps {
   song: Song;
   onDelete: (uuid: string) => void;
@@ -244,7 +194,6 @@ interface SongCardProps {
   onToggleSelect: (uuid: string) => void;
   onDragStart: (e: DragEvent<HTMLDivElement>, uuid: string) => void;
   onDragEnd: () => void;
-  onSongUpdated: (song: Song) => void;
   onDelete: (uuid: string) => void;
   onRename: (song: Song) => void;
   onEdit: (song: Song) => void;
@@ -256,7 +205,7 @@ interface SongCardProps {
 function SongCard({
   song, selectMode, isSelected, isDragging, stretch,
   onView, onToggleSelect, onDragStart, onDragEnd,
-  onSongUpdated, onDelete, onRename, onEdit,
+  onDelete, onRename, onEdit,
   folders, onMoveToFolder, onMoveToNewFolder,
 }: SongCardProps) {
   const date = new Date(song.created_at).toLocaleDateString();
@@ -291,7 +240,10 @@ function SongCard({
         </label>
         <div className="flex-1 min-w-0">
           <h3 className="text-sm sm:text-base mb-0.5 leading-snug">
-            <EditableTitle song={song} onSaved={onSongUpdated} />
+            {/* Plain text, not an inline editor. Rename lives in the "..." menu.
+                Tapping the title used to open a text input, which made the biggest
+                target on the card do something other than open the song. */}
+            <span>{song.title || 'Untitled'}</span>
             {artist}
           </h3>
           {preview && (
@@ -333,6 +285,7 @@ export default function LibraryTab() {
   const initialSongRef = idParam ?? null;
   const [songs, setSongs] = useState<Song[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [viewingSong, setViewingSong] = useState<Song | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
@@ -433,12 +386,24 @@ export default function LibraryTab() {
     return () => window.removeEventListener('resize', measureGrid);
   }, [scrollDir, measureGrid]);
 
-  useEffect(() => {
+  const loadSongs = useCallback(() => {
+    setLoadError(null);
     api.listSongs().then(data => {
       setSongs(data);
       setLoaded(true);
-    }).catch(() => setLoaded(true));
+    }).catch((err: unknown) => {
+      // Previously this swallowed the error and just set loaded, so songs stayed
+      // [] and the "your library is empty" state rendered. A user with 200 charts
+      // and a flaky connection, or an expired session, was told their library was
+      // empty and invited to add their first song.
+      setLoadError((err as Error)?.message || 'Could not load your library.');
+      setLoaded(true);
+    });
   }, []);
+
+  useEffect(() => {
+    loadSongs();
+  }, [loadSongs]);
 
 
   const folders = useMemo(() => {
@@ -512,10 +477,10 @@ export default function LibraryTab() {
     navigate(target, { replace: true });
   }, [navigate]);
 
-  const handleView = (song: Song) => {
-    setViewingSong(song);
-    pushSongUrl(song.uuid);
-  };
+  const handlePlay = useCallback((song: Song) => {
+    navigate(`/app/play/${song.uuid}`, { state: { title: song.title, artist: song.artist } });
+  }, [navigate]);
+
 
   const handleBack = () => {
     setViewingSong(null);
@@ -902,16 +867,34 @@ export default function LibraryTab() {
     );
   }
 
+  // --- Load failure ---
+  // Distinct from "empty": an error must never be presented as an empty library.
+  if (loadError) {
+    return (
+      <div className="text-center py-16 px-8">
+        <h3 className="font-display text-lg font-semibold text-foreground mb-2">
+          Could not load your library
+        </h3>
+        <p className="text-muted-foreground mb-4">
+          Your charts are safe. This is a problem reaching the server.
+        </p>
+        <Button variant="default" onClick={loadSongs}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
+
   // --- Song List ---
   if (songs.length === 0) {
     return (
       <div className="text-center py-16 px-8">
         <h3 className="font-display text-lg font-semibold text-foreground mb-2">Your library is empty</h3>
         <p className="text-muted-foreground mb-4">
-          Songs you rewrite will appear here. Head to the Rewrite tab to get started.
+          Import a chord chart to get started. Paste it, drop in a file, or add a link.
         </p>
         <Button variant="default" onClick={() => navigate('/app/rewrite')}>
-          Go to Rewrite
+          Import a chart
         </Button>
       </div>
     );
@@ -1080,11 +1063,10 @@ export default function LibraryTab() {
               selectMode={selectMode}
               isSelected={selectedUuids.has(song.uuid)}
               isDragging={draggingSongUuid === song.uuid}
-              onView={handleView}
+              onView={handlePlay}
               onToggleSelect={toggleSelect}
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
-              onSongUpdated={handleSongUpdated}
               onDelete={handleDeleteRequest}
               onRename={handleRenameRequest}
               onEdit={onLoadSong}
@@ -1113,11 +1095,10 @@ export default function LibraryTab() {
                 selectMode={selectMode}
                 isSelected={selectedUuids.has(song.uuid)}
                 isDragging={draggingSongUuid === song.uuid}
-                onView={handleView}
+                onView={handlePlay}
                 onToggleSelect={toggleSelect}
                 onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
-                onSongUpdated={handleSongUpdated}
                 onDelete={handleDeleteRequest}
                 onRename={handleRenameRequest}
                 onEdit={onLoadSong}
