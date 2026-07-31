@@ -24,6 +24,33 @@ export function isQuotaError(_message: string): boolean {
   return false;
 }
 
+/**
+ * Chart-count status for the library. Premium renders a count and, at or above
+ * the plan cap, an upgrade banner.
+ *
+ * Placement rule the premium implementation must honour: silent below 80% of the
+ * cap, a quiet count row from 80%, a banner with an upgrade link at or above the
+ * cap. Showing "3 of 40" to a brand new user is noise.
+ */
+export function SongCapNotice(_props: { count: number; className?: string }): null {
+  return null;
+}
+
+/**
+ * True when the account may read but not write.
+ *
+ * Premium returns true when the user holds more charts than their plan allows,
+ * which happens after a paid plan lapses. Reads, playback, export, and delete are
+ * never blocked, so this only gates edit affordances.
+ *
+ * Rule for consumers: do NOT grey out or disable controls. Keep them visible and
+ * enabled, and replace the action with a one-line inline explanation plus an
+ * upgrade link. A dead grey button tells the user nothing about why.
+ */
+export function useReadOnly(): boolean {
+  return false;
+}
+
 export function UsageFooter({ tokenUsage }: { tokenUsage: TokenUsage }): ReactNode {
   if (tokenUsage.input_tokens === 0 && tokenUsage.output_tokens === 0) return null;
   return (

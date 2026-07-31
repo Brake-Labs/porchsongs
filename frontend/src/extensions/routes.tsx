@@ -5,6 +5,20 @@ export function getPremiumRouteElements(): ReactNode {
   return null;
 }
 
+/**
+ * Wraps the whole app so the premium overlay can supply React context.
+ *
+ * OSS returns the children untouched. This exists because the only other
+ * injection point, `getPremiumRouteElements`, returns `<Route>` elements and so
+ * cannot provide context. Without a provider slot, any stateful seam member
+ * (`useReadOnly`, for example) would have to either fetch per call site or hide a
+ * module-level singleton, and the existing precedent for shared premium state is
+ * monkey-patching `window.fetch`. Do not extend that.
+ */
+export function getPremiumProviders({ children }: { children: ReactNode }): ReactNode {
+  return children;
+}
+
 export function getLoginPageElement(): ReactNode {
   // OSS has no login, redirect to app
   return <Navigate to="/app" replace />;

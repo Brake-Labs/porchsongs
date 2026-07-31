@@ -1,6 +1,7 @@
 export { isPremiumAuth } from './auth';
 export {
   getPremiumRouteElements,
+  getPremiumProviders,
   getLoginPageElement,
   getDefaultSettingsTab,
   shouldRedirectRootToApp,
@@ -29,4 +30,12 @@ export type {
   CheckoutResponse,
   PortalResponse,
 } from './types';
-export { QuotaBanner, OnboardingBanner, isQuotaError, UsageFooter } from './quota';
+export {
+  QuotaBanner,
+  OnboardingBanner,
+  QuotaUpgradeLink,
+  isQuotaError,
+  UsageFooter,
+  SongCapNotice,
+  useReadOnly,
+} from './quota';

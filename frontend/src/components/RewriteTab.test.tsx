@@ -101,13 +101,13 @@ describe('RewriteTab', () => {
     const props = makeProps({ onParse });
     const { unmount } = render(<RewriteTab {...props} />);
 
-    // Type some input so the Parse button is enabled
+    // Type some input so the AI buttons are enabled
     const textarea = screen.getByPlaceholderText(/Paste lyrics/);
     fireEvent.change(textarea, { target: { value: 'Some lyrics here' } });
 
-    // Click "Add to library" to start the streaming import request
-    const parseButton = screen.getByText('Add to library');
-    fireEvent.click(parseButton);
+    // "Tidy up with AI" is the action that streams a parse. "Add to library" is
+    // deliberately free and never calls onParse.
+    fireEvent.click(screen.getByText('Tidy up with AI'));
 
     // Verify onParse was called (delegated to AppShell)
     await waitFor(() => {
@@ -122,6 +122,88 @@ describe('RewriteTab', () => {
 
     // onCancelParse was NOT called (parse survives navigation)
     expect(props.onCancelParse).not.toHaveBeenCalled();
+  });
+
+  describe('free import (Add to library)', () => {
+    it('saves the chart verbatim without calling onParse', async () => {
+      const onParse = vi.fn();
+      const props = makeProps({ onParse });
+      render(<RewriteTab {...props} />);
+
+      const textarea = screen.getByPlaceholderText(/Paste lyrics/);
+      fireEvent.change(textarea, {
+        target: { value: '{title: Wildwood Flower}\n{artist: The Carter Family}\n\nC   F   C' },
+      });
+      fireEvent.click(screen.getByText('Add to library'));
+
+      await waitFor(() => {
+        expect(api.saveSong).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: 'Wildwood Flower',
+            artist: 'The Carter Family',
+            original_content: '{title: Wildwood Flower}\n{artist: The Carter Family}\n\nC   F   C',
+            rewritten_content:
+              '{title: Wildwood Flower}\n{artist: The Carter Family}\n\nC   F   C',
+          }),
+        );
+      });
+
+      // The whole point: no AI call, so no credits spent.
+      expect(onParse).not.toHaveBeenCalled();
+      // And no llm_model is recorded, because nothing was generated.
+      expect(api.saveSong).not.toHaveBeenCalledWith(
+        expect.objectContaining({ llm_model: expect.anything() }),
+      );
+    });
+
+    it('saves untitled rather than guessing when the chart has no usable title', async () => {
+      const props = makeProps();
+      render(<RewriteTab {...props} />);
+
+      fireEvent.change(screen.getByPlaceholderText(/Paste lyrics/), {
+        target: { value: 'C G Am F\n| D | A |' },
+      });
+      fireEvent.click(screen.getByText('Add to library'));
+
+      await waitFor(() => {
+        expect(api.saveSong).toHaveBeenCalledWith(
+          expect.objectContaining({ title: null, artist: null }),
+        );
+      });
+    });
+
+    it('stays enabled with no model configured, while the AI actions do not', () => {
+      // The self-hosted case: no LLM gateway. Importing and playing must still
+      // work, which is what gating the plain save on hasModel used to prevent.
+      const props = makeProps({ isPremium: false, llmSettings: { model: '', reasoning_effort: 'high' } });
+      render(<RewriteTab {...props} />);
+
+      fireEvent.change(screen.getByPlaceholderText(/Paste lyrics/), {
+        target: { value: 'Some chart' },
+      });
+
+      expect(screen.getByText('Add to library').closest('button')).not.toBeDisabled();
+      expect(screen.getByText('Tidy up with AI').closest('button')).toBeDisabled();
+      expect(screen.getByText(/Importing and playing work without one/)).toBeInTheDocument();
+    });
+
+    it('keeps the draft and surfaces an error when the save fails', async () => {
+      (api.saveSong as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('cap reached'));
+      const props = makeProps();
+      render(<RewriteTab {...props} />);
+
+      const textarea = screen.getByPlaceholderText(/Paste lyrics/);
+      fireEvent.change(textarea, { target: { value: 'Keep me' } });
+      fireEvent.click(screen.getByText('Add to library'));
+
+      await waitFor(() => {
+        expect(props.setParseError).toHaveBeenCalledWith(
+          expect.stringContaining('cap reached'),
+        );
+      });
+      // The paste must survive a failed save.
+      expect(textarea).toHaveValue('Keep me');
+    });
   });
 
   it('shows the import heading in INPUT state', () => {
