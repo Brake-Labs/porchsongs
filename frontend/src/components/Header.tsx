@@ -18,7 +18,7 @@ export default function Header({ user, authRequired, onLogout, isPremium, leftSl
   const wakeLock = useWakeLock();
   const { resolved: currentTheme, toggle: toggleTheme } = useTheme();
   const [tunerOpen, setTunerOpen] = useState(false);
-  const logoTo = isPremium ? '/' : '/app/rewrite';
+  const logoTo = isPremium ? '/' : '/app/library';
 
   return (
     <header className="bg-linear-to-r from-header-bg-from to-header-bg-to text-header-text border-b border-header-border">

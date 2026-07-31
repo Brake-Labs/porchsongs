@@ -96,6 +96,7 @@ export default function PlayPage() {
         // Remember which surface the user was last on, so a PWA relaunch at /app
         // returns them to the chart they were playing rather than the editor.
         localStorage.setItem(STORAGE_KEYS.CURRENT_SONG_ID, loaded.uuid);
+        localStorage.setItem(STORAGE_KEYS.LAST_SURFACE, 'play');
       })
       .catch((err: unknown) => {
         if (cancelled) return;

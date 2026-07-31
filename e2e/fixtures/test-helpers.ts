@@ -3,13 +3,27 @@ import { expect } from '@playwright/test';
 
 /** Wait for the app to be fully loaded (tabs visible). */
 export async function waitForAppReady(page: Page): Promise<void> {
-  // The tab bar renders TabsTrigger elements with role="tab"
-  await expect(page.getByRole('tab', { name: 'New Song' })).toBeVisible({ timeout: 15_000 });
+  // The tab bar renders TabsTrigger elements with role="tab". Library is the first
+  // tab and the landing surface, so waiting on it also confirms the default route
+  // resolved.
+  await expect(page.getByRole('tab', { name: 'Library' })).toBeVisible({ timeout: 15_000 });
 }
 
-/** Click a main tab by name (New Song, Library, Settings). */
+/** Click a main tab by name (Library, Import, Settings). */
 export async function navigateToTab(page: Page, name: string): Promise<void> {
   await page.getByRole('tab', { name }).click();
+}
+
+/**
+ * Open the import surface.
+ *
+ * The app lands on Library now, so anything that needs the paste box has to get
+ * there first. The Import tab doubles as the create action, so this also resets any
+ * in-progress song.
+ */
+export async function navigateToImport(page: Page): Promise<void> {
+  await navigateToTab(page, 'Import');
+  await expect(page).toHaveURL(/\/app\/rewrite/, { timeout: 5_000 });
 }
 
 /**

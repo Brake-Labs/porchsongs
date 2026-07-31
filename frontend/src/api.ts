@@ -32,6 +32,10 @@ const STORAGE_KEYS = {
   LIBRARY_LAYOUT: 'porchsongs_library_layout',
   PERFORMANCE_LAYOUT: 'porchsongs_performance_layout',
   PERFORMANCE_VERSION: 'porchsongs_performance_version',
+  // Which surface the user was last on ('play' | 'workshop'). CURRENT_SONG_ID
+  // records WHICH song but not WHERE, so a PWA relaunch used to drop someone who
+  // force-quit mid-performance into the rewrite editor.
+  LAST_SURFACE: 'porchsongs_last_surface',
 } as const;
 
 export { STORAGE_KEYS };

@@ -8,17 +8,17 @@ test.describe('OSS Navigation', () => {
   });
 
   test('tab switching updates URL', async ({ page }) => {
-    // Start on rewrite (default)
-    await expect(page).toHaveURL(/\/app\/rewrite$/);
-
-    await navigateToTab(page, 'Library');
+    // Library is the default landing surface.
     await expect(page).toHaveURL(/\/app\/library$/);
 
     await navigateToTab(page, 'Settings');
     await expect(page).toHaveURL(/\/app\/settings\/models$/);
 
-    await navigateToTab(page, 'New Song');
+    await navigateToTab(page, 'Import');
     await expect(page).toHaveURL(/\/app\/rewrite$/);
+
+    await navigateToTab(page, 'Library');
+    await expect(page).toHaveURL(/\/app\/library$/);
   });
 
   test('direct URL navigation works', async ({ page }) => {

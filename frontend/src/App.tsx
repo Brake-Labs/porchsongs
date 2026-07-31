@@ -51,7 +51,8 @@ export default function App() {
 
       {/* Authenticated app */}
       <Route path="/app" element={<AppShell />}>
-        <Route index element={<Navigate to="/app/rewrite" replace />} />
+        {/* Library is the front door: the app is for playing charts you already have. */}
+        <Route index element={<Navigate to="/app/library" replace />} />
         <Route path="rewrite" element={<ErrorBoundary fallbackLabel="Rewrite"><RewriteTab /></ErrorBoundary>} />
         <Route path="library" element={<ErrorBoundary fallbackLabel="Library"><LibraryTab /></ErrorBoundary>} />
         <Route path="library/:id" element={<ErrorBoundary fallbackLabel="Library"><LibraryTab /></ErrorBoundary>} />

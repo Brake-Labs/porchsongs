@@ -12,8 +12,10 @@ export interface TabItem {
 
 export function buildTabItems(isPremium: boolean, isAdmin: boolean): TabItem[] {
   const tabs: TabItem[] = [
-    { key: 'rewrite', path: '/app/rewrite', label: 'New Song' },
+    // Library first: the app is for playing charts you already have, so the
+    // common case on opening it is "find my song", not "add a new one".
     { key: 'library', path: '/app/library', label: 'Library' },
+    { key: 'rewrite', path: '/app/rewrite', label: 'Import' },
     { key: 'settings', path: `/app/settings/${getDefaultSettingsTab(isPremium)}`, label: 'Settings' },
   ];
   const extra: TopLevelTab[] = getExtraTopLevelTabs(isPremium, isAdmin);
@@ -23,10 +25,14 @@ export function buildTabItems(isPremium: boolean, isAdmin: boolean): TabItem[] {
 const MATCH_PREFIXES = ['/app/rewrite', '/app/library', '/app/settings', '/app/admin'] as const;
 
 export function activeKeyFromPath(pathname: string): string {
+  if (pathname.startsWith(MATCH_PREFIXES[0])) return 'rewrite';
   if (pathname.startsWith(MATCH_PREFIXES[1])) return 'library';
   if (pathname.startsWith(MATCH_PREFIXES[2])) return 'settings';
   if (pathname.startsWith(MATCH_PREFIXES[3])) return 'admin';
-  return 'rewrite';
+  // Library is the home surface, so an unmatched path (notably /app/play/:uuid,
+  // which renders chromeless and shows no tab bar) highlights Library rather than
+  // the import screen.
+  return 'library';
 }
 
 interface TabsProps {
@@ -42,7 +48,7 @@ export default function Tabs({ onNewSong }: TabsProps) {
   const active = activeKeyFromPath(pathname);
 
   const handleTabClick = (key: string) => {
-    // The "New Song" tab starts a fresh song (reset + go to the import surface)
+    // The "Import" tab starts a fresh song (reset + go to the import surface)
     // rather than just navigating, so it doubles as the always-visible create
     // action. Falls back to plain navigation if no handler is wired.
     if (key === 'rewrite' && onNewSong) {

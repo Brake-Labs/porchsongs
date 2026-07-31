@@ -67,7 +67,7 @@ export default function MobileNav({ onNewSong }: MobileNavProps) {
                     : 'text-muted-foreground hover:text-foreground hover:bg-panel'
                 )}
                 onClick={() => {
-                  // The "New Song" item starts a fresh song, mirroring the tab bar.
+                  // The "Import" item starts a fresh song, mirroring the tab bar.
                   if (item.key === 'rewrite' && onNewSong) {
                     onNewSong();
                   } else {

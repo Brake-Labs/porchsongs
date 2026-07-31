@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import {
   waitForAppReady,
+  navigateToImport,
   navigateToTab,
   mockModels,
   presetLlmSettings,
@@ -61,6 +62,7 @@ test.describe('Song Lifecycle', () => {
     // Navigate and parse
     await page.goto('/');
     await waitForAppReady(page);
+    await navigateToImport(page);
 
     const textarea = page.getByPlaceholder(/Paste lyrics/);
     await textarea.fill(RAW_LYRICS);

@@ -27,10 +27,10 @@ describe('Header', () => {
     expect(title.className).toContain('sm:inline');
   });
 
-  it('links logo to /app/rewrite in OSS mode', () => {
+  it('links logo to /app/library in OSS mode', () => {
     renderWithRouter(<Header {...defaults} />);
     const link = screen.getByText('porchsongs').closest('a');
-    expect(link).toHaveAttribute('href', '/app/rewrite');
+    expect(link).toHaveAttribute('href', '/app/library');
   });
 
   it('links logo to / in premium mode', () => {
