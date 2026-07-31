@@ -19,22 +19,14 @@ import {
 import ConfirmDialog from '@/components/ui/confirm-dialog';
 import PromptDialog, { type PromptField } from '@/components/ui/prompt-dialog';
 import { cn } from '@/lib/utils';
-import { isFollowDebugEnabled } from '@/lib/followDebug';
-import FollowControls from '@/components/FollowControls';
-import { useFollow } from '@/hooks/useFollow';
-import { useFollowScroll } from '@/hooks/useFollowScroll';
-import { normalizeSong } from '@/lib/followAlign';
-import { createCannedSignal, scriptFromSong } from '@/lib/followSignal';
-import { createSpeechSignal } from '@/lib/followSpeech';
-import usePerformanceLayout from '@/hooks/usePerformanceLayout';
 import { maxColumnsForContent, splitContentForColumns } from '@/lib/performanceLayout';
+import { PerformanceSheet, FontSizeStepper } from '@/components/PlayView';
+import type { ColumnPref, SongVersion } from '@/components/PlayView';
 import type { AppShellContext } from '@/layouts/AppShell';
 import type { Song } from '@/types';
 
 // Re-exported for tests and callers that import from this module.
 export { splitContentForColumns };
-
-const PRE_BASE_CLASS = 'font-mono text-xs sm:text-code leading-snug whitespace-pre text-foreground';
 
 const FOLDER_PILL_CLASS = 'bg-card border border-border rounded-full px-3 py-1.5 text-xs cursor-pointer transition-all text-muted-foreground font-medium hover:border-primary hover:text-foreground whitespace-nowrap';
 const FOLDER_PILL_ACTIVE = 'bg-primary text-white border-primary';
@@ -116,181 +108,10 @@ function FolderPill({
   );
 }
 
-const GRID_COL_CLASSES: Record<number, string> = {
-  2: 'grid grid-cols-2 gap-4',
-  3: 'grid grid-cols-3 gap-4',
-  4: 'grid grid-cols-4 gap-4',
-};
-
-/** Column preference: 'auto' lets the layout decide, or force a fixed count. */
-export type ColumnPref = 'auto' | 1 | 2 | 3 | 4;
-export type SongVersion = 'rewritten' | 'original';
-
-interface PerformanceSheetProps {
-  song: Song;
-  version: SongVersion;
-  className?: string;
-  fontSizeOverride?: number | null;
-  columnsPref?: ColumnPref;
-  /** LLM model for the Follow arbiter; empty string disables it. */
-  llmModel?: string;
-}
-
-/** Trigger a browser download of a recorded Follow session as JSON. */
-function downloadRecording(data: unknown, name: string): void {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function PerformanceSheet({ song, version, className, fontSizeOverride, columnsPref = 'auto', llmModel }: PerformanceSheetProps) {
-  const text = version === 'original' ? song.original_content : song.rewritten_content;
-  const sheetRef = useRef<HTMLDivElement>(null);
-
-  const layout = usePerformanceLayout(sheetRef, text, columnsPref, fontSizeOverride ?? null);
-  const { columns, numCols } = layout;
-  const isMultiCol = numCols > 1 && columns !== null;
-
-  const effectiveSize = fontSizeOverride ?? layout.fontSize;
-  const fontStyle = effectiveSize !== undefined ? { fontSize: `${effectiveSize}px` } : undefined;
-
-  // --- Follow mode ---
-  const arbiter = useMemo(
-    () => ({ enabled: !!llmModel, model: llmModel ?? '' }),
-    [llmModel],
-  );
-  const follow = useFollow(text, { arbiter });
-  const [followOn, setFollowOn] = useState(false);
-  const norm = useMemo(() => normalizeSong(text), [text]);
-  const debug = isFollowDebugEnabled();
-  const micSupported = useMemo(
-    () => typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window),
-    [],
-  );
-  const reducedMotion = useMemo(
-    () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
-    [],
-  );
-  // Only commit the highlight/scroll on a confident lock; hold steady while the
-  // tracker is searching or torn between repeated lines, so the page doesn't
-  // chase every ambiguous flicker.
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
-  useEffect(() => {
-    if (!followOn) {
-      setActiveIndex(null);
-      return;
-    }
-    const e = follow.estimate;
-    // Commit only on a confident, UNAMBIGUOUS estimate. When two positions are
-    // near-tied (e.g. an opening verse that is identical to the closing verse,
-    // which is genuinely undecidable from the audio), hold the last committed
-    // line instead of guessing, and move once a distinguishing line is sung.
-    if (e && e.renderIndex != null && e.status !== 'disabled' && !e.ambiguous && e.confidence >= 0.3) {
-      setActiveIndex(e.renderIndex);
-    }
-  }, [follow.estimate, followOn]);
-  const { paused, resume } = useFollowScroll(sheetRef, activeIndex, { enabled: followOn, reducedMotion });
-
-  const startMic = useCallback(() => {
-    setFollowOn(true);
-    follow.start(() => createSpeechSignal());
-  }, [follow]);
-  const startDemo = useCallback(() => {
-    setFollowOn(true);
-    follow.start(() => createCannedSignal(scriptFromSong(text)));
-  }, [follow, text]);
-  const stopFollow = useCallback(() => {
-    setFollowOn(false);
-    follow.stop();
-  }, [follow]);
-  const toggleFollow = useCallback(() => {
-    if (followOn) stopFollow();
-    else startMic();
-  }, [followOn, stopFollow, startMic]);
-  const saveJson = useCallback(() => {
-    downloadRecording(follow.stopRecording(), `follow-recording-${Date.now()}.json`);
-  }, [follow]);
-
-  // While following we present a single scrolling column (teleprompter) with the
-  // current line highlighted; when off, the sheet renders exactly as before.
-  const lines = useMemo(() => text.split('\n'), [text]);
-
-  return (
-    <div className={cn('relative', className)}>
-      <div
-        ref={sheetRef}
-        className={cn(
-          'relative h-full overflow-y-auto',
-          // Multi-column is sized to fit the screen, so it never scrolls sideways.
-          // Single column allows horizontal scroll only as a last resort: when one
-          // chart line is wider than the screen even at the minimum font, scrolling
-          // beats clipping a chord off the edge.
-          followOn || !isMultiCol ? 'overflow-x-auto' : 'overflow-x-hidden',
-          !followOn && isMultiCol && GRID_COL_CLASSES[numCols],
-        )}
-      >
-        {followOn ? (
-          <pre className={PRE_BASE_CLASS} style={fontStyle}>
-            {lines.map((ln, i) => {
-              const isActive =
-                activeIndex != null &&
-                (i === activeIndex || (i === activeIndex - 1 && norm.lineKind[i] === 'chord'));
-              return (
-                <span
-                  key={i}
-                  data-line={i}
-                  className="block"
-                  // Tint-only highlight: no border/padding, so monospace
-                  // chord/lyric alignment stays pixel-identical.
-                  style={
-                    isActive
-                      ? {
-                          background: 'color-mix(in oklab, var(--color-primary) 8%, transparent)',
-                        }
-                      : undefined
-                  }
-                >
-                  {ln === '' ? '\u200b' : ln}
-                </span>
-              );
-            })}
-          </pre>
-        ) : isMultiCol && columns ? (
-          columns.map((col, i) => (
-            <pre
-              key={i}
-              className={cn(PRE_BASE_CLASS, 'min-w-0', i < columns.length - 1 && 'border-r border-border pr-4')}
-              style={fontStyle}
-            >
-              {col}
-            </pre>
-          ))
-        ) : (
-          <pre className={PRE_BASE_CLASS} style={fontStyle}>{text}</pre>
-        )}
-      </div>
-
-      {(norm.hasLyrics || debug) && (
-        <FollowControls
-          follow={follow}
-          followOn={followOn}
-          paused={paused}
-          micSupported={micSupported}
-          lyricStates={norm.lyricStates}
-          debug={debug}
-          onToggleFollow={toggleFollow}
-          onResume={resume}
-          onDemo={startDemo}
-          onSaveJson={saveJson}
-        />
-      )}
-    </div>
-  );
-}
+// The performance sheet and its column/version types now live in PlayView, which
+// backs the dedicated /app/play/:uuid route. Re-exported here because tests and
+// callers import them from this module.
+export type { ColumnPref, SongVersion } from '@/components/PlayView';
 
 function EditableTitle({ song, onSaved }: { song: Song; onSaved: (song: Song) => void }) {
   const [editing, setEditing] = useState(false);
@@ -935,7 +756,6 @@ export default function LibraryTab() {
     const activeContent = activeVersion === 'original' ? song.original_content : song.rewritten_content;
     const maxCols = maxColumnsForContent(activeContent);
     const showColumnSelect = maxCols >= 2;
-    const sliderValue = perfFontSize ?? 16;
     return (
       <div className="flex flex-col h-full min-h-0 w-auto bg-card rounded-none p-1 -mx-2 -mt-4 sm:w-full sm:rounded-lg sm:p-4 sm:mx-0 sm:mt-0">
         <div className="shrink-0 mb-1 sm:mb-2">
@@ -1017,34 +837,11 @@ export default function LibraryTab() {
                 </button>
               </div>
             )}
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground whitespace-nowrap min-w-[32px] text-right">
-                {perfFontSize === null ? 'Auto' : `${Math.round(perfFontSize)}px`}
-              </span>
-              <input
-                type="range"
-                min={6}
-                max={28}
-                step={1}
-                value={Math.round(sliderValue)}
-                onChange={(e) => setPerfFontSize(Number(e.target.value))}
-                onMouseUp={() => persistPerfFontSize(perfFontSize)}
-                onTouchEnd={() => persistPerfFontSize(perfFontSize)}
-                className="w-20 h-1 accent-primary cursor-pointer"
-                title="Text size"
-                aria-label="Font size"
-              />
-              {perfFontSize !== null && (
-                <button
-                  onClick={() => { setPerfFontSize(null); persistPerfFontSize(null); }}
-                  className="text-xs text-muted-foreground hover:text-foreground cursor-pointer"
-                  title="Reset to auto size"
-                  aria-label="Reset to auto font size"
-                >
-                  &times;
-                </button>
-              )}
-            </div>
+            <FontSizeStepper
+              value={perfFontSize}
+              onChange={setPerfFontSize}
+              onCommit={persistPerfFontSize}
+            />
             {showColumnSelect && (
               <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <span className="whitespace-nowrap">Columns</span>

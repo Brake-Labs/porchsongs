@@ -11,7 +11,15 @@
 export const MIN_LINES_PER_COLUMN = 10;
 
 /** Largest font we ever render at. */
-export const FONT_MAX = 18;
+/**
+ * Ceiling for the auto-fit solver.
+ *
+ * Was 18, which is calibrated for reading a document in a browser window. The
+ * performance sheet is read from several feet away, from a tablet or phone propped
+ * on a music stand, so on a short chart the solver should be allowed to go much
+ * larger. 32 matches the top of the manual stepper in PlayView.
+ */
+export const FONT_MAX = 32;
 /** Floor for a single scrolling column (lyrics stay legible this small). */
 export const FONT_MIN_SINGLE = 10;
 /** Floor for a multi-column layout. Below this, columns aren't worth it. */

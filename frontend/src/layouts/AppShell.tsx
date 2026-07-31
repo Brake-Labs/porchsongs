@@ -11,6 +11,7 @@ import MobileNav from '@/components/MobileNav';
 import { Button } from '@/components/ui/button';
 import ConfirmDialog from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/contexts/AuthContext';
+import { cn } from '@/lib/utils';
 import { getFeatureRequestUrl, getReportIssueUrl } from '@/extensions';
 import type { Profile, RewriteResult, RewriteMeta, ChatMessage, Song, ParseResult } from '@/types';
 
@@ -399,24 +400,42 @@ export default function AppShell() {
     newSongNonce,
   };
 
+  // The play route is a performance surface: a chart read from a few feet away,
+  // often from a phone or tablet on a music stand. Header, tab bar, and footer are
+  // pure overhead there, so this path renders chromeless. Keeping it inside the
+  // shell (rather than as a sibling route) preserves the shared context, avoids
+  // remounting AppShell on every library-to-play transition, and keeps
+  // `onLoadSong` reachable so "Rewrite with AI" still works.
+  //
+  // Side benefit: Header owns the only other useWakeLock instance, and it unmounts
+  // here, so exactly one wake lock is ever active.
+  const chromeless = location.pathname.startsWith('/app/play/');
+
   return (
     <div className="flex flex-col h-dvh">
-      <div className="sticky top-0 z-50 shrink-0">
-        <Header
-          user={currentAuthUser}
-          authRequired={authConfig?.required ?? false}
-          onLogout={handleLogout}
-          isPremium={isPremium}
-          leftSlot={<MobileNav onNewSong={requestNewSong} />}
-        />
-        <div className="hidden md:block bg-card border-b border-border">
-          <Tabs onNewSong={requestNewSong} />
+      {!chromeless && (
+        <div className="sticky top-0 z-50 shrink-0">
+          <Header
+            user={currentAuthUser}
+            authRequired={authConfig?.required ?? false}
+            onLogout={handleLogout}
+            isPremium={isPremium}
+            leftSlot={<MobileNav onNewSong={requestNewSong} />}
+          />
+          <div className="hidden md:block bg-card border-b border-border">
+            <Tabs onNewSong={requestNewSong} />
+          </div>
         </div>
-      </div>
-      <main className="flex-1 min-h-0 flex flex-col overflow-y-auto max-w-[1800px] w-full mx-auto px-2 sm:px-4 py-4">
+      )}
+      <main
+        className={cn(
+          'flex-1 min-h-0 flex flex-col overflow-y-auto w-full mx-auto',
+          chromeless ? 'px-0 py-0' : 'max-w-[1800px] px-2 sm:px-4 py-4',
+        )}
+      >
         <Outlet context={ctx} />
       </main>
-      <footer className="hidden sm:block shrink-0 border-t border-border py-2 sm:py-3 px-4 text-xs text-muted-foreground">
+      <footer className={cn('shrink-0 border-t border-border py-2 sm:py-3 px-4 text-xs text-muted-foreground', chromeless ? 'hidden' : 'hidden sm:block')}>
         <div className="flex items-center justify-center sm:justify-between max-w-[1800px] w-full mx-auto">
           <span className="hidden sm:inline">Made with ❤️ from open source</span>
           <div className="flex items-center gap-3">

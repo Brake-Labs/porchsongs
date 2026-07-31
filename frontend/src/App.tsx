@@ -6,6 +6,7 @@ import AppShell from '@/layouts/AppShell';
 import UpdateBanner from '@/components/UpdateBanner';
 import RewriteTab from '@/components/RewriteTab';
 import LibraryTab from '@/components/LibraryTab';
+import PlayPage from '@/pages/PlayPage';
 import SettingsPage from '@/components/SettingsPage';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -54,6 +55,9 @@ export default function App() {
         <Route path="rewrite" element={<ErrorBoundary fallbackLabel="Rewrite"><RewriteTab /></ErrorBoundary>} />
         <Route path="library" element={<ErrorBoundary fallbackLabel="Library"><LibraryTab /></ErrorBoundary>} />
         <Route path="library/:id" element={<ErrorBoundary fallbackLabel="Library"><LibraryTab /></ErrorBoundary>} />
+        {/* Playing a chart is a destination, not a mode inside the library.
+            AppShell renders this path without header, tabs, or footer. */}
+        <Route path="play/:uuid" element={<ErrorBoundary fallbackLabel="Play"><PlayPage /></ErrorBoundary>} />
         <Route path="settings/:tab" element={<ErrorBoundary fallbackLabel="Settings"><SettingsPage /></ErrorBoundary>} />
         <Route path="settings" element={<Navigate to={`/app/settings/${getDefaultSettingsTab(isPremium)}`} replace />} />
         <Route path="admin" element={<ErrorBoundary fallbackLabel="Admin">{getAdminPageElement()}</ErrorBoundary>} />
