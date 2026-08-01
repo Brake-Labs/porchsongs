@@ -16,6 +16,8 @@ import client, {
   tryRefresh,
 } from '@/lib/api-client';
 import { tryRestoreSession as _tryRestoreSession } from '@/extensions';
+import * as offlineStore from '@/lib/offlineStore';
+import { currentOwnerId, isNetworkFailure } from '@/lib/offlineIdentity';
 
 // --- Storage keys ---
 const STORAGE_KEYS = {
@@ -226,6 +228,9 @@ async function getAuthConfig(): Promise<AuthConfig> {
 function logout(): void {
   setAccessToken(null);
   setRefreshToken(null);
+  // Belt and braces alongside AuthContext: whichever path signs the user out, the
+  // mirrored library must not survive it on a shared device.
+  offlineStore.clear().catch(() => {});
 }
 
 const api = {
@@ -235,9 +240,24 @@ const api = {
 
   // Profiles
   listProfiles: async () => {
-    const { data, error } = await client.GET('/api/profiles');
-    if (error) _throwApiError(error, 'Failed to list profiles');
-    return data as Profile[];
+    try {
+      const { data, error } = await client.GET('/api/profiles');
+      if (error) _throwApiError(error, 'Failed to list profiles');
+      const profiles = data as Profile[];
+      const userId = currentOwnerId();
+      if (userId != null) offlineStore.putProfiles(userId, profiles).catch(() => {});
+      return profiles;
+    } catch (err) {
+      // AppShell renders a full-screen "unable to load your profile" error when this
+      // fails, which would make every offline route unreachable regardless of what
+      // else is cached.
+      const userId = currentOwnerId();
+      if (isNetworkFailure(err) && userId != null) {
+        const cached = await offlineStore.getProfiles(userId);
+        if (cached.length > 0) return cached;
+      }
+      throw err;
+    }
   },
   createProfile: async (body: Partial<Profile>) => {
     const { data, error } = await client.POST('/api/profiles', {
@@ -365,11 +385,30 @@ const api = {
 
   // Songs
   listSongs: async (profileId?: number) => {
-    const { data, error } = await client.GET('/api/songs', {
-      params: { query: { profile_id: profileId } },
-    });
-    if (error) _throwApiError(error, 'Failed to list songs');
-    return data as Song[];
+    // openapi-fetch rethrows fetch's raw TypeError on a dead network and never runs
+    // its response hooks, so the offline path is a try/catch here rather than
+    // anything in the middleware.
+    try {
+      const { data, error } = await client.GET('/api/songs', {
+        params: { query: { profile_id: profileId } },
+      });
+      if (error) _throwApiError(error, 'Failed to list songs');
+      const songs = data as Song[];
+      const userId = currentOwnerId();
+      // Mirror the whole list. One unpaginated response covers the entire library, so
+      // a lazy per-song cache would leave most charts unopenable offline.
+      if (userId != null) offlineStore.putSongs(userId, songs).catch(() => {});
+      return songs;
+    } catch (err) {
+      // Only fall back for a genuinely dead network. Doing it on a 401 would show a
+      // signed-out user a cached library.
+      const userId = currentOwnerId();
+      if (isNetworkFailure(err) && userId != null) {
+        const cached = await offlineStore.getSongs(userId);
+        if (cached.length > 0) return cached;
+      }
+      throw err;
+    }
   },
   renameFolder: async (oldName: string, newName: string) => {
     const { error } = await client.PUT('/api/songs/folders/{folder_name}', {
@@ -385,11 +424,23 @@ const api = {
     if (error) _throwApiError(error, 'Failed to delete folder');
   },
   getSong: async (ref: string) => {
-    const { data, error } = await client.GET('/api/songs/{song_ref}', {
-      params: { path: { song_ref: ref } },
-    });
-    if (error) _throwApiError(error, 'Failed to get song');
-    return data as Song;
+    try {
+      const { data, error } = await client.GET('/api/songs/{song_ref}', {
+        params: { path: { song_ref: ref } },
+      });
+      if (error) _throwApiError(error, 'Failed to get song');
+      const song = data as Song;
+      const userId = currentOwnerId();
+      if (userId != null) offlineStore.putSong(userId, song).catch(() => {});
+      return song;
+    } catch (err) {
+      const userId = currentOwnerId();
+      if (isNetworkFailure(err) && userId != null) {
+        const cached = await offlineStore.getSong(userId, ref);
+        if (cached) return cached;
+      }
+      throw err;
+    }
   },
   saveSong: async (body: Partial<Song>) => {
     const { data, error } = await client.POST('/api/songs', {
