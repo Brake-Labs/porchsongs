@@ -3,10 +3,10 @@ import { Link } from 'react-router-dom';
 export default function HomePage() {
   return (
     <>
-      <title>porchsongs | Make every song yours</title>
-      <meta name="description" content="Rewrite song lyrics to match your voice, your family, and your style. Built for performers, parents, worship leaders, and anyone who plays at home." />
-      <meta property="og:title" content="porchsongs | Make every song yours" />
-      <meta property="og:description" content="Rewrite song lyrics to match your voice, your family, and your style." />
+      <title>porchsongs | Your chord charts, ready to play</title>
+      <meta name="description" content="Keep your chord charts in one place and play them from any screen. Built-in tuner, hands-free scrolling, and a clean performance view. Optional AI to tidy up a messy chart or rewrite the words." />
+      <meta property="og:title" content="porchsongs | Your chord charts, ready to play" />
+      <meta property="og:description" content="Keep your chord charts in one place and play them from any screen." />
       <meta property="og:type" content="website" />
 
       {/* Hero */}
@@ -21,17 +21,17 @@ export default function HomePage() {
         />
         <div className="relative">
           <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-normal mb-5 text-foreground tracking-tight">
-            Make every song yours
+            Your chord charts, ready to play
           </h1>
           <p className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto mb-4 leading-relaxed">
-            Rewrite any lyrics to match your voice, your family, and your style.
+            Keep every chart in one place, then play it from whatever screen is on the music stand.
           </p>
           <p className="text-base text-muted-foreground max-w-xl mx-auto mb-10">
-            Built for worship leaders, performers, parents, and anyone who plays at home.
+            A tuner, hands-free scrolling, and text big enough to read from across the room.
           </p>
           <div className="flex gap-3 justify-center flex-wrap">
             <Link
-              to="/app/rewrite"
+              to="/app/library"
               className="bg-primary text-white px-7 py-3 rounded-full text-base font-semibold no-underline hover:bg-primary-hover transition-colors shadow-sm"
             >
               Get Started Free
@@ -54,27 +54,27 @@ export default function HomePage() {
             <div className="w-10 h-10 mx-auto mb-4 rounded-full bg-primary-light flex items-center justify-center text-lg">
               &#9835;
             </div>
-            <h3 className="text-lg font-semibold mb-2">Smart Rewriting</h3>
+            <h3 className="text-lg font-semibold mb-2">Bring Charts In</h3>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              AI understands song structure, chord progressions, and lyric meter to produce singable rewrites.
+              Paste a chart, drop a file, or add a link. It saves as you typed it, free and instantly.
             </p>
           </div>
           <div className="bg-card border border-border rounded-lg p-6 text-center shadow-sm">
             <div className="w-10 h-10 mx-auto mb-4 rounded-full bg-primary-light flex items-center justify-center text-lg">
               &#128172;
             </div>
-            <h3 className="text-lg font-semibold mb-2">Iterative Chat</h3>
+            <h3 className="text-lg font-semibold mb-2">Play From Anywhere</h3>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              Not happy with a verse? Chat with the AI to refine specific sections until they&apos;re perfect.
+              A full-screen chart with a tuner, sizable text, and scrolling that follows your voice.
             </p>
           </div>
           <div className="bg-card border border-border rounded-lg p-6 text-center shadow-sm">
             <div className="w-10 h-10 mx-auto mb-4 rounded-full bg-primary-light flex items-center justify-center text-lg">
               &#128218;
             </div>
-            <h3 className="text-lg font-semibold mb-2">Song Library</h3>
+            <h3 className="text-lg font-semibold mb-2">Your Songbook</h3>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              Save and organize your rewrites into folders. Export as PDF for performance sheets.
+              Organise charts into folders and export any of them as a printable PDF.
             </p>
           </div>
         </div>
@@ -90,7 +90,7 @@ export default function HomePage() {
             muted
             loop
             playsInline
-            aria-label="porchsongs demo showing song rewriting"
+            aria-label="porchsongs demo"
             className="rounded-lg shadow-lg border border-border w-full"
           />
         </div>
