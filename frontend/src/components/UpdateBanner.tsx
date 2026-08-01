@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { currentWebBuildId, isWebUpdateAvailable } from '@/lib/webBuildId';
+import { applyUpdate, checkForUpdate, onNeedRefresh, needsRefresh } from '@/lib/registerSW';
 
 // Re-check cadence floor. Visibility flips can arrive in bursts (iOS fires
 // several when a PWA resumes); one request per window is plenty.
@@ -46,7 +47,13 @@ export default function UpdateBanner() {
       lastCheckRef.current = now;
       const serverId = await fetchServerBuildId();
       if (cancelled) return;
-      if (isWebUpdateAvailable(ownId, serverId)) setUpdateAvailable(true);
+      if (isWebUpdateAvailable(ownId, serverId)) {
+        // Ask the SW to fetch the new build before showing the banner. Without this
+        // the banner can appear while the worker is still serving the old precached
+        // shell, and clicking Reload would do nothing.
+        void checkForUpdate();
+        setUpdateAvailable(true);
+      }
     };
 
     const onVisibility = () => {
@@ -59,11 +66,14 @@ export default function UpdateBanner() {
     const onPreloadError = () => void check(true);
 
     void check(true);
+    if (needsRefresh()) setUpdateAvailable(true);
+    const offNeedRefresh = onNeedRefresh(() => setUpdateAvailable(true));
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('online', onOnline);
     window.addEventListener('vite:preloadError', onPreloadError);
     return () => {
       cancelled = true;
+      offNeedRefresh();
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('online', onOnline);
       window.removeEventListener('vite:preloadError', onPreloadError);
@@ -81,7 +91,7 @@ export default function UpdateBanner() {
       <span>A new version of porchsongs is available.</span>
       <button
         type="button"
-        onClick={() => window.location.reload()}
+        onClick={() => void applyUpdate()}
         className="font-semibold underline underline-offset-2 hover:opacity-80 cursor-pointer"
       >
         Reload
