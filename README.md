@@ -17,7 +17,8 @@
 </p>
 
 <p align="center">
-  A personal song lyric rewriter. Edit and refine your lyrics with AI -- workshop them into something that actually sounds like you.<br />
+  Keep your chord charts in one place and play them from any screen. Tuner, hands-free
+  scrolling, and a clean performance view, with optional AI to tidy up a chart or rewrite the words.<br />
   Powered by <a href="https://any-llm.ai/">any-llm</a> -- routed through a single LLM gateway.
 </p>
 
@@ -55,6 +56,23 @@ LLM_API_BASE=https://your-gateway/v1 LLM_API_KEY=your-key \
 Open [http://localhost:8000](http://localhost:8000). porchsongs routes all AI traffic
 through a single LLM gateway; set `LLM_API_BASE` and `LLM_API_KEY` (see the
 [environment variables](#environment-variables) below), then pick a model in Settings.
+
+### Run with no AI
+
+The AI is optional, and self-hosting without it is a supported setup:
+
+```bash
+cd backend && uv run uvicorn app.main:app --reload
+```
+
+Importing charts, the library, the performance view, the tuner, hands-free scrolling,
+and PDF export all work with no gateway configured. Only two things need one: tidying
+up a chart's formatting, and rewriting lyrics. Those buttons disable themselves and
+say why.
+
+This used to be impossible. Saving a chart went through the LLM parse endpoint and the
+save button was gated on having a model selected, so an instance with no gateway could
+not store a song at all.
 
 By default, porchsongs runs in **zero-config dev mode** -- no login required, a local user is auto-created. See [Authentication](#authentication) below for production setups.
 
