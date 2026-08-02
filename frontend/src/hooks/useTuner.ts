@@ -2,7 +2,14 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { PitchDetector } from 'pitchy';
 
 type TunerStatus = 'idle' | 'listening' | 'error';
-type ErrorType = 'permission-denied' | 'not-found' | 'unsupported' | 'insecure-context' | null;
+type ErrorType =
+  | 'permission-denied'
+  | 'not-found'
+  | 'unsupported'
+  | 'insecure-context'
+  /** The AudioContext would not start, so the analyser would only read silence. */
+  | 'audio-suspended'
+  | null;
 type TuningStatus = 'intune' | 'close' | 'off' | 'idle';
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'] as const;
@@ -122,6 +129,30 @@ export default function useTuner() {
     cleanup();
     cancelledRef.current = false;
 
+    // Build and resume the AudioContext BEFORE awaiting getUserMedia.
+    //
+    // iOS Safari only lets an AudioContext start from inside the user gesture
+    // that triggered it, and awaiting the mic leaves that gesture (the await can
+    // sit there for as long as the permission sheet is up). A context created on
+    // the far side comes back suspended and resume() will not revive it, leaving
+    // the analyser reading silence forever: the tuner shows "--" and never
+    // moves. That is most visible right after Follow mode has been listening,
+    // because the recognizer has just had the audio session and iOS hands back a
+    // suspended context rather than a running one.
+    //
+    // Registering the ref immediately also means a stop() that lands mid-start
+    // closes this context instead of orphaning it.
+    let audioContext: AudioContext;
+    try {
+      audioContext = new AudioContext();
+    } catch {
+      setState(prev => ({ ...prev, status: 'error', errorType: 'unsupported' }));
+      return;
+    }
+    audioContextRef.current = audioContext;
+    // Kick the resume off in-gesture; settle it once the mic promise resolves.
+    const resuming = audioContext.resume().catch(() => {});
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
@@ -132,12 +163,21 @@ export default function useTuner() {
       }
       mediaStreamRef.current = stream;
 
-      const audioContext = new AudioContext();
-      // Resume AudioContext (required on mobile browsers where it starts suspended)
-      if (audioContext.state === 'suspended') {
-        await audioContext.resume();
+      await resuming;
+      // stop() can also land while the resume is settling. cleanup() has already
+      // closed the context by now, so bail rather than wiring up a dead graph
+      // and resurrecting a session the user has closed.
+      if (cancelledRef.current) return;
+
+      // A context that never reached 'running' produces an all-zero buffer, so
+      // the detect loop would spin and the gauge would sit at "--" forever. Say
+      // so instead of pretending to listen; "Try Again" is a genuine user
+      // gesture, which is what lets iOS start the context.
+      if (audioContext.state !== 'running') {
+        cleanup();
+        setState(prev => ({ ...prev, status: 'error', errorType: 'audio-suspended' }));
+        return;
       }
-      audioContextRef.current = audioContext;
 
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();

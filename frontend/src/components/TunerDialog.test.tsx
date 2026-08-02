@@ -15,7 +15,13 @@ interface MockTunerState {
   cents: number;
   frequency: number | null;
   tuningStatus: 'intune' | 'close' | 'off' | 'idle';
-  errorType: 'permission-denied' | 'not-found' | 'unsupported' | 'insecure-context' | null;
+  errorType:
+    | 'permission-denied'
+    | 'not-found'
+    | 'unsupported'
+    | 'insecure-context'
+    | 'audio-suspended'
+    | null;
   start: () => void;
   stop: () => void;
 }
@@ -113,6 +119,16 @@ describe('TunerDialog', () => {
     render(<TunerDialog open={true} onOpenChange={vi.fn()} />);
     expect(screen.getByText('Browser not supported')).toBeInTheDocument();
     expect(screen.queryByText('Try Again')).not.toBeInTheDocument();
+  });
+
+  // A context that will not start reads pure silence, so the gauge would sit at
+  // "--" with no explanation. Offer the retry: that tap is a user gesture, which
+  // is what iOS needs to start audio again.
+  it('shows suspended-audio error with Try Again button', () => {
+    tunerState = { ...tunerState, status: 'error', errorType: 'audio-suspended' };
+    render(<TunerDialog open={true} onOpenChange={vi.fn()} />);
+    expect(screen.getByText('Audio is paused')).toBeInTheDocument();
+    expect(screen.getByText('Try Again')).toBeInTheDocument();
   });
 
   it('shows insecure context error without retry', () => {

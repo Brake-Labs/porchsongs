@@ -139,6 +139,17 @@ function ErrorState({ errorType, onRetry }: { errorType: string | null; onRetry:
       heading = 'No microphone detected';
       message = 'Connect a microphone and try again.';
       break;
+    case 'audio-suspended':
+      icon = (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="10" y1="15" x2="10" y2="9" />
+          <line x1="14" y1="15" x2="14" y2="9" />
+        </svg>
+      );
+      heading = 'Audio is paused';
+      message = 'Your browser paused audio, which can happen after voice follow or after the app was in the background. Tap to start listening again.';
+      break;
     case 'insecure-context':
       icon = (
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground" aria-hidden="true">
