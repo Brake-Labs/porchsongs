@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import ConfirmDialog from '@/components/ui/confirm-dialog';
 import PromptDialog, { type PromptField } from '@/components/ui/prompt-dialog';
+import FolderSuggestDialog from '@/components/FolderSuggestDialog';
 import { cn } from '@/lib/utils';
 import { maxColumnsForContent, splitContentForColumns } from '@/lib/performanceLayout';
 import { SongCapNotice } from '@/extensions';
@@ -122,9 +123,10 @@ interface SongMenuProps {
   folders: string[];
   onMoveToFolder: (song: Song, folder: string) => void;
   onMoveToNewFolder: (song: Song) => void;
+  onSuggestFolder: (song: Song) => void;
 }
 
-function SongMenu({ song, onDelete, onRename, onEdit, folders, onMoveToFolder, onMoveToNewFolder }: SongMenuProps) {
+function SongMenu({ song, onDelete, onRename, onEdit, folders, onMoveToFolder, onMoveToNewFolder, onSuggestFolder }: SongMenuProps) {
   const otherFolders = folders.filter(f => f !== song.folder);
 
   return (
@@ -157,6 +159,13 @@ function SongMenu({ song, onDelete, onRename, onEdit, folders, onMoveToFolder, o
         <DropdownMenuItem onClick={() => onMoveToNewFolder(song)}>
           Move to new folder&hellip;
         </DropdownMenuItem>
+        {/* Sits with the manual moves rather than on the import path: adding a
+            chart is free and silent, and asking where one belongs is a separate,
+            paid thing you opt into per chart. The dialog names the price before
+            it spends anything. */}
+        <DropdownMenuItem onClick={() => onSuggestFolder(song)}>
+          Suggest a folder with AI&hellip;
+        </DropdownMenuItem>
         {song.folder && (
           <DropdownMenuItem onClick={() => onMoveToFolder(song, '')}>
             Remove from folder
@@ -181,7 +190,8 @@ type DialogState =
   | { kind: 'rename'; song: Song }
   | { kind: 'newFolder'; song?: Song }
   | { kind: 'renameFolder'; folder: string }
-  | { kind: 'deleteFolder'; folder: string };
+  | { kind: 'deleteFolder'; folder: string }
+  | { kind: 'suggestFolder'; song: Song };
 
 const SONGS_PER_PAGE = 20;
 
@@ -201,13 +211,14 @@ interface SongCardProps {
   folders: string[];
   onMoveToFolder: (song: Song, folder: string) => void;
   onMoveToNewFolder: (song: Song) => void;
+  onSuggestFolder: (song: Song) => void;
 }
 
 function SongCard({
   song, selectMode, isSelected, isDragging, stretch,
   onView, onToggleSelect, onDragStart, onDragEnd,
   onDelete, onRename, onEdit,
-  folders, onMoveToFolder, onMoveToNewFolder,
+  folders, onMoveToFolder, onMoveToNewFolder, onSuggestFolder,
 }: SongCardProps) {
   const date = new Date(song.created_at).toLocaleDateString();
   const artist = song.artist ? ` by ${song.artist}` : '';
@@ -265,6 +276,7 @@ function SongCard({
             folders={folders}
             onMoveToFolder={onMoveToFolder}
             onMoveToNewFolder={onMoveToNewFolder}
+            onSuggestFolder={onSuggestFolder}
           />
         </div>
       </div>
@@ -559,6 +571,10 @@ export default function LibraryTab() {
 
   const handleMoveToNewFolder = (song: Song) => {
     setDialogState({ kind: 'newFolder', song });
+  };
+
+  const handleSuggestFolderRequest = (song: Song) => {
+    setDialogState({ kind: 'suggestFolder', song });
   };
 
   const handleDragStart = (e: DragEvent<HTMLDivElement>, songUuid: string) => {
@@ -1087,6 +1103,7 @@ export default function LibraryTab() {
               folders={folders}
               onMoveToFolder={handleMoveToFolder}
               onMoveToNewFolder={handleMoveToNewFolder}
+              onSuggestFolder={handleSuggestFolderRequest}
             />
           ))}
           {sortedSongs.length === 0 && songs.length > 0 && (
@@ -1119,6 +1136,7 @@ export default function LibraryTab() {
                 folders={folders}
                 onMoveToFolder={handleMoveToFolder}
                 onMoveToNewFolder={handleMoveToNewFolder}
+                onSuggestFolder={handleSuggestFolderRequest}
               />
             ))}
             {sortedSongs.length === 0 && songs.length > 0 && (
@@ -1225,6 +1243,20 @@ export default function LibraryTab() {
         onConfirm={() => {
           if (dialogState.kind === 'deleteFolder') handleDeleteFolderConfirmed(dialogState.folder);
         }}
+      />
+
+      <FolderSuggestDialog
+        open={dialogState.kind === 'suggestFolder'}
+        onOpenChange={(open) => { if (!open) setDialogState({ kind: 'none' }); }}
+        song={dialogState.kind === 'suggestFolder' ? dialogState.song : null}
+        // Premium sends an empty model on purpose: the guard middleware pins the
+        // platform model before the endpoint sees the body, exactly as it does
+        // for parse and chat. So availability is a separate question from which
+        // model string goes on the wire.
+        model={ctx.llmSettings?.model ?? ''}
+        canUseAi={ctx.isPremium || !!ctx.llmSettings?.model}
+        onPick={handleMoveToFolder}
+        onOpenSettings={ctx.onOpenSettings}
       />
     </div>
   );

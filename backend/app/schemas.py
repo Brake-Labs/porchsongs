@@ -168,6 +168,25 @@ class FolderRename(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
 
+# --- Folder suggestion (AI, opt-in, per chart) ---
+class FolderSuggestRequest(BaseModel):
+    song_id: int
+    model: str
+    max_tokens: int | None = None
+
+
+class FolderSuggestion(BaseModel):
+    folder: str
+    # True when this folder does not exist yet, so the UI can say so before the
+    # user taps and one more folder quietly appears in their library.
+    is_new: bool
+
+
+class FolderSuggestResponse(BaseModel):
+    suggestions: list[FolderSuggestion]
+    usage: TokenUsage | None = None
+
+
 # --- Song Status ---
 class SongStatusUpdate(BaseModel):
     status: Literal["draft", "completed"]

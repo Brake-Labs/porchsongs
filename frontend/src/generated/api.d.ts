@@ -353,6 +353,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/folders/suggest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Suggest Folder
+         * @description Suggest where one chart belongs, ranking the user's own folders first.
+         *
+         *     Opt-in and per chart. Importing a chart stays free and makes no LLM call at
+         *     all, so this is the only place organising can cost anything, and it costs it
+         *     only when someone asks for it.
+         *
+         *     Nothing is filed here. The response is a proposal; the client writes the
+         *     folder through the ordinary ``PUT /api/songs/{ref}`` when the user taps one.
+         *
+         *     Lives beside the other LLM endpoints rather than in ``songs.py`` because
+         *     that is what makes it metered: the premium guard intercepts LLM traffic by
+         *     path, and an organising endpoint hidden among the CRUD routes would be an
+         *     unmetered way onto the operator's gateway.
+         */
+        post: operations["suggest_folder_api_folders_suggest_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/models": {
         parameters: {
             query?: never;
@@ -649,6 +681,28 @@ export interface components {
         FolderRename: {
             /** Name */
             name: string;
+        };
+        /** FolderSuggestRequest */
+        FolderSuggestRequest: {
+            /** Song Id */
+            song_id: number;
+            /** Model */
+            model: string;
+            /** Max Tokens */
+            max_tokens?: number | null;
+        };
+        /** FolderSuggestResponse */
+        FolderSuggestResponse: {
+            /** Suggestions */
+            suggestions: components["schemas"]["FolderSuggestion"][];
+            usage?: components["schemas"]["TokenUsage"] | null;
+        };
+        /** FolderSuggestion */
+        FolderSuggestion: {
+            /** Folder */
+            folder: string;
+            /** Is New */
+            is_new: boolean;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1763,6 +1817,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    suggest_folder_api_folders_suggest_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FolderSuggestRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderSuggestResponse"];
                 };
             };
             /** @description Validation Error */

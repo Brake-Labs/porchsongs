@@ -3,6 +3,7 @@ import type {
   AuthUser,
   ChatHistoryRow,
   ChatResult,
+  FolderSuggestion,
   ParseResult,
   Profile,
   Song,
@@ -425,6 +426,17 @@ const api = {
       params: { path: { folder_name: folderName } },
     });
     if (error) _throwApiError(error, 'Failed to delete folder');
+  },
+  /**
+   * Ask where one chart belongs. Costs an AI credit, so it is only ever called
+   * from an explicit tap, never on import or on load. Suggests; does not file.
+   */
+  suggestFolder: async (songId: number, model: string) => {
+    const { data, error } = await client.POST('/api/folders/suggest', {
+      body: { song_id: songId, model },
+    });
+    if (error) _throwApiError(error, 'Failed to suggest a folder');
+    return (data as { suggestions: FolderSuggestion[] }).suggestions;
   },
   getSong: async (ref: string) => {
     try {

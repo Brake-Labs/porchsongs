@@ -750,3 +750,166 @@ async def disambiguate_position(
         if value in valid_ids:
             choice = value
     return {"choice": choice}
+
+
+# ── Folder suggestion ────────────────────────────────────────────────────────
+# Filing a chart is a one-word answer, so this call is deliberately the cheapest
+# thing in the app. The caps below keep both sides of it small: a truncated
+# chart and a bounded folder list going in, a 64-token ceiling coming out. That
+# ceiling is what makes the price honest: premium bills
+# ``max(1, ceil(output_tokens / 100))``, so anything at or under 100 output
+# tokens is one credit and no more.
+FOLDER_SUGGEST_MAX_OUTPUT_TOKENS = 64
+
+# How much of the chart the model sees. The opening lines carry the title,
+# artist and mood; the remaining verses add tokens without adding signal.
+FOLDER_SUGGEST_CONTENT_CHARS = 1200
+
+# Upper bound on how many of the user's folders are offered as choices.
+FOLDER_SUGGEST_MAX_CHOICES = 20
+
+# Upper bound on how many existing folders come back ranked.
+FOLDER_SUGGEST_MAX_PICKS = 3
+
+# Mirrors the ``folder`` column limit (Song.folder, SongUpdate.folder).
+FOLDER_NAME_MAX_CHARS = 100
+
+FOLDER_SUGGEST_SYSTEM_PROMPT = """You help a musician file a chord chart into a folder.
+
+You are given a chart and the numbered list of folders the musician already has. Rank the existing \
+folders that fit, and optionally propose one new folder name.
+
+Reply with ONE line of JSON and nothing else:
+{"existing": [2, 1], "new": "Carter Family"}
+
+- "existing": up to 3 numbers from the list, best fit first. Use [] when none of them fit.
+- "new": one short folder name, at most three words, that would suit this chart. Use "" only when \
+an existing folder is clearly the right home.
+- Never use a number that is not in the list, and never invent a folder that is already listed.
+
+Say nothing else. No explanation, no code fences."""
+
+
+def _parse_folder_suggestions(raw: str, existing_folders: list[str]) -> list[dict[str, Any]]:
+    """Turn the model's reply into ranked, validated folder suggestions.
+
+    Existing folders are referenced by number rather than by name so a creative
+    or truncated reply cannot smuggle in a folder the user does not have:
+    anything outside the offered list is dropped. Only ``new`` is free text, and
+    it is squeezed onto one line and cut to the same limit the ``folder`` column
+    enforces.
+
+    Returns ``[{"folder": str, "is_new": bool}, ...]`` with existing folders
+    first, or ``[]`` when nothing usable came back.
+    """
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start == -1 or end <= start:
+        return []
+    try:
+        parsed = json.loads(raw[start : end + 1])
+    except (json.JSONDecodeError, ValueError):
+        return []
+    if not isinstance(parsed, dict):
+        return []
+
+    suggestions: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    raw_existing = parsed.get("existing")
+    if isinstance(raw_existing, list):
+        for entry in raw_existing:
+            if len(suggestions) >= FOLDER_SUGGEST_MAX_PICKS:
+                break
+            name = _resolve_existing_folder(entry, existing_folders)
+            if name is None or name.casefold() in seen:
+                continue
+            seen.add(name.casefold())
+            suggestions.append({"folder": name, "is_new": False})
+
+    raw_new = parsed.get("new")
+    if isinstance(raw_new, str):
+        new_name = " ".join(raw_new.split())[:FOLDER_NAME_MAX_CHARS].strip()
+        # A "new" folder that already exists is an existing folder, and offering
+        # it twice would let one tap look like two different outcomes.
+        known = {f.casefold() for f in existing_folders} | seen
+        if new_name and new_name.casefold() not in known:
+            suggestions.append({"folder": new_name, "is_new": True})
+
+    return suggestions
+
+
+def _resolve_existing_folder(entry: object, existing_folders: list[str]) -> str | None:
+    """Resolve one ``existing`` entry to a folder the user actually has.
+
+    Accepts the 1-based number the prompt asks for, and also tolerates a model
+    that echoes the folder name instead. Returns None for anything else.
+    """
+    if isinstance(entry, bool):
+        return None
+    if isinstance(entry, int):
+        index = entry
+    elif isinstance(entry, str):
+        stripped = entry.strip()
+        if stripped.lstrip("-").isdigit():
+            index = int(stripped)
+        else:
+            for folder in existing_folders:
+                if folder.casefold() == stripped.casefold():
+                    return folder
+            return None
+    else:
+        return None
+    if 1 <= index <= len(existing_folders):
+        return existing_folders[index - 1]
+    return None
+
+
+async def suggest_folder(
+    *,
+    title: str | None,
+    artist: str | None,
+    content: str,
+    existing_folders: list[str],
+    provider: str,
+    model: str,
+    api_base: str | None = None,
+    api_key: str | None = None,
+    max_tokens: int | None = None,
+) -> dict[str, Any]:
+    """Suggest where a chord chart belongs, ranking the user's own folders first.
+
+    Returns ``{"suggestions": [{"folder", "is_new"}, ...], "usage": {...}}``.
+    Suggestions may be empty; the caller decides what to fall back to. Nothing
+    here writes to a song: this only proposes.
+    """
+    parts = ["CHART"]
+    parts.append(f"Title: {(title or '').strip() or 'Unknown'}")
+    parts.append(f"Artist: {(artist or '').strip() or 'Unknown'}")
+    excerpt = content.strip()[:FOLDER_SUGGEST_CONTENT_CHARS]
+    if excerpt:
+        parts.append(f"Opening lines:\n{excerpt}")
+
+    choices = existing_folders[:FOLDER_SUGGEST_MAX_CHOICES]
+    parts.append("")
+    if choices:
+        parts.append("EXISTING FOLDERS")
+        parts.extend(f"{i}. {name}" for i, name in enumerate(choices, start=1))
+    else:
+        parts.append("EXISTING FOLDERS\n(none yet, so propose a new one)")
+
+    params = LLMCallParams(
+        model=model,
+        provider=provider,
+        messages=[{"role": "user", "content": "\n".join(parts)}],
+        system=FOLDER_SUGGEST_SYSTEM_PROMPT,
+        max_tokens=max_tokens if max_tokens is not None else FOLDER_SUGGEST_MAX_OUTPUT_TOKENS,
+        api_base=api_base,
+        api_key=api_key,
+    )
+    response = cast("MessageResponse", await params.send())
+
+    return {
+        "suggestions": _parse_folder_suggestions(_get_content(response), choices),
+        "usage": _get_usage(response),
+    }
