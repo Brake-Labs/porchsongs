@@ -71,7 +71,9 @@ export default function FollowControls({
           />
           {label}
         </button>
-        {followOn && follow.error && (
+        {/* A mic error drops Follow back off, so the chip has to survive
+            followOn going false or the failure would vanish silently. */}
+        {follow.error && (
           <span className="rounded bg-danger-light px-2 py-0.5 text-[11px] text-danger" role="alert">
             {follow.error.type}
           </span>

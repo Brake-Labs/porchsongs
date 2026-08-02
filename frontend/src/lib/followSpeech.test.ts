@@ -139,9 +139,51 @@ describe('createSpeechSignal', () => {
     const rec = MockRecognition.last!;
 
     rec.onerror!({ error: 'no-speech' }); // transient, ignored
-    rec.onerror!({ error: 'not-allowed' }); // permission
-    rec.onerror!({ error: 'audio-capture' }); // no device
+    rec.onerror!({ error: 'not-allowed' }); // permission: fatal, latches off
 
-    expect(errors.map((e) => e.type)).toEqual(['permission-denied', 'not-found']);
+    expect(errors.map((e) => e.type)).toEqual(['permission-denied']);
+  });
+
+  // iOS Safari refuses the first start() while the mic permission sheet is up
+  // and reports 'not-allowed'. Restarting from onend cannot help (the grant does
+  // not retroactively start the recognizer) and the spin keeps the iOS audio
+  // session captured, which is what left the tuner deaf afterwards.
+  it('aborts and stops restarting after a fatal error', async () => {
+    const errors: SignalError[] = [];
+    const signal = createSpeechSignal();
+    await signal.start(
+      () => {},
+      (e) => errors.push(e),
+    );
+    const rec = MockRecognition.last!;
+    expect(rec.start).toHaveBeenCalledTimes(1);
+
+    rec.onerror!({ error: 'not-allowed' });
+
+    // The recognizer is released immediately rather than left holding the mic.
+    expect(rec.abort).toHaveBeenCalledTimes(1);
+    expect(rec.onend).toBeNull();
+    expect(rec.onresult).toBeNull();
+
+    // And nothing restarts it: no second start(), no repeat error report.
+    signal.stop();
+    expect(rec.start).toHaveBeenCalledTimes(1);
+    expect(errors).toHaveLength(1);
+  });
+
+  it('does not emit words after a fatal error', async () => {
+    const got: SignalTokens[] = [];
+    const signal = createSpeechSignal({ now: () => 1000 });
+    await signal.start(
+      (tok) => got.push(tok),
+      () => {},
+    );
+    const rec = MockRecognition.last!;
+    const onresult = rec.onresult!;
+
+    rec.onerror!({ error: 'not-allowed' });
+    onresult(resultEvent('walking', false));
+
+    expect(got).toEqual([]);
   });
 });

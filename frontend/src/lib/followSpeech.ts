@@ -88,6 +88,21 @@ export function createSpeechSignal(opts: SpeechSignalOptions = {}): AdvanceSigna
   // Words already emitted from the in-progress utterance (interim results grow).
   let prevWords: string[] = [];
 
+  /** Detach every handler and abort the recognizer. Safe to call repeatedly. */
+  const release = () => {
+    const r = rec;
+    rec = null;
+    if (!r) return;
+    r.onend = null;
+    r.onresult = null;
+    r.onerror = null;
+    try {
+      r.abort();
+    } catch {
+      /* noop */
+    }
+  };
+
   return {
     start(onWords: OnWords, onError?: OnError): Promise<void> {
       stopped = false;
@@ -134,6 +149,16 @@ export function createSpeechSignal(opts: SpeechSignalOptions = {}): AdvanceSigna
         if (stopped) return;
         // Silence and self-aborts are transient; onend will restart us.
         if (e.error === 'no-speech' || e.error === 'aborted') return;
+        // Anything else is fatal: the recognizer will not recover on its own.
+        // Latch the signal off BEFORE reporting, so the onend below does not
+        // restart it. iOS Safari refuses the very first start() while the mic
+        // permission sheet is up ('not-allowed'), and granting permission does
+        // not retroactively start the recognizer, so the restart loop just
+        // spins. A spinning recognizer also keeps the iOS audio session
+        // captured, which leaves the tuner deaf afterwards. Recovery has to be
+        // a fresh start() from a new user gesture.
+        stopped = true;
+        release();
         onError?.({ type: mapError(e.error), message: e.message });
       };
 
@@ -161,17 +186,7 @@ export function createSpeechSignal(opts: SpeechSignalOptions = {}): AdvanceSigna
 
     stop(): void {
       stopped = true;
-      if (rec) {
-        rec.onend = null;
-        rec.onresult = null;
-        rec.onerror = null;
-        try {
-          rec.abort();
-        } catch {
-          /* noop */
-        }
-        rec = null;
-      }
+      release();
       prevWords = [];
     },
   };
