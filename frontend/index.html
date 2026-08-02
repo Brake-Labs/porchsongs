@@ -14,7 +14,27 @@
   <meta name="theme-color" content="#1c1917" media="(prefers-color-scheme: dark)" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Geist:wght@400;500;600&display=swap" rel="stylesheet" />
+  <!--
+    media="print" makes this stylesheet non-render-blocking; src/lib/webfonts.ts
+    promotes it to media="all" once it has loaded.
+
+    A cross-origin stylesheet in <head> blocks first paint until the request
+    settles. Everything else the app needs is precached by the service worker and
+    answered in single-digit milliseconds, so on an iOS PWA cold launch (radio
+    asleep, cellular reconnecting, or no signal at all) this one request was the
+    only thing between the user and a rendered page: nothing painted until it
+    timed out. Fonts already carry display=swap, so deferring them changes
+    nothing beyond the first frame using the fallback stack.
+
+    The promotion cannot be an inline onload handler: the production CSP is
+    `script-src 'self'` with no nonce, which blocks inline event handlers.
+  -->
+  <link
+    data-webfonts
+    media="print"
+    href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Geist:wght@400;500;600&display=swap"
+    rel="stylesheet"
+  />
   <title>porchsongs</title>
 </head>
 <body>

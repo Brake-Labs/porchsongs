@@ -387,6 +387,15 @@ export default function LibraryTab() {
     return () => window.removeEventListener('resize', measureGrid);
   }, [scrollDir, measureGrid]);
 
+  // Records which surface a PWA relaunch should return to, the same way PlayPage
+  // and RewriteTab do. The library was the one surface that never registered, so
+  // quitting from it left whatever the user had visited before it as the "last"
+  // surface, and the relaunch reopened that instead. Anyone who had ever
+  // workshopped a song came back to the rewrite editor forever after.
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.LAST_SURFACE, 'library');
+  }, []);
+
   const loadSongs = useCallback(() => {
     setLoadError(null);
     api.listSongs().then(data => {

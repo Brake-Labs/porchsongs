@@ -1,5 +1,30 @@
-import { screen, fireEvent } from '@testing-library/react';
+import { useEffect } from 'react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { renderWithRouter } from '@/test/test-utils';
+import type { Song } from '@/types';
+
+const MOCK_SONG = vi.hoisted(
+  () =>
+    ({
+      id: 7,
+      uuid: 'song-uuid-7',
+      user_id: 1,
+      profile_id: 1,
+      title: 'Amazing Grace',
+      artist: 'John Newton',
+      source_url: null,
+      original_content: 'Amazing grace',
+      rewritten_content: 'Amazing grace',
+      changes_summary: null,
+      llm_provider: null,
+      llm_model: null,
+      status: 'completed',
+      current_version: 1,
+      created_at: '2025-01-01T00:00:00Z',
+      updated_at: '2025-01-01T00:00:00Z',
+    }) as Song,
+);
 
 // Mock auth context: ready state with no auth required
 vi.mock('@/contexts/AuthContext', () => ({
@@ -17,13 +42,17 @@ vi.mock('@/api', () => ({
   default: {
     listProfiles: vi.fn().mockResolvedValue([{ id: 1, is_default: true }]),
     listModels: vi.fn().mockResolvedValue([]),
+    getSong: vi.fn().mockResolvedValue(MOCK_SONG),
+    getChatHistory: vi.fn().mockResolvedValue([]),
   },
+  ConnectionLostError: class ConnectionLostError extends Error {},
   STORAGE_KEYS: {
     MODEL: 'test_model',
     REASONING_EFFORT: 'test_effort',
     CURRENT_SONG_ID: 'test_song_id',
     DRAFT_INPUT: 'test_draft_input',
     DRAFT_INSTRUCTION: 'test_draft_instruction',
+    LAST_SURFACE: 'test_last_surface',
   },
 }));
 
@@ -42,7 +71,13 @@ vi.mock('@/components/MobileNav', () => ({
   default: () => <div data-testid="mobile-nav">MobileNav</div>,
 }));
 
+import api from '@/api';
 import AppShell from '@/layouts/AppShell';
+
+const mockApi = api as unknown as {
+  getSong: ReturnType<typeof vi.fn>;
+  getChatHistory: ReturnType<typeof vi.fn>;
+};
 
 describe('AppShell layout', () => {
   it('wraps header and tabs in a sticky container', () => {
@@ -173,6 +208,129 @@ describe('AppShell layout', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Start new song' }));
 
       expect(sessionStorage.getItem('test_draft_input')).toBeNull();
+    });
+  });
+
+  /**
+   * PWA relaunch restore (issue #274).
+   *
+   * manifest.json's start_url is /app, so an installed app always cold-launches
+   * there, the index route immediately redirects to /app/library, and the
+   * restore effect then decides whether to move somewhere else.
+   */
+  describe('PWA relaunch surface restore', () => {
+    beforeEach(() => {
+      mockApi.getSong.mockClear();
+      mockApi.getChatHistory.mockClear();
+    });
+
+    afterEach(() => {
+      localStorage.removeItem('test_song_id');
+      localStorage.removeItem('test_last_surface');
+    });
+
+    /**
+     * Stands in for LibraryTab, which records itself as the last surface the
+     * moment it mounts. That write lands before the restore's `getSong` resolves,
+     * so it is the reason the restore must sample LAST_SURFACE on the first
+     * render rather than reading it later. LibraryTab's own write is covered in
+     * LibraryTab.navigation.test.tsx.
+     */
+    function LibrarySurfaceStub() {
+      useEffect(() => {
+        localStorage.setItem('test_last_surface', 'library');
+      }, []);
+      return <div data-testid="library-surface">library</div>;
+    }
+
+    function LocationProbe() {
+      return <div data-testid="pathname">{useLocation().pathname}</div>;
+    }
+
+    function renderLaunch(entry: string) {
+      return render(
+        <MemoryRouter initialEntries={[entry]}>
+          <Routes>
+            <Route path="/app" element={<AppShell />}>
+              <Route index element={<Navigate to="/app/library" replace />} />
+              <Route path="library" element={<LibrarySurfaceStub />} />
+              <Route path="rewrite" element={<div data-testid="rewrite-surface" />} />
+              <Route path="play/:uuid" element={<div data-testid="play-surface" />} />
+            </Route>
+          </Routes>
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+    }
+
+    /**
+     * Resolves once the restore has run to completion, so a "stayed put"
+     * assertion cannot pass simply by being made too early. The restore
+     * navigates (or decides not to) in the continuation after `getChatHistory`.
+     */
+    async function restoreSettled() {
+      await waitFor(() => expect(mockApi.getChatHistory).toHaveBeenCalled());
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+
+    const expectPath = (pathname: string) =>
+      expect(screen.getByTestId('pathname')).toHaveTextContent(pathname);
+
+    it('returns to the chart when the user quit mid-performance', async () => {
+      localStorage.setItem('test_song_id', MOCK_SONG.uuid);
+      localStorage.setItem('test_last_surface', 'play');
+
+      renderLaunch('/app');
+      await restoreSettled();
+
+      expectPath(`/app/play/${MOCK_SONG.uuid}`);
+    });
+
+    it('returns to the workshop when the user quit while workshopping', async () => {
+      localStorage.setItem('test_song_id', MOCK_SONG.uuid);
+      localStorage.setItem('test_last_surface', 'workshop');
+
+      renderLaunch('/app');
+      await restoreSettled();
+
+      // The library mounts first and overwrites LAST_SURFACE with 'library', so
+      // this only holds if the restore sampled the value before any surface
+      // could clobber it.
+      expectPath('/app/rewrite');
+    });
+
+    it('stays in the library when the user quit from the library', async () => {
+      localStorage.setItem('test_song_id', MOCK_SONG.uuid);
+      localStorage.setItem('test_last_surface', 'library');
+
+      renderLaunch('/app');
+      await restoreSettled();
+
+      expectPath('/app/library');
+    });
+
+    it('lands on the library when no surface was ever recorded', async () => {
+      localStorage.setItem('test_song_id', MOCK_SONG.uuid);
+
+      renderLaunch('/app');
+      await restoreSettled();
+
+      // The library is the app's front door. An open song is still restored into
+      // memory, but an unrecognised surface must not drag the user off it.
+      expectPath('/app/library');
+    });
+
+    it('leaves a reload of a real route where it is', async () => {
+      localStorage.setItem('test_song_id', MOCK_SONG.uuid);
+      localStorage.setItem('test_last_surface', 'play');
+
+      renderLaunch('/app/library');
+      await restoreSettled();
+
+      // Not a relaunch: the user is already somewhere specific.
+      expectPath('/app/library');
     });
   });
 });

@@ -80,6 +80,46 @@ test.describe('OSS Offline', () => {
     }
   });
 
+  test('renders the app while the webfont host is unreachable', async ({ page }) => {
+    // Issue #274: the iOS PWA showed a blank screen on launch before it loaded.
+    //
+    // A cross-origin stylesheet in <head> blocks first paint until its request
+    // settles, and index.html links Google Fonts. Once the service worker landed,
+    // every local asset came out of the precache in single-digit milliseconds, so
+    // that one request was the only thing left between the user and a rendered
+    // page. On a home-screen launch with a cold or absent radio it can take many
+    // seconds to give up, and the app painted nothing for the whole wait.
+    //
+    // index.html parks the link at media="print" and src/lib/webfonts.ts promotes
+    // it on load. This is the browser-level check that the wiring holds; no unit
+    // test can observe render blocking.
+    let markRequested!: () => void;
+    const requested = new Promise<void>((resolve) => {
+      markRequested = resolve;
+    });
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    // Hold the stylesheet open the way an unreachable host does.
+    await page.route('https://fonts.googleapis.com/**', async (route) => {
+      markRequested();
+      await released;
+      await route.abort('failed');
+    });
+
+    try {
+      await page.goto('/app', { waitUntil: 'commit' });
+      // The stylesheet is in flight...
+      await requested;
+      // ...and the app renders anyway, rather than waiting it out.
+      await waitForAppReady(page);
+    } finally {
+      release();
+    }
+  });
+
   test('opens a previously loaded chart with no connection', async ({ page, context, baseURL }) => {
     const profileId = await getDefaultProfileId(baseURL!);
     await createSongViaApi(baseURL!, makeSongCreatePayload(profileId));
