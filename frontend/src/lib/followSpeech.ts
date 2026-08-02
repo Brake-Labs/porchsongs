@@ -10,7 +10,7 @@
  * alive across the recognizer's habit of stopping after pauses.
  */
 
-import type { AdvanceSignal, OnError, OnWords, SignalErrorType } from './followSignal';
+import type { AdvanceSignal, OnError, OnStage, OnWords, SignalErrorType } from './followSignal';
 
 // Minimal Web Speech typings (not part of the standard DOM lib).
 interface SpeechAlternative {
@@ -43,6 +43,11 @@ interface SpeechRecognitionLike {
   onresult: ((e: SpeechResultEvent) => void) | null;
   onerror: ((e: SpeechErrorEvent) => void) | null;
   onend: (() => void) | null;
+  // Capture-lifecycle events. Optional because an engine may not implement
+  // them; assigning to a property the engine ignores is harmless.
+  onaudiostart?: (() => void) | null;
+  onsoundstart?: (() => void) | null;
+  onspeechstart?: (() => void) | null;
 }
 type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
 
@@ -107,6 +112,11 @@ export function createSpeechSignal(opts: SpeechSignalOptions = {}): AdvanceSigna
     r.onend = null;
     r.onresult = null;
     r.onerror = null;
+    // The capture-ladder handlers too, or a released recognizer can still walk
+    // the health stage forward and make a dead session look like it is hearing.
+    r.onaudiostart = null;
+    r.onsoundstart = null;
+    r.onspeechstart = null;
     try {
       r.abort();
     } catch {
@@ -115,7 +125,7 @@ export function createSpeechSignal(opts: SpeechSignalOptions = {}): AdvanceSigna
   };
 
   return {
-    start(onWords: OnWords, onError?: OnError): Promise<void> {
+    start(onWords: OnWords, onError?: OnError, onStage?: OnStage): Promise<void> {
       stopped = false;
       if (!window.isSecureContext) {
         onError?.({ type: 'insecure-context' });
@@ -132,6 +142,20 @@ export function createSpeechSignal(opts: SpeechSignalOptions = {}): AdvanceSigna
       r.continuous = true;
       r.interimResults = true;
       r.lang = opts.lang ?? 'en-US';
+
+      // Capture ladder. On iOS these are the only evidence we get that the mic
+      // is actually feeding the recognizer, which is the difference between
+      // "your browser never opened the mic" and "it hears you but produces no
+      // words" (the known iPad failure with continuous recognition).
+      r.onaudiostart = () => {
+        if (!stopped) onStage?.('audio');
+      };
+      r.onsoundstart = () => {
+        if (!stopped) onStage?.('sound');
+      };
+      r.onspeechstart = () => {
+        if (!stopped) onStage?.('speech');
+      };
 
       r.onresult = (e: SpeechResultEvent) => {
         if (stopped) return;

@@ -1,11 +1,14 @@
 import { renderHook, act } from '@testing-library/react';
-import { afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
 import { useFollow } from './useFollow';
 import {
   createCannedSignal,
   scriptFromSong,
   type AdvanceSignal,
+  type OnStage,
+  type OnWords,
 } from '@/lib/followSignal';
+import { DEFAULT_FOLLOW_HEALTH } from '@/lib/followHealth';
 
 const SONG = [
   '[Verse 1]',
@@ -84,7 +87,12 @@ describe('useFollow', () => {
       await result.current.start(failing);
     });
     expect(result.current.error?.type).toBe('permission-denied');
+    // A signal that failed during start() must not report itself as live, or
+    // the toggle pulses "Following" over a chart that will never move.
     expect(result.current.running).toBe(false);
+    expect(result.current.warning?.kind).toBe('permission-denied');
+    expect(result.current.warning?.heading).toBe('Microphone access needed');
+    // And the mic is released, or the captured iOS audio session deafens the tuner.
     expect(stop).toHaveBeenCalled();
   });
 
@@ -110,6 +118,7 @@ describe('useFollow', () => {
       await result.current.start(makeSignal);
     });
     expect(result.current.error).toBeNull();
+    expect(result.current.warning).toBeNull();
     expect(result.current.running).toBe(true);
   });
 
@@ -146,5 +155,175 @@ describe('useFollow', () => {
     expect(req.candidates.length).toBeGreaterThan(0);
     expect(result.current.lastArbiter?.choice).toBe(3);
     expect(result.current.estimate?.stateIndex).toBe(3);
+  });
+});
+
+/**
+ * Issue #273: on an older iPad, Follow looked active and did nothing. The
+ * recognizer never errors in that case, so the only evidence is what it fails
+ * to do. These cover each way that can happen, and each way it must go quiet
+ * again, because a warning that fires wrongly is worse than none.
+ */
+describe('useFollow health warnings', () => {
+  const { audioMs, wordsMs, matchMs } = DEFAULT_FOLLOW_HEALTH;
+
+  /** A signal the test drives by hand: it starts cleanly and then does nothing. */
+  function manualSignal() {
+    const hooks: { words?: OnWords; stage?: OnStage } = {};
+    const factory: () => AdvanceSignal = () => ({
+      start: (onWords, _onError, onStage) => {
+        hooks.words = onWords;
+        hooks.stage = onStage;
+        return Promise.resolve();
+      },
+      stop: () => {},
+    });
+    return { factory, hooks };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  it('warns when the recognizer starts but never opens the microphone', async () => {
+    const { factory } = manualSignal();
+    const { result } = renderHook(() => useFollow(SONG));
+
+    await act(async () => {
+      await result.current.start(factory);
+    });
+    expect(result.current.running).toBe(true);
+    expect(result.current.warning).toBeNull();
+
+    await act(async () => {
+      vi.advanceTimersByTime(audioMs - 1);
+    });
+    expect(result.current.warning).toBeNull();
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(result.current.warning?.kind).toBe('no-audio');
+  });
+
+  it('clears the warning if capture starts late', async () => {
+    const { factory, hooks } = manualSignal();
+    const { result } = renderHook(() => useFollow(SONG));
+
+    await act(async () => {
+      await result.current.start(factory);
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(audioMs);
+    });
+    expect(result.current.warning?.kind).toBe('no-audio');
+
+    await act(async () => {
+      hooks.stage!('audio');
+    });
+    expect(result.current.warning).toBeNull();
+  });
+
+  it('blames the transcriber only when the recognizer confirms it heard sound', async () => {
+    const { factory, hooks } = manualSignal();
+    const { result } = renderHook(() => useFollow(SONG));
+
+    await act(async () => {
+      await result.current.start(factory);
+    });
+    await act(async () => {
+      hooks.stage!('audio');
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(wordsMs);
+    });
+    // Capturing, but no evidence sound ever arrived: describe the symptom only.
+    expect(result.current.warning?.kind).toBe('no-words');
+
+    await act(async () => {
+      hooks.stage!('sound');
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(wordsMs);
+    });
+    // Now we know sound reached it, so we can name the real cause.
+    expect(result.current.warning?.kind).toBe('no-transcript');
+  });
+
+  it('goes quiet as soon as words arrive, even with no capture milestones', async () => {
+    const { factory, hooks } = manualSignal();
+    const { result } = renderHook(() => useFollow(SONG));
+
+    await act(async () => {
+      await result.current.start(factory);
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(audioMs);
+    });
+    expect(result.current.warning?.kind).toBe('no-audio');
+
+    await act(async () => {
+      hooks.words!({ words: ['walking', 'down', 'the'], t: Date.now() });
+    });
+    expect(result.current.warning).toBeNull();
+  });
+
+  it('warns when words keep arriving but never fit the chart', async () => {
+    const { factory, hooks } = manualSignal();
+    const { result } = renderHook(() => useFollow(SONG));
+
+    await act(async () => {
+      await result.current.start(factory);
+    });
+    for (let i = 0; i < 12; i++) {
+      await act(async () => {
+        hooks.words!({ words: ['zebra', 'quantum', 'sprocket'], t: Date.now() });
+        vi.advanceTimersByTime(matchMs / 12);
+      });
+    }
+    expect(result.current.warning?.kind).toBe('no-match');
+    expect(result.current.warning?.fatal).toBe(false);
+  });
+
+  it('never warns about matching once the chart has been followed', async () => {
+    const { factory, hooks } = manualSignal();
+    const { result } = renderHook(() => useFollow(SONG));
+
+    await act(async () => {
+      await result.current.start(factory);
+    });
+    // Real lyrics from two different lines: the tracker locks on.
+    await act(async () => {
+      hooks.words!({ words: ['walking', 'down', 'the', 'empty', 'road'], t: Date.now() });
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(1500);
+      hooks.words!({ words: ['thinking', 'of', 'the', 'words', 'you', 'said'], t: Date.now() });
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(matchMs * 3);
+    });
+    expect(result.current.warning).toBeNull();
+  });
+
+  it('drops any warning when Follow is switched off', async () => {
+    const { factory } = manualSignal();
+    const { result } = renderHook(() => useFollow(SONG));
+
+    await act(async () => {
+      await result.current.start(factory);
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(audioMs);
+    });
+    expect(result.current.warning?.kind).toBe('no-audio');
+
+    act(() => result.current.stop());
+    expect(result.current.warning).toBeNull();
+
+    await act(async () => {
+      vi.advanceTimersByTime(matchMs * 3);
+    });
+    expect(result.current.warning).toBeNull();
   });
 });

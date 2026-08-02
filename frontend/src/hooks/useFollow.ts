@@ -10,8 +10,16 @@ import type {
   FollowRecording,
   SignalError,
   SignalFactory,
+  SignalStage,
   SignalTokens,
 } from '@/lib/followSignal';
+import {
+  assessFollowHealth,
+  isMatchedEstimate,
+  nextHealthDeadline,
+  type FollowHealthSnapshot,
+  type FollowWarning,
+} from '@/lib/followHealth';
 import { requestDisambiguation, type ArbiterRequest } from '@/lib/followArbiter';
 
 /** Configuration for the gated LLM arbiter. Omit (or enabled:false) to disable. */
@@ -26,6 +34,9 @@ export interface FollowArbiterConfig {
   /** Minimum ms between arbiter calls (default 3000). */
   cooldownMs?: number;
 }
+
+/** Capture milestones only ever climb, never fall back. */
+const STAGE_RANK: Record<SignalStage, number> = { audio: 0, sound: 1, speech: 2 };
 
 export interface FollowArbiterEvent {
   at: number;
@@ -45,6 +56,11 @@ export interface UseFollowResult {
   estimate: FollowEstimate | null;
   running: boolean;
   error: SignalError | null;
+  /**
+   * Why Follow is not working, or null when it looks healthy. Covers both
+   * reported errors and the silent failures that have no error at all.
+   */
+  warning: FollowWarning | null;
   recording: boolean;
   /** Most-recent recognized words (for the debug overlay). */
   recentWords: string[];
@@ -80,18 +96,26 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
 
   const signalRef = useRef<AdvanceSignal | null>(null);
   const cancelledRef = useRef(false);
-  /** Set when the in-flight start() reported an error, so it can't claim `running`. */
-  const erroredRef = useRef(false);
   const recordingRef = useRef<{ start: number; events: CannedEvent[] } | null>(null);
   const recentRef = useRef<string[]>([]);
   // Arbiter gating state.
   const ambiguousSinceRef = useRef<number | null>(null);
   const arbiterInFlightRef = useRef(false);
   const lastArbiterAtRef = useRef(-Infinity);
+  // Health tracking: what the signal has actually managed to do this session.
+  const startedAtRef = useRef<number | null>(null);
+  const errorRef = useRef<SignalError | null>(null);
+  const stageRef = useRef<SignalStage | null>(null);
+  const audioAtRef = useRef<number | null>(null);
+  const firstWordsAtRef = useRef<number | null>(null);
+  const matchedRef = useRef(false);
+  const healthTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const evaluateRef = useRef<() => void>(() => {});
 
   const [estimate, setEstimate] = useState<FollowEstimate | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<SignalError | null>(null);
+  const [warning, setWarning] = useState<FollowWarning | null>(null);
   const [recording, setRecording] = useState(false);
   const [recentWords, setRecentWords] = useState<string[]>([]);
   const [lastArbiter, setLastArbiter] = useState<FollowArbiterEvent | null>(null);
@@ -102,6 +126,40 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
     setRecentWords([]);
     recentRef.current = [];
   }, [tracker]);
+
+  const clearHealthTimer = useCallback(() => {
+    if (healthTimerRef.current != null) {
+      clearTimeout(healthTimerRef.current);
+      healthTimerRef.current = null;
+    }
+  }, []);
+
+  /**
+   * Recompute the warning and arm one timer for the next moment it could
+   * change. Driven by events rather than polling, so a warning shows up when a
+   * deadline passes and clears the instant the signal recovers.
+   */
+  const evaluateHealth = useCallback(() => {
+    clearHealthTimer();
+    const snapshot: FollowHealthSnapshot = {
+      startedAt: startedAtRef.current,
+      error: errorRef.current,
+      stage: stageRef.current,
+      audioAt: audioAtRef.current,
+      firstWordsAt: firstWordsAtRef.current,
+      matched: matchedRef.current,
+      now: nowFn(),
+    };
+    const next = assessFollowHealth(snapshot);
+    setWarning((prev) => (prev?.kind === next?.kind ? prev : next));
+    const deadline = nextHealthDeadline(snapshot);
+    // Future deadlines only. One already in the past is stable until an event
+    // moves the snapshot, and re-arming it would spin.
+    if (deadline != null && deadline > snapshot.now) {
+      healthTimerRef.current = setTimeout(() => evaluateRef.current(), deadline - snapshot.now);
+    }
+  }, [clearHealthTimer, nowFn]);
+  evaluateRef.current = evaluateHealth;
 
   /** A few lines of lyric context around a rendered line, for the arbiter prompt. */
   const contextFor = useCallback(
@@ -160,15 +218,27 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
     signalRef.current?.stop();
     signalRef.current = null;
     setRunning(false);
-  }, []);
+    clearHealthTimer();
+    startedAtRef.current = null;
+    setWarning(null);
+  }, [clearHealthTimer]);
 
   const start = useCallback(
     async (makeSignal: SignalFactory) => {
       // Tear down any prior signal first (re-start, StrictMode double-invoke).
       signalRef.current?.stop();
       cancelledRef.current = false;
-      erroredRef.current = false;
       setError(null);
+      errorRef.current = null;
+
+      // Fresh health session: nothing observed yet, clock starts now.
+      clearHealthTimer();
+      setWarning(null);
+      stageRef.current = null;
+      audioAtRef.current = null;
+      firstWordsAtRef.current = null;
+      matchedRef.current = false;
+      startedAtRef.current = nowFn();
 
       // Fresh session: clear the rolling window and seed a strong "starting at
       // the top" prior, so each Follow starts at line 0 instead of a uniform
@@ -189,17 +259,31 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
         if (cancelledRef.current) return;
         const est = tracker.observe(words, t);
         setEstimate(est);
+        // Words arriving prove the recognizer is alive even if this engine never
+        // reported the capture milestones, so they promote the health stage too.
+        let healthChanged = false;
         if (words.length > 0) {
           recentRef.current = [...recentRef.current, ...words].slice(-16);
           setRecentWords(recentRef.current);
+          if (firstWordsAtRef.current == null) {
+            // nowFn, not the signal's `t`: the health clock has to be the same
+            // one the deadline timers run on.
+            firstWordsAtRef.current = nowFn();
+            healthChanged = true;
+          }
+        }
+        if (!matchedRef.current && isMatchedEstimate(est)) {
+          matchedRef.current = true;
+          healthChanged = true;
         }
         const rec = recordingRef.current;
         if (rec) rec.events.push({ at: t - rec.start, words });
+        if (healthChanged) evaluateRef.current();
         maybeConsultArbiter(est, t);
       };
       const onError = (err: SignalError) => {
         if (cancelledRef.current) return;
-        erroredRef.current = true;
+        errorRef.current = err;
         setError(err);
         setRunning(false);
         // Release the mic. A signal that has reported an error is done; leaving
@@ -207,12 +291,26 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
         // visibly given up, which is what left the tuner unable to hear.
         signalRef.current?.stop();
         signalRef.current = null;
+        evaluateRef.current();
+      };
+      const onStage = (stage: SignalStage) => {
+        if (cancelledRef.current) return;
+        // Milestones only ever climb; a recognizer restart must not walk them back.
+        const prev = stageRef.current;
+        if (prev != null && STAGE_RANK[stage] <= STAGE_RANK[prev]) return;
+        stageRef.current = stage;
+        audioAtRef.current ??= nowFn();
+        evaluateRef.current();
       };
 
       try {
-        await signal.start(onWords, onError);
+        await signal.start(onWords, onError, onStage);
       } catch {
-        if (!cancelledRef.current) setError({ type: 'unsupported' });
+        if (!cancelledRef.current) {
+          errorRef.current = { type: 'unsupported' };
+          setError(errorRef.current);
+          evaluateRef.current();
+        }
         return;
       }
       // Stopped while start() was awaiting: discard.
@@ -220,13 +318,15 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
         signal.stop();
         return;
       }
-      // The signal reported an error while starting (an unsupported browser and
-      // a denied mic both report synchronously). Resolving is not the same as
-      // listening, so don't paint the UI as running over the top of the error.
-      if (erroredRef.current) return;
+      // A signal that reported an error during start() is not running, however
+      // eagerly it resolved. An unsupported browser and a denied mic both report
+      // synchronously. Saying otherwise is what made a dead Follow look alive:
+      // pulsing dot, "Following", no movement.
+      if (errorRef.current) return;
       setRunning(true);
+      evaluateRef.current();
     },
-    [tracker, nowFn, maybeConsultArbiter],
+    [tracker, nowFn, maybeConsultArbiter, clearHealthTimer],
   );
 
   const reposition = useCallback(
@@ -254,6 +354,8 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
       cancelledRef.current = true;
       signalRef.current?.stop();
       signalRef.current = null;
+      if (healthTimerRef.current != null) clearTimeout(healthTimerRef.current);
+      healthTimerRef.current = null;
     };
   }, []);
 
@@ -261,6 +363,7 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
     estimate,
     running,
     error,
+    warning,
     recording,
     recentWords,
     lastArbiter,

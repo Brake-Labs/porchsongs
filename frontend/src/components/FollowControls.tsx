@@ -34,13 +34,23 @@ export default function FollowControls({
   onDemo,
   onSaveJson,
 }: FollowControlsProps) {
-  const label = !followOn
-    ? 'Follow'
-    : follow.error
-      ? 'Mic error'
-      : paused
-        ? 'Paused'
-        : 'Following';
+  // Non-fatal warnings ("not following") only make sense while Follow is on. A
+  // fatal one has to outlive it: a mic failure now switches Follow off by
+  // design, so gating purely on followOn would make the very warning this
+  // component exists to show vanish the instant it fired.
+  const warning = followOn || follow.warning?.fatal ? follow.warning : null;
+  // "Following" next to a chart that never moves is the whole bug. Once we know
+  // Follow is not working, the toggle has to stop claiming that it is.
+  const label = warning?.fatal
+    ? 'Mic error'
+    : !followOn
+      ? 'Follow'
+      : warning
+        ? 'Not following'
+        : paused
+          ? 'Paused'
+          : 'Following';
+  const live = followOn && !paused && !warning;
 
   return (
     <>
@@ -62,21 +72,26 @@ export default function FollowControls({
           <span
             className={cn(
               'inline-block h-2 w-2 rounded-full',
-              followOn && !paused && !follow.error
-                ? 'animate-pulse bg-white'
-                : followOn
-                  ? 'bg-white/70'
-                  : 'bg-primary',
+              live ? 'animate-pulse bg-white' : followOn ? 'bg-white/70' : 'bg-primary',
             )}
           />
           {label}
         </button>
-        {/* A mic error drops Follow back off, so the chip has to survive
-            followOn going false or the failure would vanish silently. */}
-        {follow.error && (
-          <span className="rounded bg-danger-light px-2 py-0.5 text-[11px] text-danger" role="alert">
-            {follow.error.type}
-          </span>
+        {/* A mic error drops Follow back off, so this has to survive followOn
+            going false or the failure would vanish silently. */}
+        {warning && (
+          <div
+            role={warning.fatal ? 'alert' : 'status'}
+            className={cn(
+              'w-64 max-w-[70vw] rounded-md border px-3 py-2 text-left shadow-sm',
+              warning.fatal
+                ? 'border-danger bg-danger-light text-danger'
+                : 'border-warning-border bg-warning-bg text-warning-text',
+            )}
+          >
+            <p className="text-xs font-semibold">{warning.heading}</p>
+            <p className="mt-0.5 text-[11px] leading-snug opacity-90">{warning.message}</p>
+          </div>
         )}
       </div>
 
