@@ -72,3 +72,33 @@ describe("index.html PWA meta tags", () => {
     expect(indexHtml).toContain('content="#1c1917" media="(prefers-color-scheme: dark)"');
   });
 });
+
+/**
+ * A cross-origin stylesheet in <head> blocks first paint until its request
+ * settles. Every local asset is precached by the service worker and answered in
+ * single-digit milliseconds, so on an iOS PWA cold launch with a cold or absent
+ * radio the webfont request was the only thing standing between the user and a
+ * rendered page: the app showed nothing at all until it timed out.
+ */
+describe("index.html render-blocking resources", () => {
+  const head = new DOMParser().parseFromString(indexHtml, "text/html").head;
+  const stylesheets = [...head.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')];
+
+  it("parks the webfont stylesheet at media=print so it cannot block first paint", () => {
+    const webfonts = head.querySelector<HTMLLinkElement>("link[data-webfonts]");
+    // src/lib/webfonts.ts finds the link by this attribute and promotes it to
+    // media="all" on load. Renaming one without the other silently ships either
+    // a blank launch screen or no webfonts.
+    expect(webfonts).not.toBeNull();
+    expect(webfonts!.getAttribute("media")).toBe("print");
+  });
+
+  it("has no render-blocking cross-origin stylesheet", () => {
+    const blocking = stylesheets.filter(
+      (link) =>
+        /^(https?:)?\/\//.test(link.getAttribute("href") ?? "") &&
+        link.getAttribute("media") !== "print",
+    );
+    expect(blocking.map((link) => link.getAttribute("href"))).toEqual([]);
+  });
+});

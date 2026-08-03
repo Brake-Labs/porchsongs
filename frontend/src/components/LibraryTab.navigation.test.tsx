@@ -35,6 +35,7 @@ vi.mock('@/api', () => ({
     MODEL: 'test_model',
     REASONING_EFFORT: 'test_effort',
     CURRENT_SONG_ID: 'test_song_id',
+    LAST_SURFACE: 'test_last_surface',
   },
 }));
 
@@ -117,6 +118,32 @@ describe('LibraryTab performance view', () => {
     const perfWrapper = backButton.closest('.bg-card');
     expect(perfWrapper).not.toBeNull();
     expect(perfWrapper?.className).toContain('bg-card');
+  });
+});
+
+describe('LibraryTab last-surface recording (issue #274)', () => {
+  afterEach(() => {
+    localStorage.removeItem('test_last_surface');
+  });
+
+  it('records the library as the surface a PWA relaunch should return to', async () => {
+    localStorage.setItem('test_last_surface', 'workshop');
+
+    render(
+      <MemoryRouter initialEntries={['/app/library']}>
+        <Routes>
+          <Route path="/app" element={<ContextWrapper />}>
+            <Route path="library" element={<LibraryTab />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Without this the library is the one surface that never registers, so a
+    // stale 'workshop' survives and the relaunch reopens the rewrite editor.
+    await waitFor(() => {
+      expect(localStorage.getItem('test_last_surface')).toBe('library');
+    });
   });
 });
 

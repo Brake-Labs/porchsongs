@@ -101,6 +101,19 @@ export default function AppShell() {
     return localStorage.getItem(STORAGE_KEYS.CURRENT_SONG_ID) || null;
   });
 
+  // Where the app was launched, sampled on the very first render.
+  //
+  // Both values are read before any child effect can run, and both have to be.
+  // On a PWA relaunch the index route redirects /app to /app/library
+  // immediately, and LibraryTab then records itself as the last surface, so by
+  // the time the async restore below resolves the live location says
+  // "/app/library" and LAST_SURFACE says "library" no matter where the user
+  // actually quit from.
+  const [launch] = useState(() => ({
+    pathname: location.pathname,
+    surface: localStorage.getItem(STORAGE_KEYS.LAST_SURFACE),
+  }));
+
   const setCurrentSong = useCallback((song: Song | null) => {
     if (song) {
       setCurrentSongIdRaw(song.id);
@@ -162,8 +175,8 @@ export default function AppShell() {
   }, [authState, isPremium]);
 
   // Auto-restore active song on mount (page refresh / PWA relaunch recovery).
-  // If the user had a song open and the app relaunched at /app, navigate
-  // back to /app/rewrite so they land where they left off.
+  // If the user had a song open and the app relaunched at /app, put them back on
+  // the surface they left, using the values sampled into `launch` above.
   useEffect(() => {
     if (authState !== 'ready' || rewriteResult || !currentSongUuid) return;
     api.getSong(currentSongUuid).then(async (song: Song) => {
@@ -191,11 +204,17 @@ export default function AppShell() {
       // relaunch lands here with a song restored but no idea which surface the
       // user was on. Someone who force-quit mid-performance should come back to
       // the chart, not the editor.
-      if (location.pathname === '/app' || location.pathname === '/app/') {
-        const lastSurface = localStorage.getItem(STORAGE_KEYS.LAST_SURFACE);
-        navigate(lastSurface === 'workshop' ? '/app/rewrite' : `/app/play/${song.uuid}`, {
-          replace: true,
-        });
+      if (launch.pathname === '/app' || launch.pathname === '/app/') {
+        if (launch.surface === 'play') {
+          navigate(`/app/play/${song.uuid}`, { replace: true });
+        } else if (launch.surface === 'workshop') {
+          navigate('/app/rewrite', { replace: true });
+        }
+        // 'library', or nothing recorded at all: the index route has already put
+        // us on the library, which is the app's front door. Restoring a song
+        // into memory is still worth doing (the workshop and chat pick it up),
+        // but there is nowhere else to navigate to. This used to fall through to
+        // the chart, which meant an unrecognised value overrode the front door.
       }
     }).catch(() => {
       setCurrentSong(null);

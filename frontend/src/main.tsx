@@ -6,7 +6,12 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import App from '@/App';
 import { getPremiumProviders } from '@/extensions';
 import { registerServiceWorker } from '@/lib/registerSW';
+import { enableWebFonts } from '@/lib/webfonts';
 import './index.css';
+
+// The webfont stylesheet is parked at media="print" in index.html so it cannot
+// block first paint; this applies it once it has downloaded. See webfonts.ts.
+enableWebFonts();
 
 // Registered via the plugin's virtual module rather than an inline script, because
 // the production CSP is `script-src 'self'` with no nonce. `registerSW` also gives us
