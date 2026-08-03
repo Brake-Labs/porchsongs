@@ -69,17 +69,90 @@ export async function checkForUpdate(): Promise<void> {
   }
 }
 
+/** How long to wait for the new worker to take control before reloading anyway. */
+const CONTROL_TIMEOUT_MS = 3_000;
+
+/**
+ * Resolve to the waiting worker, waiting out an in-flight install first.
+ *
+ * `registration.update()` resolving does not mean a new worker is ready: if one was
+ * found it still has to install, and it only lands in `waiting` at the end of that.
+ */
+async function waitForWaitingWorker(
+  reg: ServiceWorkerRegistration,
+): Promise<ServiceWorker | null> {
+  if (reg.waiting) return reg.waiting;
+  const installing = reg.installing;
+  if (!installing) return null;
+  await new Promise<void>(resolve => {
+    const onStateChange = () => {
+      if (installing.state === 'installed' || installing.state === 'redundant') {
+        installing.removeEventListener('statechange', onStateChange);
+        resolve();
+      }
+    };
+    installing.addEventListener('statechange', onStateChange);
+    // Never hang the button on a worker that stalls mid-install.
+    window.setTimeout(() => {
+      installing.removeEventListener('statechange', onStateChange);
+      resolve();
+    }, CONTROL_TIMEOUT_MS);
+  });
+  return reg.waiting ?? null;
+}
+
 /**
  * Activate a waiting worker and reload onto the new shell.
  *
- * Falls back to a plain reload when there is no service worker at all, which is the
- * correct behaviour for a browser that does not support them.
+ * This does more than call `updateSW(true)` because that call is not enough, and the
+ * shape of vite-plugin-pwa's `prompt` mode is why. Its `updateServiceWorker` ignores
+ * its `reloadPage` argument entirely and only sends SKIP_WAITING; the reload comes
+ * from a `controlling` listener that it attaches *inside* the handler for the
+ * `waiting` event. So when the banner is raised by the build-id check rather than by
+ * `onNeedRefresh`, there is no waiting worker to message and no listener to reload,
+ * and the button does nothing at all. That was the reported bug, and it is not
+ * browser-specific: it is whatever state the page happens to be in when clicked.
+ *
+ * So: ask for an update and wait for the answer, activate a worker if one is now
+ * waiting, and reload regardless. The button must never be inert.
  */
 export async function applyUpdate(): Promise<void> {
-  if (_updateSW) {
-    _needRefresh = false;
-    await _updateSW(true);
+  _needRefresh = false;
+  const reg = _registration;
+  if (!_updateSW || !reg) {
+    // No service worker at all, which is also the right path for a browser that
+    // does not support them or has them disabled (Firefox private windows).
+    window.location.reload();
     return;
   }
-  window.location.reload();
+
+  // The banner can be shown before the worker has even looked for a new build,
+  // because UpdateBanner fires this check without awaiting it.
+  try {
+    await reg.update();
+  } catch {
+    /* offline, or the update check failed; fall through and decide on what we have */
+  }
+
+  const waiting = await waitForWaitingWorker(reg);
+  if (!waiting) {
+    // Nothing to activate. Reload anyway rather than leave the click unanswered:
+    // worst case the page comes back on the same build and the banner returns,
+    // which is still an honest outcome and not a dead button.
+    window.location.reload();
+    return;
+  }
+
+  // Reload once the new worker takes control. A timeout backs this up, because a
+  // SKIP_WAITING that is somehow not honoured must not strand the user either.
+  let reloaded = false;
+  const reloadOnce = () => {
+    if (reloaded) return;
+    reloaded = true;
+    window.location.reload();
+  };
+  navigator.serviceWorker.addEventListener('controllerchange', reloadOnce);
+  window.setTimeout(reloadOnce, CONTROL_TIMEOUT_MS);
+
+  await _updateSW(true);
 }
