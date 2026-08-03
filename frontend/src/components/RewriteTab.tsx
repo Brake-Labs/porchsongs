@@ -964,7 +964,12 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
             onDrop={handleInputDrop}
           >
             <CardContent className="pt-6 flex-1 flex flex-col min-h-0">
-              {hasProfile && isFirstTime && (
+              {/* Server-confirmed empty library, not just `isFirstTime`. On a fresh
+                  browser `hasSongs` starts false for everyone, so gating on
+                  `isFirstTime` flashed a sample offer at returning users with a
+                  full library until the song check came back. Same reason the
+                  welcome banner uses this flag. */}
+              {hasProfile && isConfirmedNewUser && (
                 <p className="mb-3 text-sm text-muted-foreground">
                   Start with a sample:{' '}
                   {SAMPLE_SONGS.map((s, i) => (
@@ -1203,23 +1208,11 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 </TabsContent>
               </Tabs>
 
-              {hasProfile && !isFirstTime && (
-                <p className="mt-3 text-xs text-muted-foreground">
-                  Or try a sample:{' '}
-                  {SAMPLE_SONGS.map((s, i) => (
-                    <span key={s.title}>
-                      {i > 0 && ' · '}
-                      <button
-                        type="button"
-                        className="text-primary underline can-hover:hover:opacity-80 cursor-pointer"
-                        onClick={() => handleLoadSample(s)}
-                      >
-                        {s.title}
-                      </button>
-                    </span>
-                  ))}
-                </p>
-              )}
+              {/* The "Or try a sample" row that used to sit here was gated on
+                  `!isFirstTime`, so it appeared only for people who already had
+                  charts, which is the one audience with no use for a sample. The
+                  sample offer now lives solely above the box, where it is shown
+                  to someone confirmed to have an empty library. */}
             </CardContent>
           </Card>
         </OnboardingBanner>

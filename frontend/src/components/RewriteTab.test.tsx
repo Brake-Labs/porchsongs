@@ -98,6 +98,19 @@ function selectImportTab(name: 'Paste' | 'Photo' | 'File' | 'Link') {
   fireEvent.mouseDown(screen.getByRole('tab', { name }));
 }
 
+const SAMPLE_LINK_NAME = 'When the Saints Go Marching In';
+
+/**
+ * Waits for the sample offer to appear.
+ *
+ * The offer is gated on a server-confirmed empty library, so on a fresh browser
+ * it is absent until the `listSongs` check resolves. Querying for it
+ * synchronously finds nothing.
+ */
+function waitForSampleOffer() {
+  return waitFor(() => screen.getByText(SAMPLE_LINK_NAME));
+}
+
 describe('RewriteTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -476,15 +489,13 @@ describe('RewriteTab', () => {
     expect(api.updateSong).not.toHaveBeenCalled();
   });
 
-  it('calls setParseResult when sample song is clicked', () => {
+  it('calls setParseResult when sample song is clicked', async () => {
     const setParseResult = vi.fn();
     const setParsedContent = vi.fn();
     const props = makeProps({ setParseResult, setParsedContent });
     render(<RewriteTab {...props} />);
 
-    // Sample link should be visible
-    const sampleLink = screen.getByText('When the Saints Go Marching In');
-    expect(sampleLink).toBeInTheDocument();
+    const sampleLink = await waitForSampleOffer();
 
     fireEvent.click(sampleLink);
 
@@ -524,10 +535,11 @@ describe('RewriteTab', () => {
     expect(screen.getByText('partial output...')).toBeInTheDocument();
   });
 
-  it('shows "Start with a sample" above textarea for first-time users', () => {
+  it('offers a sample above the box when the library is confirmed empty', async () => {
     const props = makeProps();
     render(<RewriteTab {...props} />);
 
+    await waitForSampleOffer();
     const sampleText = screen.getByText(/Start with a sample/);
     const textarea = screen.getByPlaceholderText(/Paste lyrics/);
 
@@ -535,16 +547,30 @@ describe('RewriteTab', () => {
     expect(sampleText.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('shows "Or try a sample" below textarea for returning users (localStorage)', () => {
+  it('offers no sample to someone who already has charts (localStorage)', async () => {
+    // There used to be a second "Or try a sample" row below the box, shown on
+    // exactly this condition. Someone with a library is the one audience with no
+    // use for a sample, so the offer is now suppressed rather than relocated.
     localStorage.setItem(STORAGE_KEYS.HAS_REWRITTEN, '1');
     const props = makeProps();
     render(<RewriteTab {...props} />);
 
-    const sampleText = screen.getByText(/Or try a sample/);
-    const textarea = screen.getByPlaceholderText(/Paste lyrics/);
+    // Wait for the import screen so this cannot pass by asserting on nothing.
+    await waitFor(() => expect(screen.getByPlaceholderText(/Paste lyrics/)).toBeInTheDocument());
 
-    // Sample prompt should appear after the textarea in the DOM
-    expect(sampleText.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(screen.queryByText(SAMPLE_LINK_NAME)).not.toBeInTheDocument();
+    expect(screen.queryByText(/sample/i)).not.toBeInTheDocument();
+  });
+
+  it('never flashes the sample offer before the song count is known', async () => {
+    // `hasSongs` starts false on any fresh browser, so gating on that alone
+    // showed a sample offer to returning users with a full library until the
+    // check came back.
+    vi.mocked(api.listSongs).mockReturnValueOnce(new Promise(() => {}) as never);
+    render(<RewriteTab {...makeProps()} />);
+
+    await waitFor(() => expect(screen.getByPlaceholderText(/Paste lyrics/)).toBeInTheDocument());
+    expect(screen.queryByText(SAMPLE_LINK_NAME)).not.toBeInTheDocument();
   });
 
   it('shows paste-from-clipboard button when input is empty', () => {
@@ -613,20 +639,17 @@ describe('RewriteTab', () => {
     Object.assign(navigator, { clipboard: originalClipboard });
   });
 
-  it('shows "Or try a sample" when server reports existing songs (cross-browser)', async () => {
-    // No localStorage set, but the server returns songs for this profile
+  it('offers no sample when the server reports existing charts (cross-browser)', async () => {
+    // No localStorage set, but the server returns songs for this profile: the
+    // user has charts on another device, so they are not a new user here either.
     vi.mocked(api.listSongs).mockResolvedValueOnce([{ id: 1 }] as never);
     const props = makeProps();
     render(<RewriteTab {...props} />);
 
-    // After the async listSongs resolves, the UI should switch to returning-user mode
-    await waitFor(() => {
-      expect(screen.getByText(/Or try a sample/)).toBeInTheDocument();
-    });
+    await waitFor(() => expect(api.listSongs).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByPlaceholderText(/Paste lyrics/)).toBeInTheDocument());
 
-    const sampleText = screen.getByText(/Or try a sample/);
-    const textarea = screen.getByPlaceholderText(/Paste lyrics/);
-    expect(sampleText.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(screen.queryByText(SAMPLE_LINK_NAME)).not.toBeInTheDocument();
   });
 
   // The always-visible "+ New Song" button now lives in the global chrome
@@ -1091,8 +1114,7 @@ describe('RewriteTab', () => {
       const props = makeProps({ onSongSaved });
       render(<RewriteTab {...props} />);
 
-      // Click a sample song
-      fireEvent.click(screen.getByText('When the Saints Go Marching In'));
+      fireEvent.click(await waitForSampleOffer());
 
       await waitFor(() => {
         expect(api.saveSong).toHaveBeenCalledWith(expect.objectContaining({
@@ -1138,12 +1160,12 @@ describe('RewriteTab', () => {
       const props = makeProps({ onSongSaved });
       render(<RewriteTab {...props} />);
 
-      // Click first sample
-      fireEvent.click(screen.getByText('When the Saints Go Marching In'));
+      const sample = await waitForSampleOffer();
+      fireEvent.click(sample);
 
-      // Click second sample while first save is still in-flight
+      // Click again while the first save is still in-flight
       // (the guard should prevent the second save from starting)
-      fireEvent.click(screen.getByText('When the Saints Go Marching In'));
+      fireEvent.click(sample);
 
       // Resolve the first save
       await act(async () => { resolveFirst!({ id: 50, uuid: 'uuid-50', profile_id: 1 }); });
