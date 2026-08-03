@@ -5,6 +5,7 @@ import useTheme from '@/hooks/useTheme';
 import { cn } from '@/lib/utils';
 import type { AuthUser } from '@/types';
 import TunerDialog from '@/components/TunerDialog';
+import { FeedbackButton } from '@/extensions';
 
 interface HeaderProps {
   user: AuthUser | null;
@@ -35,6 +36,10 @@ export default function Header({ user, authRequired, onLogout, isPremium, leftSl
         <span className="text-sm opacity-70 ml-4 hidden md:inline">Make every song yours</span>
       </div>
       <div className="flex items-center gap-2 shrink-0">
+        {/* Gated on a signed-in user because sending feedback needs an account to
+            attribute and reply to. Inert in OSS regardless: the stub renders
+            nothing, since self-hosted porchsongs has no mail provider. */}
+        {user && <FeedbackButton />}
         <button
           className="bg-black/5 border border-border text-header-text p-1.5 rounded-full cursor-pointer hover:bg-black/10 transition-colors"
           onClick={() => setTunerOpen(true)}
