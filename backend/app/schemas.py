@@ -172,7 +172,14 @@ class FolderRename(BaseModel):
 class FolderSuggestRequest(BaseModel):
     song_id: int
     model: str
-    max_tokens: int | None = None
+    # Bounded here, not only in premium's guard. Premium rewrites this before the
+    # request is validated, so hosted users are clamped either way, but a
+    # self-hoster pointing at a shared gateway was previously able to ask for any
+    # number of output tokens on an endpoint documented as costing one credit.
+    # 64 is llm_service.FOLDER_SUGGEST_MAX_OUTPUT_TOKENS, repeated rather than
+    # imported so this module keeps out of the LLM dependency graph.
+    # test_folder_suggest_schema_bound_matches_the_service_cap pins them together.
+    max_tokens: int | None = Field(default=None, ge=1, le=64)
 
 
 class FolderSuggestion(BaseModel):

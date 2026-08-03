@@ -759,6 +759,11 @@ async def disambiguate_position(
 # ceiling is what makes the price honest: premium bills
 # ``max(1, ceil(output_tokens / 100))``, so anything at or under 100 output
 # tokens is one credit and no more.
+#
+# Enforced in two places, deliberately. Premium's guard rewrites max_tokens on
+# the way through, which covers every hosted request whatever the client asked
+# for; ``FolderSuggestRequest`` bounds the field so a self-hosted install without
+# that guard cannot be talked into a larger answer either.
 FOLDER_SUGGEST_MAX_OUTPUT_TOKENS = 64
 
 # How much of the chart the model sees. The opening lines carry the title,
@@ -771,7 +776,9 @@ FOLDER_SUGGEST_MAX_CHOICES = 20
 # Upper bound on how many existing folders come back ranked.
 FOLDER_SUGGEST_MAX_PICKS = 3
 
-# Mirrors the ``folder`` column limit (Song.folder, SongUpdate.folder).
+# Mirrors the limit the write path enforces (``SongUpdate.folder``, and
+# ``FolderRename.name`` for a rename). A longer name would be rejected by the
+# ``PUT`` the user's tap turns into, so proposing one would offer a dead button.
 FOLDER_NAME_MAX_CHARS = 100
 
 FOLDER_SUGGEST_SYSTEM_PROMPT = """You help a musician file a chord chart into a folder.
@@ -790,18 +797,30 @@ an existing folder is clearly the right home.
 Say nothing else. No explanation, no code fences."""
 
 
-def _parse_folder_suggestions(raw: str, existing_folders: list[str]) -> list[dict[str, Any]]:
+def _parse_folder_suggestions(
+    raw: str,
+    offered_folders: list[str],
+    all_folders: list[str] | None = None,
+) -> list[dict[str, Any]]:
     """Turn the model's reply into ranked, validated folder suggestions.
 
     Existing folders are referenced by number rather than by name so a creative
     or truncated reply cannot smuggle in a folder the user does not have:
     anything outside the offered list is dropped. Only ``new`` is free text, and
-    it is squeezed onto one line and cut to the same limit the ``folder`` column
+    it is squeezed onto one line and cut to the same limit the write path
     enforces.
+
+    ``offered_folders`` is what the prompt numbered, so it is what an ``existing``
+    index resolves against. ``all_folders`` is every folder the user has, which
+    may be longer: only the first FOLDER_SUGGEST_MAX_CHOICES are offered, and a
+    proposed name has to be checked against the whole library or a folder the
+    user already has would come back badged "New folder".
 
     Returns ``[{"folder": str, "is_new": bool}, ...]`` with existing folders
     first, or ``[]`` when nothing usable came back.
     """
+    if all_folders is None:
+        all_folders = offered_folders
     start = raw.find("{")
     end = raw.rfind("}")
     if start == -1 or end <= start:
@@ -821,7 +840,7 @@ def _parse_folder_suggestions(raw: str, existing_folders: list[str]) -> list[dic
         for entry in raw_existing:
             if len(suggestions) >= FOLDER_SUGGEST_MAX_PICKS:
                 break
-            name = _resolve_existing_folder(entry, existing_folders)
+            name = _resolve_existing_folder(entry, offered_folders)
             if name is None or name.casefold() in seen:
                 continue
             seen.add(name.casefold())
@@ -830,11 +849,21 @@ def _parse_folder_suggestions(raw: str, existing_folders: list[str]) -> list[dic
     raw_new = parsed.get("new")
     if isinstance(raw_new, str):
         new_name = " ".join(raw_new.split())[:FOLDER_NAME_MAX_CHARS].strip()
-        # A "new" folder that already exists is an existing folder, and offering
-        # it twice would let one tap look like two different outcomes.
-        known = {f.casefold() for f in existing_folders} | seen
-        if new_name and new_name.casefold() not in known:
-            suggestions.append({"folder": new_name, "is_new": True})
+        if new_name and new_name.casefold() not in seen:
+            # A "new" folder that already exists is an existing folder, and
+            # offering it twice would let one tap look like two different
+            # outcomes. Matched against every folder the user has rather than
+            # just the offered slice: past FOLDER_SUGGEST_MAX_CHOICES there are
+            # folders the model never saw, so it proposes them as new. Those are
+            # good suggestions, they are simply not new, and badging one "New
+            # folder" would tell the user their library is about to grow when it
+            # is not.
+            match = next((f for f in all_folders if f.casefold() == new_name.casefold()), None)
+            if match is None:
+                suggestions.append({"folder": new_name, "is_new": True})
+            else:
+                seen.add(match.casefold())
+                suggestions.append({"folder": match, "is_new": False})
 
     return suggestions
 
@@ -910,6 +939,6 @@ async def suggest_folder(
     response = cast("MessageResponse", await params.send())
 
     return {
-        "suggestions": _parse_folder_suggestions(_get_content(response), choices),
+        "suggestions": _parse_folder_suggestions(_get_content(response), choices, existing_folders),
         "usage": _get_usage(response),
     }

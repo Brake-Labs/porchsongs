@@ -723,6 +723,22 @@ def test_parse_folder_suggestions_never_offers_an_existing_folder_as_new() -> No
     assert result == [{"folder": "Campfire", "is_new": False}]
 
 
+def test_parse_folder_suggestions_does_not_badge_an_unoffered_folder_as_new() -> None:
+    """A folder the user has, but which was never offered, is not a new folder.
+
+    Only FOLDER_SUGGEST_MAX_CHOICES folders go into the prompt, so a library
+    past that has folders the model never saw and can propose from scratch.
+    Checking ``new`` against the offered slice alone would badge one of the
+    user's own folders "New folder".
+    """
+    result = _parse_folder_suggestions(
+        '{"existing": [], "new": "Zydeco"}',
+        ["Campfire", "Hymns"],
+        ["Campfire", "Hymns", "Zydeco"],
+    )
+    assert result == [{"folder": "Zydeco", "is_new": False}]
+
+
 def test_parse_folder_suggestions_caps_the_ranking_and_the_name() -> None:
     result = _parse_folder_suggestions(
         json.dumps({"existing": [1, 2, 3, 4, 5], "new": "x" * 200}),
@@ -797,3 +813,16 @@ def test_suggest_folder_bounds_what_it_sends_and_what_it_asks_for(
     assert f"{FOLDER_SUGGEST_MAX_CHOICES + 1}. Folder" not in prompt
     # Only folders that were actually offered can come back.
     assert result["suggestions"] == [{"folder": "Folder 0", "is_new": False}]
+
+
+def test_folder_suggest_schema_bound_matches_the_service_cap():
+    """The request schema repeats the token cap rather than importing it, to keep
+    schemas.py out of the LLM dependency graph. Pin the two together so the
+    duplicate cannot drift: if it did, a self-hosted install would accept a
+    max_tokens the price claim does not cover."""
+    from app.schemas import FolderSuggestRequest
+    from app.services.llm_service import FOLDER_SUGGEST_MAX_OUTPUT_TOKENS
+
+    meta = FolderSuggestRequest.model_fields["max_tokens"].metadata
+    upper = next(m.le for m in meta if hasattr(m, "le"))
+    assert upper == FOLDER_SUGGEST_MAX_OUTPUT_TOKENS
