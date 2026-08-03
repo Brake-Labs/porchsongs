@@ -3,6 +3,19 @@ import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '@/test/test-utils';
 import Header from '@/components/Header';
 
+/**
+ * Stands in for the premium FeedbackButton.
+ *
+ * Only FeedbackButton is overridden; everything else the barrel exports is passed
+ * through, so this cannot mask a real seam break. The OSS stub returns null by
+ * design, which means Header's `user &&` gate has no observable effect in this
+ * repo unless the member renders something.
+ */
+vi.mock('@/extensions', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/extensions')>()),
+  FeedbackButton: () => <button data-testid="feedback-stub">Feedback</button>,
+}));
+
 describe('Header', () => {
   const defaults = {
     user: null,
@@ -59,5 +72,29 @@ describe('Header', () => {
   it('shows user name when user is provided', () => {
     renderWithRouter(<Header {...defaults} user={{ id: 1, email: 'test@test.com', name: 'Test User', role: 'user', is_active: true, created_at: '' }} />);
     expect(screen.getByText('Test User')).toBeInTheDocument();
+  });
+
+  describe('feedback slot', () => {
+    const signedIn = {
+      id: 1,
+      email: 'test@test.com',
+      name: 'Test User',
+      role: 'user',
+      is_active: true,
+      created_at: '',
+    };
+
+    it('renders the premium feedback control only when signed in', () => {
+      // The OSS stub renders null, so the seam member is mocked to a sentinel.
+      // Without this the gate below is untestable in OSS: both branches render
+      // nothing and the assertion would pass even with the gate deleted.
+      renderWithRouter(<Header {...defaults} user={signedIn} />);
+      expect(screen.getByTestId('feedback-stub')).toBeInTheDocument();
+    });
+
+    it('omits the feedback control when there is no user', () => {
+      renderWithRouter(<Header {...defaults} user={null} />);
+      expect(screen.queryByTestId('feedback-stub')).not.toBeInTheDocument();
+    });
   });
 });

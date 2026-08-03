@@ -5,6 +5,7 @@ import * as routes from '@/extensions/routes';
 import * as settings from '@/extensions/settings';
 import * as quota from '@/extensions/quota';
 import * as extensionsApi from '@/extensions/api';
+import * as feedback from '@/extensions/feedback';
 
 /**
  * Enforces the OSS <-> premium extensions contract. See ./README.md.
@@ -50,6 +51,7 @@ const MANIFEST: Record<string, string[]> = {
     'listPlans',
     'tryRestoreSession',
   ],
+  feedback: ['FeedbackButton'],
 };
 
 /** Everything the barrel must re-export, flattened from the manifest. */
@@ -95,6 +97,7 @@ const MODULES: Record<string, Record<string, unknown>> = {
   settings,
   quota,
   api: extensionsApi,
+  feedback,
 };
 
 /** Runtime value exports only. Types vanish at runtime and cannot be compared. */
@@ -147,6 +150,7 @@ describe('extensions seam contract', () => {
       expect(quota.QuotaBanner()).toBeNull();
       expect(quota.QuotaUpgradeLink({})).toBeNull();
       expect(quota.SongCapNotice({ count: 0 })).toBeNull();
+      expect(feedback.FeedbackButton()).toBeNull();
     });
 
     it('hook stubs return the off value, never undefined', () => {

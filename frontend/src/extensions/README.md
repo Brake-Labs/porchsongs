@@ -88,6 +88,7 @@ it is the pattern to replace, not to copy).
 | `UsageFooter` | `quota` | token counts | token counts |
 | `SongCapNotice` | `quota` | `null` | chart count and cap banner |
 | `useReadOnly` | `quota` | `false` | whether the account is over its cap |
+| `FeedbackButton` | `feedback` | `null` | header button and send-feedback dialog |
 
 ## Adding a member: worked example
 

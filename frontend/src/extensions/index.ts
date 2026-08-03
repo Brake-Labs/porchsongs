@@ -39,3 +39,4 @@ export {
   SongCapNotice,
   useReadOnly,
 } from './quota';
+export { FeedbackButton } from './feedback';
