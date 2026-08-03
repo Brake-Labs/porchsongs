@@ -30,7 +30,7 @@
   <text x="950" y="530" font-family="serif" font-size="30" fill="#faf9f6" opacity="0.05">&#9833;</text>
   <text x="300" y="80" font-family="serif" font-size="22" fill="#faf9f6" opacity="0.05">&#9833;</text>
 
-  <!-- Logo: guitar pick (centered, scaled 2.2x) -->
+  <!-- Logo: guitar pick, identical to frontend/public/logo.svg -->
   <g transform="translate(530, 30) scale(2.2)">
     <path d="M50 3 C68 3, 90 16, 94 38 C98 60, 74 88, 50 97 C26 88, 2 60, 6 38 C10 16, 32 3, 50 3 Z" fill="#b85c2c" />
     <path d="M50 8 C66 8, 85 19, 89 39 C93 57, 71 83, 50 91 C29 83, 7 57, 11 39 C15 19, 34 8, 50 8 Z" fill="none" stroke="#9e4e24" stroke-width="1" opacity="0.4" />
@@ -43,34 +43,36 @@
     <text x="70" y="22" font-family="serif" font-size="10" fill="#faf9f6" opacity="0.7">&#9835;</text>
   </g>
 
-  <!-- App name -->
-  <text x="640" y="325" font-family="'Plus Jakarta Sans', system-ui, -apple-system, sans-serif" font-size="82" font-weight="700" fill="#faf9f6" text-anchor="middle" letter-spacing="-2">porchsongs</text>
+  <!-- Wordmark. Instrument Serif is --font-display, the same face the app header
+       uses for "porchsongs". The previous banner set it in bold Plus Jakarta Sans,
+       which is the UI font, so the wordmark did not match the product. -->
+  <text x="640" y="330" font-family="'Instrument Serif', Georgia, serif" font-size="104" font-weight="400" fill="#faf9f6" text-anchor="middle" letter-spacing="-1">porchsongs</text>
 
   <!-- Accent line -->
-  <rect x="520" y="345" width="240" height="3" rx="1.5" fill="#b85c2c" opacity="0.8" />
+  <rect x="529" y="352" width="222" height="3" rx="1.5" fill="#b85c2c" opacity="0.8" />
 
-  <!-- Tagline -->
-  <text x="640" y="392" font-family="'Plus Jakarta Sans', system-ui, -apple-system, sans-serif" font-size="28" fill="#faf9f6" text-anchor="middle" opacity="0.7" letter-spacing="1">Make every song yours</text>
+  <!-- Tagline: the marketing hero sentence verbatim, the same string the app
+       header carries. Positioning lives in one place. -->
+  <text x="640" y="398" font-family="'Plus Jakarta Sans', system-ui, -apple-system, sans-serif" font-size="28" fill="#faf9f6" text-anchor="middle" opacity="0.7" letter-spacing="1">Your chord charts, ready to play</text>
 
-  <!-- Feature pills -->
+  <!-- Feature pills. Widths are fitted to the rendered label widths rather than
+       hand-guessed, so no label can overflow its pill. Deliberately no offline
+       claim: the marketing site still says offline access is being built. -->
   <g font-family="'Plus Jakarta Sans', system-ui, -apple-system, sans-serif" font-size="16" font-weight="600">
-    <rect x="310" y="440" width="140" height="36" rx="18" fill="#b85c2c" opacity="0.25" />
-    <rect x="310" y="440" width="140" height="36" rx="18" fill="none" stroke="#b85c2c" stroke-opacity="0.4" stroke-width="1" />
-    <text x="380" y="463" fill="#faf9f6" text-anchor="middle" opacity="0.85">AI Rewriting</text>
-
-    <rect x="475" y="440" width="150" height="36" rx="18" fill="#b85c2c" opacity="0.25" />
-    <rect x="475" y="440" width="150" height="36" rx="18" fill="none" stroke="#b85c2c" stroke-opacity="0.4" stroke-width="1" />
-    <text x="550" y="463" fill="#faf9f6" text-anchor="middle" opacity="0.85">Chord Aware</text>
-
-    <rect x="650" y="440" width="150" height="36" rx="18" fill="#b85c2c" opacity="0.25" />
-    <rect x="650" y="440" width="150" height="36" rx="18" fill="none" stroke="#b85c2c" stroke-opacity="0.4" stroke-width="1" />
-    <text x="725" y="463" fill="#faf9f6" text-anchor="middle" opacity="0.85">38+ LLMs</text>
-
-    <rect x="825" y="440" width="160" height="36" rx="18" fill="#b85c2c" opacity="0.25" />
-    <rect x="825" y="440" width="160" height="36" rx="18" fill="none" stroke="#b85c2c" stroke-opacity="0.4" stroke-width="1" />
-    <text x="905" y="463" fill="#faf9f6" text-anchor="middle" opacity="0.85">Chat Workshop</text>
+    <rect x="286" y="440" width="132" height="36" rx="18" fill="#b85c2c" opacity="0.25" />
+    <rect x="286" y="440" width="132" height="36" rx="18" fill="none" stroke="#b85c2c" stroke-opacity="0.4" stroke-width="1" />
+    <text x="352" y="463" fill="#faf9f6" text-anchor="middle" opacity="0.85">Any Format</text>
+    <rect x="436" y="440" width="186" height="36" rx="18" fill="#b85c2c" opacity="0.25" />
+    <rect x="436" y="440" width="186" height="36" rx="18" fill="none" stroke="#b85c2c" stroke-opacity="0.4" stroke-width="1" />
+    <text x="529" y="463" fill="#faf9f6" text-anchor="middle" opacity="0.85">Performance View</text>
+    <rect x="640" y="440" width="146" height="36" rx="18" fill="#b85c2c" opacity="0.25" />
+    <rect x="640" y="440" width="146" height="36" rx="18" fill="none" stroke="#b85c2c" stroke-opacity="0.4" stroke-width="1" />
+    <text x="713" y="463" fill="#faf9f6" text-anchor="middle" opacity="0.85">Built-in Tuner</text>
+    <rect x="804" y="440" width="191" height="36" rx="18" fill="#b85c2c" opacity="0.25" />
+    <rect x="804" y="440" width="191" height="36" rx="18" fill="none" stroke="#b85c2c" stroke-opacity="0.4" stroke-width="1" />
+    <text x="899.5" y="463" fill="#faf9f6" text-anchor="middle" opacity="0.85">Hands-Free Follow</text>
   </g>
 
   <!-- Bottom text -->
-  <text x="640" y="590" font-family="'Plus Jakarta Sans', system-ui, -apple-system, sans-serif" font-size="16" fill="#faf9f6" text-anchor="middle" opacity="0.3" letter-spacing="3">PERSONAL SONG LYRIC REWRITER</text>
+  <text x="640" y="590" font-family="'Plus Jakarta Sans', system-ui, -apple-system, sans-serif" font-size="16" fill="#faf9f6" text-anchor="middle" opacity="0.3" letter-spacing="3">IMPORT, KEEP, AND PLAY YOUR CHORD CHARTS</text>
 </svg>
