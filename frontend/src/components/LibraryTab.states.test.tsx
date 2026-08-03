@@ -78,6 +78,10 @@ describe('LibraryTab load states', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    // Hoisted, so it survives between tests and vi.clearAllMocks() does not touch
+    // it. Left stale, a waitFor on "not null" resolves instantly against the
+    // previous test's props and the assertion below reads that test's count.
+    capNoticeProps.current = null;
   });
 
   it('shows an error state, not an empty library, when the fetch fails', async () => {
@@ -125,8 +129,10 @@ describe('LibraryTab load states', () => {
     mockListSongs.mockResolvedValue([MOCK_SONG, { ...MOCK_SONG, id: 43, uuid: 'u-43' }]);
     renderLibrary();
 
-    await waitFor(() => expect(capNoticeProps.current).not.toBeNull());
-    expect(capNoticeProps.current?.count).toBe(2);
+    // Wait on the value under test, not on a proxy for it. Waiting for non-null
+    // and then asserting the count is two separate observations, and anything that
+    // shifts render timing turns the gap into a flake.
+    await waitFor(() => expect(capNoticeProps.current?.count).toBe(2));
   });
 
   it('opens the play route when a card is tapped', async () => {
