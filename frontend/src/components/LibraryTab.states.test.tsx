@@ -197,3 +197,64 @@ describe('LibraryTab horizontal layout', () => {
     expect(document.querySelectorAll('[data-song-card]')).toHaveLength(1);
   });
 });
+
+describe('LibraryTab layout toggle at narrow widths', () => {
+  const TOGGLE = /Switch to (horizontal|vertical) scroll/;
+  const originalWidth = window.innerWidth;
+
+  function setWidth(width: number) {
+    Object.defineProperty(window, 'innerWidth', { value: width, configurable: true, writable: true });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    capNoticeProps.current = null;
+    mockListSongs.mockResolvedValue([MOCK_SONG]);
+  });
+
+  afterEach(() => {
+    setWidth(originalWidth);
+  });
+
+  it('offers the toggle when the grid has room for a second column', async () => {
+    setWidth(1280);
+    renderLibrary();
+
+    await waitFor(() => expect(screen.getByText('Amazing Grace')).toBeInTheDocument());
+    expect(screen.getByLabelText(TOGGLE)).toBeInTheDocument();
+  });
+
+  it('hides the toggle at phone width, where the grid is one column either way', async () => {
+    // Verified in a real browser at 390px: horizontal mode produced a single
+    // column with two of eight cards past the right edge, reachable only by a
+    // sideways swipe. It has nothing to offer below the two-column breakpoint.
+    setWidth(390);
+    renderLibrary();
+
+    await waitFor(() => expect(screen.getByText('Amazing Grace')).toBeInTheDocument());
+    expect(screen.queryByLabelText(TOGGLE)).not.toBeInTheDocument();
+  });
+
+  it('does not strand a phone with a stored horizontal preference', async () => {
+    // The layout is derived from the width rather than written back to storage, so
+    // a preference set on a desktop cannot leave a phone in a layout it has no
+    // control to leave. Hiding the button alone would have done exactly that.
+    setWidth(390);
+    localStorage.setItem('test_library_layout', 'horizontal');
+    renderLibrary();
+
+    await waitFor(() => expect(screen.getByText('Amazing Grace')).toBeInTheDocument());
+    expect(screen.queryByTestId('horizontal-grid')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(TOGGLE)).not.toBeInTheDocument();
+  });
+
+  it('leaves the stored preference alone so a wide screen still honours it', async () => {
+    setWidth(390);
+    localStorage.setItem('test_library_layout', 'horizontal');
+    renderLibrary();
+
+    await waitFor(() => expect(screen.getByText('Amazing Grace')).toBeInTheDocument());
+    expect(localStorage.getItem('test_library_layout')).toBe('horizontal');
+  });
+});

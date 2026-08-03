@@ -361,4 +361,74 @@ test.describe('OSS Library', () => {
 
     expect(cropped).toEqual([]);
   });
+
+  test('phone width has no layout toggle and never scrolls charts sideways', async ({
+    page,
+    baseURL,
+  }) => {
+    // The toggle used to be offered at every width. Measured at 390px before this
+    // changed: horizontal mode laid the charts out in a single column and pushed
+    // two of eight past the right edge, reachable only by a sideways swipe, so the
+    // control could not improve the layout and could only hide charts.
+    //
+    // A browser is required. The gate reads viewport width, and jsdom reports a
+    // fixed 1024 regardless of what a test asks for, so the narrow branch is only
+    // observable here.
+    await page.setViewportSize({ width: 390, height: 844 });
+    const profileId = await getDefaultProfileId(baseURL!);
+    for (const title of ['Phone Chart One', 'Phone Chart Two', 'Phone Chart Three']) {
+      await createSongViaApi(baseURL!, { ...makeSongCreatePayload(profileId), title });
+    }
+
+    // Straight to the route: the tab bar is hidden at this width.
+    await page.goto('/app/library');
+    await expect(page.getByText('Phone Chart One').first()).toBeVisible({ timeout: 15_000 });
+
+    await expect(page.getByLabel(/Switch to (horizontal|vertical) scroll/)).toHaveCount(0);
+    await expect(page.locator('[data-testid="horizontal-grid"]')).toHaveCount(0);
+
+    // Every card sits at the same left edge and none is off-screen, which is what
+    // "one column, no sideways scroll" means in terms an assertion can check.
+    const layout = await page.evaluate(() => {
+      const cards = Array.from(document.querySelectorAll('[data-song-card]'));
+      return {
+        count: cards.length,
+        distinctLeftEdges: new Set(cards.map(c => Math.round(c.getBoundingClientRect().left))).size,
+        offscreenRight: cards.filter(c => c.getBoundingClientRect().left > window.innerWidth - 1)
+          .length,
+      };
+    });
+    // At least the three created here. Not an exact count: the suite shares one
+    // database and earlier tests in this file leave their own charts behind.
+    expect(layout.count).toBeGreaterThanOrEqual(3);
+    expect(layout.distinctLeftEdges).toBe(1);
+    expect(layout.offscreenRight).toBe(0);
+  });
+
+  test('a horizontal preference carried to a phone does not strand the user', async ({
+    page,
+    baseURL,
+  }) => {
+    // Hiding the button alone would have left anyone with a stored 'horizontal'
+    // in a layout with no control to leave it. The layout is derived from the
+    // width instead, and the stored preference is left intact for wide screens.
+    const profileId = await getDefaultProfileId(baseURL!);
+    await createSongViaApi(baseURL!, {
+      ...makeSongCreatePayload(profileId),
+      title: 'Stranded Chart',
+    });
+
+    await page.goto('/app/library');
+    await expect(page.getByText('Stranded Chart').first()).toBeVisible({ timeout: 15_000 });
+    await page.evaluate(() => localStorage.setItem('porchsongs_library_layout', 'horizontal'));
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload();
+    await expect(page.getByText('Stranded Chart').first()).toBeVisible({ timeout: 15_000 });
+
+    await expect(page.locator('[data-testid="horizontal-grid"]')).toHaveCount(0);
+    expect(
+      await page.evaluate(() => localStorage.getItem('porchsongs_library_layout')),
+    ).toBe('horizontal');
+  });
 });

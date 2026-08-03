@@ -45,23 +45,39 @@ describe('MobileNav', () => {
     renderWithRouter(<MobileNav />, { route: '/app/rewrite' });
 
     fireEvent.click(screen.getByRole('button', { name: /open navigation menu/i }));
-    expect(screen.getByText('Navigation')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /close navigation menu/i })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Library' }));
 
-    // The sheet should close (Navigation header disappears)
-    expect(screen.queryByText('Navigation')).not.toBeInTheDocument();
+    // The close button only exists while the sheet is mounted, so its absence is
+    // the signal that the sheet closed. This used to assert on a visible
+    // "Navigation" heading, which has been removed.
+    expect(screen.queryByRole('button', { name: /close navigation menu/i })).not.toBeInTheDocument();
   });
 
   it('closes sidebar when close button is clicked', () => {
     renderWithRouter(<MobileNav />, { route: '/app/rewrite' });
 
     fireEvent.click(screen.getByRole('button', { name: /open navigation menu/i }));
-    expect(screen.getByText('Navigation')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /close navigation menu/i })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /close navigation menu/i }));
 
+    expect(screen.queryByRole('button', { name: /close navigation menu/i })).not.toBeInTheDocument();
+  });
+
+  it('has no visible heading above the nav list', () => {
+    renderWithRouter(<MobileNav />, { route: '/app/rewrite' });
+
+    fireEvent.click(screen.getByRole('button', { name: /open navigation menu/i }));
+
+    // The sheet is opened by a hamburger and holds a list of links, so a
+    // "Navigation" heading was labelling the self-evident and spending the
+    // scarcest row on a phone screen.
     expect(screen.queryByText('Navigation')).not.toBeInTheDocument();
+    // The accessible name stays. Radix warns without a Dialog Title, and screen
+    // reader users get no hamburger context.
+    expect(screen.getByText('Navigation menu')).toHaveClass('sr-only');
   });
 
   it('shows footer links in sidebar when open', () => {
@@ -83,7 +99,7 @@ describe('MobileNav', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Import' }));
 
     expect(onNewSong).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText('Navigation')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /close navigation menu/i })).not.toBeInTheDocument();
   });
 
   it('Import nav item falls back to navigation when no onNewSong is wired', () => {
@@ -93,6 +109,6 @@ describe('MobileNav', () => {
     // The item is always present (it is a tab); clicking it should not throw.
     const item = screen.getByRole('button', { name: 'Import' });
     fireEvent.click(item);
-    expect(screen.queryByText('Navigation')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /close navigation menu/i })).not.toBeInTheDocument();
   });
 });
