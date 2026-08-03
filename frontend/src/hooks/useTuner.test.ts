@@ -15,9 +15,19 @@ const mockConnect = vi.fn();
 const mockClose = vi.fn().mockResolvedValue(undefined);
 const mockStopTrack = vi.fn();
 
+/** How the next constructed context behaves when resume() is called. */
+let resumeBehaviour: 'running' | 'stays-suspended' = 'running';
+let lastContext: ReturnType<typeof createMockAudioContext> | null = null;
+
 function createMockAudioContext() {
-  return {
+  // Browsers hand back a suspended context; resume() is what makes it usable,
+  // and on iOS that only succeeds inside a user gesture.
+  const ctx = {
+    state: 'suspended' as AudioContextState,
     sampleRate: 44100,
+    resume: vi.fn(async () => {
+      if (resumeBehaviour === 'running') ctx.state = 'running';
+    }),
     createMediaStreamSource: () => ({ connect: mockConnect }),
     createAnalyser: () => ({
       fftSize: 2048,
@@ -25,6 +35,8 @@ function createMockAudioContext() {
     }),
     close: mockClose,
   };
+  lastContext = ctx;
+  return ctx;
 }
 
 function createMockStream() {
@@ -40,6 +52,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   rafCallbacks = [];
   rafId = 1;
+  resumeBehaviour = 'running';
+  lastContext = null;
   mockFindPitch.mockReturnValue([0, 0]);
 
   vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
@@ -349,6 +363,80 @@ describe('useTuner', () => {
     expect(cancelAnimationFrame).toHaveBeenCalled();
     expect(mockStopTrack).toHaveBeenCalled();
     expect(mockClose).toHaveBeenCalled();
+  });
+
+  // iOS Safari only starts an AudioContext from inside the user gesture that
+  // triggered it. Awaiting getUserMedia first leaves that gesture, so the
+  // context comes back suspended and stays that way: the analyser reads silence
+  // and the tuner sits at "--". This showed up after Follow mode had been
+  // listening, because the recognizer had just held the audio session.
+  it('creates and resumes the AudioContext before awaiting the mic', async () => {
+    const order: string[] = [];
+    // A plain function, not an arrow: vi.fn() forwards `new` to the impl.
+    function TrackingAudioContext() {
+      order.push('audiocontext');
+      return createMockAudioContext();
+    }
+    vi.stubGlobal('AudioContext', vi.fn().mockImplementation(TrackingAudioContext));
+    (navigator.mediaDevices.getUserMedia as ReturnType<typeof vi.fn>).mockImplementation(
+      async () => {
+        order.push('getusermedia');
+        return createMockStream();
+      },
+    );
+
+    const { result } = renderHook(() => useTuner());
+    await act(async () => {
+      await result.current.start();
+    });
+
+    expect(order).toEqual(['audiocontext', 'getusermedia']);
+    expect(lastContext!.resume).toHaveBeenCalled();
+    expect(result.current.status).toBe('listening');
+  });
+
+  it('errors instead of listening to silence when the context stays suspended', async () => {
+    resumeBehaviour = 'stays-suspended';
+
+    const { result } = renderHook(() => useTuner());
+    await act(async () => {
+      await result.current.start();
+    });
+
+    expect(result.current.status).toBe('error');
+    expect(result.current.errorType).toBe('audio-suspended');
+    // No dead detect loop left spinning against a context that cannot hear.
+    expect(rafCallbacks).toHaveLength(0);
+    expect(mockClose).toHaveBeenCalled();
+    expect(mockStopTrack).toHaveBeenCalled();
+  });
+
+  it('does not resurrect the session when stop() lands mid-start', async () => {
+    let releaseMic: (s: unknown) => void = () => {};
+    (navigator.mediaDevices.getUserMedia as ReturnType<typeof vi.fn>).mockImplementation(
+      () => new Promise((res) => { releaseMic = res; }),
+    );
+
+    const { result } = renderHook(() => useTuner());
+    let starting!: Promise<void>;
+    act(() => {
+      starting = result.current.start();
+    });
+
+    // The user closes the tuner while the mic promise is still pending.
+    act(() => {
+      result.current.stop();
+    });
+    // The context created in-gesture is closed by that stop, not orphaned.
+    expect(mockClose).toHaveBeenCalled();
+
+    await act(async () => {
+      releaseMic(createMockStream());
+      await starting;
+    });
+
+    expect(result.current.status).toBe('idle');
+    expect(rafCallbacks).toHaveLength(0);
   });
 
   it('cleans up on unmount', async () => {

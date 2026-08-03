@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSpeechSignal, wordDelta } from './followSpeech';
 import type { SignalError, SignalTokens } from './followSignal';
 
@@ -139,9 +139,119 @@ describe('createSpeechSignal', () => {
     const rec = MockRecognition.last!;
 
     rec.onerror!({ error: 'no-speech' }); // transient, ignored
-    rec.onerror!({ error: 'not-allowed' }); // permission
-    rec.onerror!({ error: 'audio-capture' }); // no device
+    rec.onerror!({ error: 'not-allowed' }); // permission: fatal, latches off
 
-    expect(errors.map((e) => e.type)).toEqual(['permission-denied', 'not-found']);
+    expect(errors.map((e) => e.type)).toEqual(['permission-denied']);
+  });
+
+  // iOS Safari refuses the first start() while the mic permission sheet is up
+  // and reports 'not-allowed'. Restarting from onend cannot help (the grant does
+  // not retroactively start the recognizer) and the spin keeps the iOS audio
+  // session captured, which is what left the tuner deaf afterwards.
+  it('aborts and stops restarting after a fatal error', async () => {
+    const errors: SignalError[] = [];
+    const signal = createSpeechSignal();
+    await signal.start(
+      () => {},
+      (e) => errors.push(e),
+    );
+    const rec = MockRecognition.last!;
+    expect(rec.start).toHaveBeenCalledTimes(1);
+
+    rec.onerror!({ error: 'not-allowed' });
+
+    // The recognizer is released immediately rather than left holding the mic.
+    expect(rec.abort).toHaveBeenCalledTimes(1);
+    expect(rec.onend).toBeNull();
+    expect(rec.onresult).toBeNull();
+
+    // And nothing restarts it: no second start(), no repeat error report.
+    signal.stop();
+    expect(rec.start).toHaveBeenCalledTimes(1);
+    expect(errors).toHaveLength(1);
+  });
+
+  it('does not emit words after a fatal error', async () => {
+    const got: SignalTokens[] = [];
+    const signal = createSpeechSignal({ now: () => 1000 });
+    await signal.start(
+      (tok) => got.push(tok),
+      () => {},
+    );
+    const rec = MockRecognition.last!;
+    const onresult = rec.onresult!;
+
+    rec.onerror!({ error: 'not-allowed' });
+    onresult(resultEvent('walking', false));
+
+    expect(got).toEqual([]);
+  });
+});
+
+describe('transient network failures', () => {
+  it('recovers from a network blip instead of ending the session', async () => {
+    // Chrome's Web Speech API is a network service, so a blip mid-song is
+    // ordinary and used to heal itself via the onend restart. Treating it as
+    // fatal would eject a performer from Follow for a hiccup.
+    const errors: SignalError[] = [];
+    const signal = createSpeechSignal();
+    await signal.start(() => {}, e => errors.push(e));
+    const rec = MockRecognition.last!;
+
+    rec.onerror!({ error: 'network' });
+
+    expect(errors).toEqual([]);
+    rec.onend!();
+    // Still alive: the restart went through rather than being latched off.
+    expect(rec.start).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up once the retry budget is spent', async () => {
+    // The bound is what stops an offline session from reopening the unbounded
+    // start/error/end spin that the fatal path exists to prevent.
+    const errors: SignalError[] = [];
+    const signal = createSpeechSignal();
+    await signal.start(() => {}, e => errors.push(e));
+    const rec = MockRecognition.last!;
+
+    for (let i = 0; i < 4; i++) rec.onerror!({ error: 'network' });
+
+    expect(errors.map(e => e.type)).toEqual(['network']);
+    // Latched off and released: handlers detached, so onend cannot restart it.
+    expect(rec.onend).toBeNull();
+    expect(rec.abort).toHaveBeenCalled();
+    expect(rec.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('forgives earlier blips once words come through', async () => {
+    const errors: SignalError[] = [];
+    const words: SignalTokens[] = [];
+    const signal = createSpeechSignal({ now: () => 0 });
+    await signal.start(w => words.push(w), e => errors.push(e));
+    const rec = MockRecognition.last!;
+
+    rec.onerror!({ error: 'network' });
+    rec.onerror!({ error: 'network' });
+    rec.onerror!({ error: 'network' });
+    rec.onresult!(resultEvent('amazing grace', true));
+    // Budget reset, so a long set with occasional blips keeps going.
+    rec.onerror!({ error: 'network' });
+
+    expect(words).toHaveLength(1);
+    expect(errors).toEqual([]);
+  });
+
+  it('still treats a denied mic as immediately fatal', async () => {
+    // The retry budget must not soften the case the fix was written for.
+    const errors: SignalError[] = [];
+    const signal = createSpeechSignal();
+    await signal.start(() => {}, e => errors.push(e));
+    const rec = MockRecognition.last!;
+
+    rec.onerror!({ error: 'not-allowed' });
+
+    expect(errors.map(e => e.type)).toEqual(['permission-denied']);
+    expect(rec.onend).toBeNull();
+    expect(rec.start).toHaveBeenCalledTimes(1);
   });
 });

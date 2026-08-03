@@ -207,6 +207,17 @@ export function PerformanceSheet({
     if (followOn) stopFollow();
     else startMic();
   }, [followOn, stopFollow, startMic]);
+
+  // A mic error ends the session: the signal has already released the mic, so
+  // drop out of Follow rather than sitting in a "Following" state that isn't
+  // listening. The error stays visible next to the toggle, and the next tap is
+  // then a clean start() from a real user gesture. iOS needs that: it refuses
+  // the first start() while the permission sheet is up, and granting permission
+  // does not retroactively start the recognizer, so without a fresh gesture the
+  // only way back into Follow mode was reloading the app.
+  useEffect(() => {
+    if (follow.error) setFollowOn(false);
+  }, [follow.error]);
   const saveJson = useCallback(() => {
     downloadRecording(follow.stopRecording(), `follow-recording-${Date.now()}.json`);
   }, [follow]);

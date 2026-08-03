@@ -80,6 +80,8 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
 
   const signalRef = useRef<AdvanceSignal | null>(null);
   const cancelledRef = useRef(false);
+  /** Set when the in-flight start() reported an error, so it can't claim `running`. */
+  const erroredRef = useRef(false);
   const recordingRef = useRef<{ start: number; events: CannedEvent[] } | null>(null);
   const recentRef = useRef<string[]>([]);
   // Arbiter gating state.
@@ -165,6 +167,7 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
       // Tear down any prior signal first (re-start, StrictMode double-invoke).
       signalRef.current?.stop();
       cancelledRef.current = false;
+      erroredRef.current = false;
       setError(null);
 
       // Fresh session: clear the rolling window and seed a strong "starting at
@@ -196,8 +199,14 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
       };
       const onError = (err: SignalError) => {
         if (cancelledRef.current) return;
+        erroredRef.current = true;
         setError(err);
         setRunning(false);
+        // Release the mic. A signal that has reported an error is done; leaving
+        // it referenced kept the iOS audio session captured after Follow had
+        // visibly given up, which is what left the tuner unable to hear.
+        signalRef.current?.stop();
+        signalRef.current = null;
       };
 
       try {
@@ -211,6 +220,10 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
         signal.stop();
         return;
       }
+      // The signal reported an error while starting (an unsupported browser and
+      // a denied mic both report synchronously). Resolving is not the same as
+      // listening, so don't paint the UI as running over the top of the error.
+      if (erroredRef.current) return;
       setRunning(true);
     },
     [tracker, nowFn, maybeConsultArbiter],

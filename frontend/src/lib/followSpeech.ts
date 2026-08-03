@@ -81,12 +81,38 @@ export interface SpeechSignalOptions {
   now?: () => number;
 }
 
+/**
+ * How many transient 'network' failures to absorb before treating the session as
+ * dead. Chrome's Web Speech API is a network service, so blips are ordinary; an
+ * offline session, though, must stop rather than spin.
+ */
+const NETWORK_RETRY_LIMIT = 3;
+
 export function createSpeechSignal(opts: SpeechSignalOptions = {}): AdvanceSignal {
   const now = opts.now ?? Date.now;
   let rec: SpeechRecognitionLike | null = null;
   let stopped = false;
   // Words already emitted from the in-progress utterance (interim results grow).
   let prevWords: string[] = [];
+  // Budget for transient 'network' failures before we call it fatal. Reset every
+  // time words actually arrive, so a long set with occasional blips keeps going
+  // while a genuinely offline session still gives up promptly.
+  let networkRetries = 0;
+
+  /** Detach every handler and abort the recognizer. Safe to call repeatedly. */
+  const release = () => {
+    const r = rec;
+    rec = null;
+    if (!r) return;
+    r.onend = null;
+    r.onresult = null;
+    r.onerror = null;
+    try {
+      r.abort();
+    } catch {
+      /* noop */
+    }
+  };
 
   return {
     start(onWords: OnWords, onError?: OnError): Promise<void> {
@@ -126,7 +152,11 @@ export function createSpeechSignal(opts: SpeechSignalOptions = {}): AdvanceSigna
           }
         }
         const tail = wordDelta(prevWords, full);
-        if (tail.length > 0) onWords({ words: tail, t: now() });
+        if (tail.length > 0) {
+          // Recognition is working, so forgive earlier network blips.
+          networkRetries = 0;
+          onWords({ words: tail, t: now() });
+        }
         prevWords = full;
       };
 
@@ -134,6 +164,27 @@ export function createSpeechSignal(opts: SpeechSignalOptions = {}): AdvanceSigna
         if (stopped) return;
         // Silence and self-aborts are transient; onend will restart us.
         if (e.error === 'no-speech' || e.error === 'aborted') return;
+        // 'network' is transient too, but only up to a point. Chrome's Web Speech
+        // API is a network service, so a blip mid-song is ordinary and used to
+        // heal itself via the onend restart. Treating it as fatal would eject a
+        // performer from Follow for a hiccup. Retry a bounded number of times so
+        // recovery survives without reopening the unbounded start/error/end spin
+        // that the fatal path below exists to stop: offline, this gives up after
+        // NETWORK_RETRY_LIMIT attempts instead of looping forever.
+        if (e.error === 'network' && networkRetries < NETWORK_RETRY_LIMIT) {
+          networkRetries += 1;
+          return;
+        }
+        // Anything else is fatal: the recognizer will not recover on its own.
+        // Latch the signal off BEFORE reporting, so the onend below does not
+        // restart it. iOS Safari refuses the very first start() while the mic
+        // permission sheet is up ('not-allowed'), and granting permission does
+        // not retroactively start the recognizer, so the restart loop just
+        // spins. A spinning recognizer also keeps the iOS audio session
+        // captured, which leaves the tuner deaf afterwards. Recovery has to be
+        // a fresh start() from a new user gesture.
+        stopped = true;
+        release();
         onError?.({ type: mapError(e.error), message: e.message });
       };
 
@@ -161,17 +212,7 @@ export function createSpeechSignal(opts: SpeechSignalOptions = {}): AdvanceSigna
 
     stop(): void {
       stopped = true;
-      if (rec) {
-        rec.onend = null;
-        rec.onresult = null;
-        rec.onerror = null;
-        try {
-          rec.abort();
-        } catch {
-          /* noop */
-        }
-        rec = null;
-      }
+      release();
       prevWords = [];
     },
   };

@@ -66,13 +66,17 @@ describe('useFollow', () => {
     expect(result.current.recording).toBe(false);
   });
 
-  it('surfaces a signal error and stays not-running', async () => {
+  // A signal that reports an error still *resolves* its start() promise, so the
+  // hook used to paint `running: true` straight over the top of the failure and
+  // leave the errored signal referenced (and, on iOS, holding the mic).
+  it('surfaces a signal error, stays not-running, and releases the signal', async () => {
+    const stop = vi.fn();
     const failing: () => AdvanceSignal = () => ({
       start: (_onWords, onError) => {
         onError?.({ type: 'permission-denied' });
         return Promise.resolve();
       },
-      stop: () => {},
+      stop,
     });
     const { result } = renderHook(() => useFollow(SONG));
 
@@ -80,6 +84,33 @@ describe('useFollow', () => {
       await result.current.start(failing);
     });
     expect(result.current.error?.type).toBe('permission-denied');
+    expect(result.current.running).toBe(false);
+    expect(stop).toHaveBeenCalled();
+  });
+
+  it('clears the error and runs when a retry succeeds', async () => {
+    let failNext = true;
+    const makeSignal: () => AdvanceSignal = () => ({
+      start: (_onWords, onError) => {
+        if (failNext) onError?.({ type: 'permission-denied' });
+        return Promise.resolve();
+      },
+      stop: () => {},
+    });
+    const { result } = renderHook(() => useFollow(SONG));
+
+    await act(async () => {
+      await result.current.start(makeSignal);
+    });
+    expect(result.current.running).toBe(false);
+
+    // The user grants mic permission and taps again: a fresh start() succeeds.
+    failNext = false;
+    await act(async () => {
+      await result.current.start(makeSignal);
+    });
+    expect(result.current.error).toBeNull();
+    expect(result.current.running).toBe(true);
   });
 
   it('repositions the tracker to a chosen line with high confidence', () => {
