@@ -87,6 +87,17 @@ function makeProps(overrides: Partial<AppShellContext> = {}): AppShellContext {
   } as unknown as AppShellContext;
 }
 
+/**
+ * Selects one of the four import source tabs (Paste / Photo / File / Link).
+ *
+ * Radix activates a tab on `mousedown`, not on `click`, so `fireEvent.click`
+ * alone leaves the panel unchanged and every assertion after it silently tests
+ * the Paste tab instead.
+ */
+function selectImportTab(name: 'Paste' | 'Photo' | 'File' | 'Link') {
+  fireEvent.mouseDown(screen.getByRole('tab', { name }));
+}
+
 describe('RewriteTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -727,16 +738,22 @@ describe('RewriteTab', () => {
   });
 
   describe('Import from Link', () => {
-    it('renders the Import from Link button in INPUT state', () => {
+    it('renders the Link tab in INPUT state', () => {
       render(<RewriteTab {...makeProps()} />);
-      expect(screen.getByRole('button', { name: 'Link' })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: 'Link' })).toBeInTheDocument();
     });
 
-    it('opens a dialog with a URL field when clicked', () => {
+    it('reveals an inline URL field when the tab is selected, with no dialog', () => {
       render(<RewriteTab {...makeProps()} />);
-      fireEvent.click(screen.getByRole('button', { name: 'Link' }));
-      expect(screen.getByText('Import from a link')).toBeInTheDocument();
+      // The field is behind the tab, not present until it is chosen.
+      expect(screen.queryByPlaceholderText('https://...')).not.toBeInTheDocument();
+
+      selectImportTab('Link');
+
       expect(screen.getByPlaceholderText('https://...')).toBeInTheDocument();
+      // This used to be a modal. A dialog on top of a tab strip offering the
+      // same thing would be two doors to one room.
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
     it('scrapes the URL and populates the textarea with the returned text', async () => {
@@ -748,7 +765,7 @@ describe('RewriteTab', () => {
       });
 
       render(<RewriteTab {...makeProps()} />);
-      fireEvent.click(screen.getByRole('button', { name: 'Link' }));
+      selectImportTab('Link');
 
       const urlInput = screen.getByPlaceholderText('https://...');
       fireEvent.change(urlInput, {
@@ -763,7 +780,8 @@ describe('RewriteTab', () => {
         });
       });
 
-      // Dialog closes and the textarea is filled with the scraped text
+      // The Link panel hands off to the Paste tab, where the fetched text is
+      // visible and editable before it is saved.
       await waitFor(() => {
         const textarea = screen.getByPlaceholderText(/Paste lyrics/) as HTMLTextAreaElement;
         expect(textarea.value).toContain('sample lyric line');
@@ -788,7 +806,7 @@ describe('RewriteTab', () => {
       render(<RewriteTab {...makeProps({ onParse })} />);
 
       // Add content from a link
-      fireEvent.click(screen.getByRole('button', { name: 'Link' }));
+      selectImportTab('Link');
       fireEvent.change(screen.getByPlaceholderText('https://...'), {
         target: { value: 'https://chords.example.com/some-song' },
       });
@@ -812,7 +830,7 @@ describe('RewriteTab', () => {
       vi.mocked(api.scrapeUrl).mockRejectedValue(new Error('That site blocked the request.'));
 
       render(<RewriteTab {...makeProps({ setParseError })} />);
-      fireEvent.click(screen.getByRole('button', { name: 'Link' }));
+      selectImportTab('Link');
       fireEvent.change(screen.getByPlaceholderText('https://...'), {
         target: { value: 'https://example.com/song' },
       });
@@ -865,52 +883,131 @@ describe('RewriteTab', () => {
     }
   });
 
-  it('renders Import from Photo button on splash page', () => {
+  it('offers a photo picker behind the Photo tab', () => {
     const props = makeProps();
     Object.assign(mockOutletContext, props);
     render(<RewriteTab />);
-    expect(screen.getByRole('button', { name: 'Photo' })).toBeInTheDocument();
+    selectImportTab('Photo');
+    expect(screen.getByRole('button', { name: 'Choose photo' })).toBeInTheDocument();
   });
 
-  it('shows extracting state when image is being processed', async () => {
+  it('enables the photo picker when a model is configured', async () => {
     // Mock parseImage to return a promise that we control
-    const parseImageMock = vi.fn().mockResolvedValue({ text: 'G Am\nHello world' });
+    const parseImageMock = vi.fn().mockResolvedValue({ text: 'G Am\nplaceholder line' });
     const apiModule = await import('@/api');
     (apiModule.default as Record<string, unknown>).parseImage = parseImageMock;
 
     const props = makeProps();
     Object.assign(mockOutletContext, props);
     render(<RewriteTab />);
+    selectImportTab('Photo');
 
-    // The button should exist and be enabled
-    const photoBtn = screen.getByRole('button', { name: 'Photo' });
-    expect(photoBtn).toBeInTheDocument();
-    expect(photoBtn.closest('button')).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Choose photo' })).not.toBeDisabled();
   });
 
-  it('disables Import from Photo when no model is selected', () => {
+  it('disables the photo picker when no model is selected, and says why', () => {
     const props = makeProps({ llmSettings: { model: '', reasoning_effort: '' } });
     Object.assign(mockOutletContext, props);
     render(<RewriteTab />);
-    const photoBtn = screen.getByRole('button', { name: 'Photo' });
-    expect(photoBtn.closest('button')).toBeDisabled();
+    selectImportTab('Photo');
+
+    expect(screen.getByRole('button', { name: 'Choose photo' })).toBeDisabled();
+    // Photo is the only one of the four that needs a model, so the note has to
+    // say so rather than reading as though import is broken.
+    expect(screen.getByText(/other three ways in work without one/)).toBeInTheDocument();
+  });
+
+  describe('import source tabs', () => {
+    it('offers all four ways in, with Paste selected first', () => {
+      render(<RewriteTab {...makeProps()} />);
+
+      for (const name of ['Paste', 'Photo', 'File', 'Link'] as const) {
+        expect(screen.getByRole('tab', { name })).toBeInTheDocument();
+      }
+      expect(screen.getByRole('tab', { name: 'Paste' })).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('keeps the save actions on the Paste tab, which is where the text lands', () => {
+      render(<RewriteTab {...makeProps()} />);
+      expect(screen.getByText('Add to library')).toBeInTheDocument();
+
+      selectImportTab('File');
+
+      // Photo/file/link only fill the paste box. Repeating the save actions on
+      // each source would imply each one saves directly, which none of them do.
+      expect(screen.queryByText('Add to library')).not.toBeInTheDocument();
+    });
+
+    it('names its tablist, since the app nav is a second one on the same page', () => {
+      render(<RewriteTab {...makeProps()} />);
+      // Unlabelled, a screen reader announces two indistinguishable tab lists.
+      expect(screen.getByRole('tablist', { name: 'Import source' })).toBeInTheDocument();
+    });
+
+    it('focuses the URL field when the Link tab is chosen', () => {
+      // The dialog this replaced autofocused its field, so choosing "Link" and
+      // typing straight away worked. Losing that is a silent downgrade.
+      render(<RewriteTab {...makeProps()} />);
+      selectImportTab('Link');
+
+      expect(screen.getByPlaceholderText('https://...')).toHaveFocus();
+    });
+
+    it('hands off to the Paste tab once a source produces text', async () => {
+      vi.mocked(api.scrapeUrl).mockResolvedValue({
+        text: 'G  D\nfetched placeholder line',
+        title: 'Test Song',
+        artist: 'Test Artist',
+        source_url: 'https://chords.example.com/some-song',
+      });
+
+      render(<RewriteTab {...makeProps()} />);
+      selectImportTab('Link');
+      fireEvent.change(screen.getByPlaceholderText('https://...'), {
+        target: { value: 'https://chords.example.com/some-song' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Fetch chords' }));
+
+      // Without the handoff the fetch looks like it did nothing: the text lands
+      // in a box on a tab the user is not looking at.
+      await waitFor(() => {
+        expect(screen.getByRole('tab', { name: 'Paste' })).toHaveAttribute('aria-selected', 'true');
+      });
+      expect((screen.getByPlaceholderText(/Paste lyrics/) as HTMLTextAreaElement).value)
+        .toContain('fetched placeholder line');
+    });
+
+    it('warns before an extraction overwrites text already in the paste box', () => {
+      render(<RewriteTab {...makeProps()} />);
+
+      selectImportTab('Link');
+      expect(screen.queryByText(/replaces what's currently in the Paste tab/)).not.toBeInTheDocument();
+
+      selectImportTab('Paste');
+      fireEvent.change(screen.getByPlaceholderText(/Paste lyrics/), {
+        target: { value: 'a chart worth not losing' },
+      });
+      selectImportTab('Link');
+
+      expect(screen.getByText(/replaces what's currently in the Paste tab/)).toBeInTheDocument();
+    });
   });
 
   describe('Import from File', () => {
-    it('renders alongside Import from Photo in INPUT state', () => {
+    it('offers a file picker behind the File tab', () => {
       const props = makeProps();
       render(<RewriteTab {...props} />);
+      selectImportTab('File');
 
-      expect(screen.getByRole('button', { name: 'Photo' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'File' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Choose file' })).toBeInTheDocument();
     });
 
     it('is disabled when no profile exists', () => {
       const props = makeProps({ profile: null });
       render(<RewriteTab {...props} />);
+      selectImportTab('File');
 
-      const fileBtn = screen.getByRole('button', { name: 'File' });
-      expect(fileBtn.closest('button')).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Choose file' })).toBeDisabled();
     });
 
     it('has a hidden file input with correct accept attribute for PDFs and text files', () => {

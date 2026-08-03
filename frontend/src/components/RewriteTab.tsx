@@ -25,10 +25,9 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogBody,
-  DialogFooter,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { QuotaBanner, OnboardingBanner, isQuotaError, QuotaUpgradeLink } from '@/extensions/quota';
 import { SAMPLE_SONGS, sampleToParseResult } from '@/data/sample-songs';
@@ -36,6 +35,9 @@ import { guessSongMeta } from '@/lib/songMeta';
 import type { AppShellContext } from '@/layouts/AppShell';
 import type { Profile, Song, RewriteResult, RewriteMeta, ChatMessage, LlmSettings, ParseResult } from '@/types';
 import type { SampleSong } from '@/data/sample-songs';
+
+/** The four ways to get a chart in. Also the tab values on the import screen. */
+type ImportSource = 'paste' | 'photo' | 'file' | 'link';
 
 interface RewriteTabProps {
   profile: Profile | null;
@@ -143,9 +145,12 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const docFileInputRef = useRef<HTMLInputElement>(null);
   const [fileLoading, setFileLoading] = useState(false);
-  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [linkLoading, setLinkLoading] = useState(false);
+  // Which of the four ways in is showing. Photo, file, and link all end by
+  // filling the paste box, so 'paste' doubles as the review step: an extraction
+  // switches back to it so you see the text before you save it.
+  const [importSource, setImportSource] = useState<ImportSource>('paste');
   // Records where imported text came from so we can store it as the song's
   // source_url on save. Cleared after each save.
   const pendingSourceUrlRef = useRef<string | null>(null);
@@ -258,6 +263,16 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const saveBlocker = !hasInput ? 'Paste your song above' : null;
   const parseBlocker = !hasModel ? 'Select a model' : saveBlocker;
 
+  // Photo, file, and link all overwrite the paste box. That was easy to miss when
+  // they were small buttons off to the side; as equal-weight tabs it is a step a
+  // user takes on purpose, so say what it will cost them first. Shown only when
+  // there is something to lose.
+  const replaceNotice = importSource !== 'paste' && hasInput ? (
+    <p className="mt-3 text-xs text-muted-foreground">
+      This replaces what&apos;s currently in the Paste tab.
+    </p>
+  ) : null;
+
   const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.userAgent);
   const shortcutHint = `${isMac ? '\u2318' : 'Ctrl'}+Enter to add to library`;
 
@@ -301,6 +316,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
         model: llmSettings.model,
       });
       setInput(result.text);
+      setImportSource('paste');
     } catch (err) {
       setParseError('Image extraction failed: ' + (err as Error).message);
     } finally {
@@ -340,6 +356,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
           reader.readAsText(file);
         });
         setInput(text);
+        setImportSource('paste');
       } else {
         const dataUrl = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
@@ -353,6 +370,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
           filename: file.name,
         });
         setInput(result.text);
+        setImportSource('paste');
       }
     } catch (err) {
       setParseError('File extraction failed: ' + (err as Error).message);
@@ -371,7 +389,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
       const result = await api.scrapeUrl({ profile_id: profile.id, url });
       setInput(result.text);
       pendingSourceUrlRef.current = result.source_url;
-      setLinkDialogOpen(false);
+      setImportSource('paste');
       setLinkUrl('');
     } catch (err) {
       setParseError('Couldn\'t import from that link: ' + (err as Error).message);
@@ -966,55 +984,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
 
               <div className="mb-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Import a song</p>
-                <p className="text-sm text-muted-foreground mt-1">Drop your lyrics and chords in here, any format. We&apos;ll tidy up the formatting. Add it to your library to play, or import &amp; rewrite to workshop it.</p>
-              </div>
-
-              {!input && (
-                <Button
-                  variant="secondary"
-                  className="mb-3 md:hidden"
-                  onClick={handlePasteFromClipboard}
-                >
-                  Paste from clipboard
-                </Button>
-              )}
-
-              <Textarea
-                className="flex-1 min-h-0 resize-none"
-                value={input}
-                onChange={e => setInput(e.target.value)}
-                placeholder="Paste lyrics, or drop a file here..."
-                onKeyDown={e => {
-                  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canSave) {
-                    e.preventDefault();
-                    handleSaveAsIs();
-                  }
-                }}
-              />
-
-              <div className="mt-3">
-                <button
-                  type="button"
-                  className="text-xs text-muted-foreground cursor-pointer hover:text-foreground"
-                  onClick={() => setShowHints(prev => !prev)}
-                >
-                  {showHints ? '− Import options' : '+ Import options'}
-                </button>
-                {showHints && (
-                  <Textarea
-                    rows={2}
-                    value={instruction}
-                    onChange={e => setInstruction(e.target.value)}
-                    placeholder='Cleanup hints, e.g. "only grab the first song" or "ignore the intro"'
-                    className="mt-2 font-ui"
-                    onKeyDown={e => {
-                      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canSave) {
-                        e.preventDefault();
-                        handleSaveAsIs();
-                      }
-                    }}
-                  />
-                )}
+                <p className="text-sm text-muted-foreground mt-1">Add a chord chart from any of these four, in any format. We&apos;ll tidy up the formatting.</p>
               </div>
 
               <input
@@ -1031,72 +1001,207 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 className="hidden"
                 onChange={handleFileUpload}
               />
-              <div className="flex flex-col gap-3 mt-3">
-                {/* Primary action is free and instant. The AI options are
-                    secondary and labelled as costing credits, because "clean up
-                    the formatting" previously looked free, sat above the plain
-                    option, and quietly spent 15 to 20 credits. */}
-                <div className="flex items-center gap-3 flex-wrap">
-                  <Button onClick={handleSaveAsIs} disabled={!canSave}>
-                    Add to library
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => handleImport('library')}
-                    disabled={!canParse}
-                    title="Reformats the chart with AI before saving. Uses AI credits."
-                  >
-                    Tidy up with AI
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => handleImport('rewrite')}
-                    disabled={!canParse}
-                    title="Reformats the chart and opens the rewrite workshop. Uses AI credits."
-                  >
-                    Import &amp; rewrite
-                  </Button>
-                  <span className="text-xs text-muted-foreground">
-                    {saveBlocker ?? shortcutHint}
-                  </span>
-                </div>
-                {/* Only surfaced when the AI actions specifically are unavailable.
-                    Saving and playing still work, so this is a note rather than a
-                    blocker. */}
-                {!hasModel && hasInput && (
-                  <p className="text-xs text-muted-foreground">
-                    {parseBlocker} to use the AI options. Importing and playing work without one.
-                  </p>
-                )}
-                {/* Content sources: these just fill the box above. */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs text-muted-foreground">Or add from:</span>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={!hasProfile || !hasModel || imageLoading}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    {imageLoading ? <><Spinner size="sm" className="mr-1.5" /> Extracting...</> : 'Photo'}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={!hasProfile || fileLoading}
-                    onClick={() => docFileInputRef.current?.click()}
-                  >
-                    {fileLoading ? <><Spinner size="sm" className="mr-1.5" /> Extracting...</> : 'File'}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={!hasProfile}
-                    onClick={() => setLinkDialogOpen(true)}
-                  >
-                    Link
-                  </Button>
-                </div>
-              </div>
+
+              {/* The four sources are tabs because they are four alternatives, and
+                  a tab strip is how you show that. They were previously three
+                  small secondary buttons behind an "Or add from:" label, placed
+                  *below* the save actions, which read as an afterthought and hid
+                  three quarters of the ways in.
+
+                  They are not four parallel destinations though: photo, file, and
+                  link each end by filling the paste box, so Paste doubles as the
+                  review step and owns the save actions. An extraction switches
+                  back to it, which is also what makes the text visible before you
+                  commit to saving it. */}
+              <Tabs
+                value={importSource}
+                onValueChange={value => setImportSource(value as ImportSource)}
+                className="flex-1 min-h-0 flex flex-col"
+              >
+                {/* The shared TabsList is styled for the full-width app nav, so the
+                    page gutters and centering are dropped here. */}
+                {/* Labelled because this is the second tablist on the page: the app
+                    nav is the other one. Unlabelled, a screen reader announces two
+                    indistinguishable tab lists. */}
+                <TabsList
+                  aria-label="Import source"
+                  className="px-0 sm:px-0 mx-0 max-w-none border-b border-border shrink-0"
+                >
+                  <TabsTrigger className="px-3 sm:px-4 py-2" value="paste">Paste</TabsTrigger>
+                  <TabsTrigger className="px-3 sm:px-4 py-2" value="photo">Photo</TabsTrigger>
+                  <TabsTrigger className="px-3 sm:px-4 py-2" value="file">File</TabsTrigger>
+                  <TabsTrigger className="px-3 sm:px-4 py-2" value="link">Link</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="paste" className="flex-1 min-h-0 flex flex-col mt-3">
+                  {!input && (
+                    <Button
+                      variant="secondary"
+                      className="mb-3 md:hidden"
+                      onClick={handlePasteFromClipboard}
+                    >
+                      Paste from clipboard
+                    </Button>
+                  )}
+
+                  <Textarea
+                    className="flex-1 min-h-0 resize-none"
+                    value={input}
+                    onChange={e => setInput(e.target.value)}
+                    placeholder="Paste lyrics, or drop a file here..."
+                    onKeyDown={e => {
+                      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canSave) {
+                        e.preventDefault();
+                        handleSaveAsIs();
+                      }
+                    }}
+                  />
+
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground cursor-pointer hover:text-foreground"
+                      onClick={() => setShowHints(prev => !prev)}
+                    >
+                      {showHints ? '− Import options' : '+ Import options'}
+                    </button>
+                    {showHints && (
+                      <Textarea
+                        rows={2}
+                        value={instruction}
+                        onChange={e => setInstruction(e.target.value)}
+                        placeholder='Cleanup hints, e.g. "only grab the first song" or "ignore the intro"'
+                        className="mt-2 font-ui"
+                        onKeyDown={e => {
+                          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canSave) {
+                            e.preventDefault();
+                            handleSaveAsIs();
+                          }
+                        }}
+                      />
+                    )}
+                  </div>
+
+                  <div className="flex flex-col gap-3 mt-3">
+                    {/* Primary action is free and instant. The AI options are
+                        secondary and labelled as costing credits, because "clean up
+                        the formatting" previously looked free, sat above the plain
+                        option, and quietly spent 15 to 20 credits. */}
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <Button onClick={handleSaveAsIs} disabled={!canSave}>
+                        Add to library
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() => handleImport('library')}
+                        disabled={!canParse}
+                        title="Reformats the chart with AI before saving. Uses AI credits."
+                      >
+                        Tidy up with AI
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() => handleImport('rewrite')}
+                        disabled={!canParse}
+                        title="Reformats the chart and opens the rewrite workshop. Uses AI credits."
+                      >
+                        Import &amp; rewrite
+                      </Button>
+                      <span className="text-xs text-muted-foreground">
+                        {saveBlocker ?? shortcutHint}
+                      </span>
+                    </div>
+                    {/* Only surfaced when the AI actions specifically are unavailable.
+                        Saving and playing still work, so this is a note rather than a
+                        blocker. */}
+                    {!hasModel && hasInput && (
+                      <p className="text-xs text-muted-foreground">
+                        {parseBlocker} to use the AI options. Importing and playing work without one.
+                      </p>
+                    )}
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="photo" className="mt-3">
+                  <div className="rounded-md border border-dashed border-border p-6 text-center">
+                    <p className="text-sm text-muted-foreground mb-3">
+                      A photo of a chart, or a screenshot. The text is read with AI, so this
+                      one uses AI credits.
+                    </p>
+                    <Button
+                      variant="secondary"
+                      disabled={!hasProfile || !hasModel || imageLoading}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      {imageLoading ? <><Spinner size="sm" className="mr-1.5" /> Extracting...</> : 'Choose photo'}
+                    </Button>
+                    {!hasModel && (
+                      <p className="mt-3 text-xs text-muted-foreground">
+                        {parseBlocker} to read a photo. The other three ways in work without one.
+                      </p>
+                    )}
+                    {replaceNotice}
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="file" className="mt-3">
+                  <div className="rounded-md border border-dashed border-border p-6 text-center">
+                    <p className="text-sm text-muted-foreground mb-3">
+                      A PDF up to 10 MB, or a text file up to 1 MB. No AI credits needed.
+                    </p>
+                    <Button
+                      variant="secondary"
+                      disabled={!hasProfile || fileLoading}
+                      onClick={() => docFileInputRef.current?.click()}
+                    >
+                      {fileLoading ? <><Spinner size="sm" className="mr-1.5" /> Extracting...</> : 'Choose file'}
+                    </Button>
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      You can also drop a file anywhere on this card.
+                    </p>
+                    {replaceNotice}
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="link" className="mt-3">
+                  <div className="rounded-md border border-dashed border-border p-6">
+                    <p className="text-sm text-muted-foreground mb-3">
+                      Paste a link to a page with the chords on it. We&apos;ll fetch the text so you can
+                      save it as a chart.
+                    </p>
+                    <div className="flex gap-2 flex-wrap">
+                      {/* Placeholder shows the shape of a URL without naming a site. Naming one
+                          reads as a recommendation to import from it, which we do not want to
+                          make; pasting a link you already have is a different thing. */}
+                      <Input
+                        type="url"
+                        className="flex-1 min-w-[12rem]"
+                        value={linkUrl}
+                        // The dialog this replaced autofocused its field, so you could
+                        // choose "Link" and start typing. Radix mounts the panel fresh
+                        // on activation, so this fires each time the tab is chosen and
+                        // keeps that behaviour.
+                        autoFocus
+                        onChange={e => setLinkUrl(e.target.value)}
+                        placeholder="https://..."
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && linkUrl.trim() && !linkLoading) {
+                            e.preventDefault();
+                            handleScrapeUrl();
+                          }
+                        }}
+                      />
+                      <Button
+                        onClick={handleScrapeUrl}
+                        disabled={!hasProfile || !linkUrl.trim() || linkLoading}
+                      >
+                        {linkLoading ? <><Spinner size="sm" className="mr-1.5" /> Fetching...</> : 'Fetch chords'}
+                      </Button>
+                    </div>
+                    {replaceNotice}
+                  </div>
+                </TabsContent>
+              </Tabs>
 
               {hasProfile && !isFirstTime && (
                 <p className="mt-3 text-xs text-muted-foreground">
@@ -1277,44 +1382,9 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
         </Dialog>
       )}
 
-      {/* Import from Link dialog */}
-      <Dialog open={linkDialogOpen} onOpenChange={(open) => { setLinkDialogOpen(open); if (!open) setLinkUrl(''); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Import from a link</DialogTitle>
-          </DialogHeader>
-          <DialogBody>
-            <p className="text-sm text-muted-foreground mb-3">
-              Paste a link to a page with the chords on it. We&apos;ll fetch the text so you can
-              save it as a chart.
-            </p>
-            {/* Placeholder shows the shape of a URL without naming a site. Naming one
-                reads as a recommendation to import from it, which we do not want to
-                make; pasting a link you already have is a different thing. */}
-            <Input
-              type="url"
-              value={linkUrl}
-              autoFocus
-              placeholder="https://..."
-              onChange={e => setLinkUrl(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && linkUrl.trim() && !linkLoading) {
-                  e.preventDefault();
-                  handleScrapeUrl();
-                }
-              }}
-            />
-          </DialogBody>
-          <DialogFooter>
-            <Button variant="secondary" onClick={() => setLinkDialogOpen(false)} disabled={linkLoading}>
-              Cancel
-            </Button>
-            <Button onClick={handleScrapeUrl} disabled={!linkUrl.trim() || linkLoading}>
-              {linkLoading ? <><Spinner size="sm" className="mr-1.5" /> Fetching...</> : 'Fetch chords'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* The link dialog that used to live here is now the Link tab on the import
+          screen. A modal on top of a tab strip offering the same thing would be
+          two doors to one room, and the inline field is one fewer click. */}
 
       <ConfirmDialog
         open={scrapDialogOpen}
