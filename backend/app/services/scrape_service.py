@@ -1,13 +1,21 @@
 """Fetch a web page and extract song lyrics/chords as plain text.
 
-Has dedicated handling for Ultimate Guitar tab pages, which embed their tab
-content as an HTML-escaped JSON blob inside a ``<div class="js-store">``
-element. Falls back to a generic HTML-to-text extraction for other sites.
+Two extraction strategies, tried in order. The first handles pages that embed
+their chord content as an HTML-escaped JSON blob in a ``<div class="js-store">``
+element, which is a common enough pattern to be worth reading directly: the blob
+carries clean chord text plus structured title/artist, where the rendered HTML
+carries neither. The second is a generic HTML-to-text fallback for everything
+else.
+
+Both are keyed on page structure alone, never on hostname, so neither is tied to
+a particular site and nothing here needs updating when a site is added or
+dropped. Sites are deliberately not named in this module: the user supplies the
+link, and the product does not recommend anywhere in particular to get one.
 
 The extracted text is meant to be fed through the normal parse pipeline
 (``llm_service.parse_content``), which cleans formatting and identifies the
-title/artist. Anything we can determine up front (e.g. Ultimate Guitar's
-structured metadata) is prepended so the parser has a head start.
+title/artist. Anything we can determine up front (such as structured metadata
+found alongside the content) is prepended so the parser has a head start.
 """
 
 import ipaddress
@@ -47,8 +55,8 @@ _MAX_TEXT_CHARS = 100_000  # keep within ParseRequest.content limit
 _IMPERSONATE_BROWSER = "chrome"
 
 # Signs that a response is a bot-challenge / block page rather than real content.
-# Sites like Ultimate Guitar sit behind Cloudflare, which rejects plain
-# datacenter requests; these markers let us detect that and escalate.
+# Many chord sites sit behind a CDN that rejects plain datacenter requests; these
+# markers let us detect that and escalate.
 _BLOCK_STATUS = frozenset({401, 403, 429, 503})
 _BLOCK_BODY_MARKERS = (
     "Just a moment",
@@ -149,10 +157,10 @@ def _fetch_with_requests(url: str) -> tuple[int, str]:
 def _fetch_with_impersonation(url: str) -> tuple[int, str] | None:
     """Retry via curl_cffi, mimicking a real Chrome TLS/HTTP fingerprint.
 
-    This gets past the passive Cloudflare bot checks that reject plain
-    python-requests (e.g. Ultimate Guitar). Returns ``None`` if curl_cffi is
-    unavailable or the request itself fails, so callers fall back to the
-    original (blocked) response.
+    This gets past the passive CDN bot checks that reject the plain
+    python-requests fingerprint. Returns ``None`` if curl_cffi is unavailable or
+    the request itself fails, so callers fall back to the original (blocked)
+    response.
     """
     try:
         from curl_cffi import requests as cffi_requests
@@ -183,8 +191,8 @@ def _fetch(url: str) -> str:
     """Download a page as text, escalating to browser impersonation if blocked.
 
     Most sites succeed on the cheap requests path. When that looks like a bot
-    block (Cloudflare and friends), we retry once with curl_cffi impersonating
-    Chrome, which is enough for sites like Ultimate Guitar.
+    block, we retry once with curl_cffi impersonating Chrome, which is enough for
+    the common CDN checks.
     """
     status, body = _fetch_with_requests(url)
 
@@ -208,12 +216,13 @@ def _fetch(url: str) -> str:
     return body
 
 
-def _clean_ug_markup(content: str) -> str:
-    """Strip Ultimate Guitar's ``[ch]``/``[tab]`` markup, leaving plain text.
+def _strip_bracket_markup(content: str) -> str:
+    """Strip ``[ch]``/``[tab]`` markup from embedded chord text.
 
-    UG wraps chords in ``[ch]...[/ch]`` and aligned chord/lyric blocks in
-    ``[tab]...[/tab]``. Removing the markers leaves the chord-over-lyric layout
-    intact, which is what the parser expects.
+    Embedded chord blobs commonly wrap individual chords in ``[ch]...[/ch]`` and
+    aligned chord/lyric blocks in ``[tab]...[/tab]``. Removing just the markers
+    leaves the chord-over-lyric column alignment intact, which is what the parser
+    expects.
     """
     content = content.replace("\r\n", "\n").replace("\r", "\n")
     content = re.sub(r"\[/?tab\]", "", content)
@@ -221,11 +230,12 @@ def _clean_ug_markup(content: str) -> str:
     return content.strip()
 
 
-def _extract_ultimate_guitar(html_text: str) -> ScrapeResult | None:
-    """Pull tab content and metadata from an Ultimate Guitar page.
+def _extract_embedded_tab_store(html_text: str) -> ScrapeResult | None:
+    """Pull chord content and metadata from an embedded ``js-store`` JSON blob.
 
-    Returns ``None`` if the page isn't an Ultimate Guitar tab page (or its
-    structure has changed), so callers can fall back to generic extraction.
+    Returns ``None`` whenever the expected structure is absent, whether because
+    the page never had it or because a site changed its markup, so callers fall
+    back to generic extraction. Every step is a soft failure for that reason.
     """
     soup = BeautifulSoup(html_text, "html.parser")
     store_div = soup.find("div", class_="js-store")
@@ -250,7 +260,7 @@ def _extract_ultimate_guitar(html_text: str) -> ScrapeResult | None:
     title = tab.get("song_name") or None
     artist = tab.get("artist_name") or None
 
-    return ScrapeResult(text=_clean_ug_markup(content), title=title, artist=artist)
+    return ScrapeResult(text=_strip_bracket_markup(content), title=title, artist=artist)
 
 
 def _normalize_whitespace(text: str) -> str:
@@ -261,7 +271,7 @@ def _normalize_whitespace(text: str) -> str:
 
 
 def _extract_generic(html_text: str) -> ScrapeResult:
-    """Best-effort plain-text extraction for non-UG pages.
+    """Best-effort plain-text extraction for pages with no embedded chord blob.
 
     Chord sites commonly wrap their content in ``<pre>`` tags, so those are
     preferred; otherwise the full body text is used. The parser does the heavy
@@ -295,7 +305,7 @@ def scrape_url(url: str) -> ScrapeResult:
     _validate_url(url)
     html_text = _fetch(url)
 
-    result = _extract_ultimate_guitar(html_text)
+    result = _extract_embedded_tab_store(html_text)
     if result is None:
         result = _extract_generic(html_text)
 

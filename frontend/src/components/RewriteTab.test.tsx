@@ -736,52 +736,52 @@ describe('RewriteTab', () => {
       render(<RewriteTab {...makeProps()} />);
       fireEvent.click(screen.getByRole('button', { name: 'Link' }));
       expect(screen.getByText('Import from a link')).toBeInTheDocument();
-      expect(screen.getByPlaceholderText(/ultimate-guitar/)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('https://...')).toBeInTheDocument();
     });
 
     it('scrapes the URL and populates the textarea with the returned text', async () => {
       vi.mocked(api.scrapeUrl).mockResolvedValue({
-        text: 'Im Yours - Jason Mraz\n\nG  D\nWell you done done me',
-        title: 'Im Yours',
-        artist: 'Jason Mraz',
-        source_url: 'https://tabs.ultimate-guitar.com/tab/jason-mraz/im-yours',
+        text: 'Test Song - Test Artist\n\nG  D\nsample lyric line',
+        title: 'Test Song',
+        artist: 'Test Artist',
+        source_url: 'https://chords.example.com/some-song',
       });
 
       render(<RewriteTab {...makeProps()} />);
       fireEvent.click(screen.getByRole('button', { name: 'Link' }));
 
-      const urlInput = screen.getByPlaceholderText(/ultimate-guitar/);
+      const urlInput = screen.getByPlaceholderText('https://...');
       fireEvent.change(urlInput, {
-        target: { value: 'https://tabs.ultimate-guitar.com/tab/jason-mraz/im-yours' },
+        target: { value: 'https://chords.example.com/some-song' },
       });
       fireEvent.click(screen.getByRole('button', { name: 'Fetch chords' }));
 
       await waitFor(() => {
         expect(api.scrapeUrl).toHaveBeenCalledWith({
           profile_id: 1,
-          url: 'https://tabs.ultimate-guitar.com/tab/jason-mraz/im-yours',
+          url: 'https://chords.example.com/some-song',
         });
       });
 
       // Dialog closes and the textarea is filled with the scraped text
       await waitFor(() => {
         const textarea = screen.getByPlaceholderText(/Paste lyrics/) as HTMLTextAreaElement;
-        expect(textarea.value).toContain('Well you done done me');
+        expect(textarea.value).toContain('sample lyric line');
       });
     });
 
     it('records source_url on the saved song after importing from a link', async () => {
       const parseResult = {
-        title: 'Im Yours',
-        artist: 'Jason Mraz',
-        original_content: 'G  D\nWell you done done me',
+        title: 'Test Song',
+        artist: 'Test Artist',
+        original_content: 'G  D\nsample lyric line',
       } as ParseResult;
       const onParse = vi.fn().mockResolvedValue(parseResult);
       vi.mocked(api.scrapeUrl).mockResolvedValue({
-        text: 'G  D\nWell you done done me',
-        title: 'Im Yours',
-        artist: 'Jason Mraz',
-        source_url: 'https://tabs.ultimate-guitar.com/tab/jason-mraz/im-yours',
+        text: 'G  D\nsample lyric line',
+        title: 'Test Song',
+        artist: 'Test Artist',
+        source_url: 'https://chords.example.com/some-song',
       });
       vi.mocked(api.saveSong).mockResolvedValue({ id: 7, uuid: 'uuid-7', profile_id: 1 } as never);
 
@@ -789,8 +789,8 @@ describe('RewriteTab', () => {
 
       // Add content from a link
       fireEvent.click(screen.getByRole('button', { name: 'Link' }));
-      fireEvent.change(screen.getByPlaceholderText(/ultimate-guitar/), {
-        target: { value: 'https://tabs.ultimate-guitar.com/tab/jason-mraz/im-yours' },
+      fireEvent.change(screen.getByPlaceholderText('https://...'), {
+        target: { value: 'https://chords.example.com/some-song' },
       });
       fireEvent.click(screen.getByRole('button', { name: 'Fetch chords' }));
 
@@ -802,7 +802,7 @@ describe('RewriteTab', () => {
 
       await waitFor(() => {
         expect(api.saveSong).toHaveBeenCalledWith(expect.objectContaining({
-          source_url: 'https://tabs.ultimate-guitar.com/tab/jason-mraz/im-yours',
+          source_url: 'https://chords.example.com/some-song',
         }));
       });
     });
@@ -813,7 +813,7 @@ describe('RewriteTab', () => {
 
       render(<RewriteTab {...makeProps({ setParseError })} />);
       fireEvent.click(screen.getByRole('button', { name: 'Link' }));
-      fireEvent.change(screen.getByPlaceholderText(/ultimate-guitar/), {
+      fireEvent.change(screen.getByPlaceholderText('https://...'), {
         target: { value: 'https://example.com/song' },
       });
       fireEvent.click(screen.getByRole('button', { name: 'Fetch chords' }));

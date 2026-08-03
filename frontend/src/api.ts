@@ -356,7 +356,7 @@ const api = {
     return res.json() as Promise<{ text: string }>;
   },
 
-  // URL scrape (Ultimate Guitar and other chord sites, no LLM needed)
+  // URL scrape (fetches a chord page the user links to, no LLM needed)
   scrapeUrl: async (body: { profile_id: number; url: string }) => {
     const res = await fetch('/api/parse/url', {
       method: 'POST',
