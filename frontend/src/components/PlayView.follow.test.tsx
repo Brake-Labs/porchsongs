@@ -88,7 +88,10 @@ describe('PerformanceSheet follow mode', () => {
 
     // The failure is visible, the mic is released, and Follow is back off, so
     // the very next tap is a start rather than a "turn it off".
-    expect(await screen.findByRole('alert')).toHaveTextContent('permission-denied');
+    // Human copy, not the raw slug: the shared mic-error table now words this the
+    // same way the tuner does. That it renders at all is the load-bearing part,
+    // since the error switches Follow off and the card must outlive that.
+    expect(await screen.findByRole('alert')).toHaveTextContent('Microphone access needed');
     expect(first.abort).toHaveBeenCalled();
     expect(followButton()).toHaveAttribute('aria-pressed', 'false');
 

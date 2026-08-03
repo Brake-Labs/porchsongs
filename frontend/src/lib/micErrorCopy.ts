@@ -16,7 +16,8 @@ export type MicErrorKind =
   | 'permission-denied'
   | 'not-found'
   | 'insecure-context'
-  | 'unsupported';
+  | 'unsupported'
+  | 'audio-suspended';
 
 export const MIC_ERROR_COPY: Record<MicErrorKind, MicErrorCopy> = {
   'permission-denied': {
@@ -31,6 +32,11 @@ export const MIC_ERROR_COPY: Record<MicErrorKind, MicErrorCopy> = {
     heading: 'Secure connection required',
     message:
       'Microphone access requires HTTPS or localhost. Try accessing this page via localhost instead.',
+  },
+  'audio-suspended': {
+    heading: 'Audio is paused',
+    message:
+      'Your browser paused audio, which can happen after voice follow or after the app was in the background. Tap to start listening again.',
   },
   unsupported: {
     heading: 'Browser not supported',

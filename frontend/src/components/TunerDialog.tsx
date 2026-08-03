@@ -145,8 +145,6 @@ function ErrorState({ errorType, onRetry }: { errorType: string | null; onRetry:
           <line x1="14" y1="15" x2="14" y2="9" />
         </svg>
       );
-      heading = 'Audio is paused';
-      message = 'Your browser paused audio, which can happen after voice follow or after the app was in the background. Tap to start listening again.';
       break;
     case 'insecure-context':
       icon = (
