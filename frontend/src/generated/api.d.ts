@@ -307,7 +307,7 @@ export interface paths {
         put?: never;
         /**
          * Parse Url
-         * @description Scrape a web page (e.g. an Ultimate Guitar link) for song text.
+         * @description Fetch a web page the user linked to and extract song text from it.
          *
          *     Returns the extracted text (with any detected title/artist prepended) so it
          *     can flow through the normal parse pipeline, plus the source URL for record.

@@ -146,8 +146,8 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [linkLoading, setLinkLoading] = useState(false);
-  // Records where imported text came from (e.g. an Ultimate Guitar link) so we
-  // can store it as the song's source_url on save. Cleared after each save.
+  // Records where imported text came from so we can store it as the song's
+  // source_url on save. Cleared after each save.
   const pendingSourceUrlRef = useRef<string | null>(null);
   const [inputDragging, setInputDragging] = useState(false);
   const inputDragCounterRef = useRef(0);
@@ -1285,13 +1285,17 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
           </DialogHeader>
           <DialogBody>
             <p className="text-sm text-muted-foreground mb-3">
-              Paste a link to a chords page (Ultimate Guitar works best). We&apos;ll fetch the chords so you can clean them up and start workshopping.
+              Paste a link to a page with the chords on it. We&apos;ll fetch the text so you can
+              save it as a chart.
             </p>
+            {/* Placeholder shows the shape of a URL without naming a site. Naming one
+                reads as a recommendation to import from it, which we do not want to
+                make; pasting a link you already have is a different thing. */}
             <Input
               type="url"
               value={linkUrl}
               autoFocus
-              placeholder="https://tabs.ultimate-guitar.com/tab/..."
+              placeholder="https://..."
               onChange={e => setLinkUrl(e.target.value)}
               onKeyDown={e => {
                 if (e.key === 'Enter' && linkUrl.trim() && !linkLoading) {

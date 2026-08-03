@@ -393,7 +393,7 @@ async def parse_url(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> UrlScrapeResponse:
-    """Scrape a web page (e.g. an Ultimate Guitar link) for song text.
+    """Fetch a web page the user linked to and extract song text from it.
 
     Returns the extracted text (with any detected title/artist prepended) so it
     can flow through the normal parse pipeline, plus the source URL for record.
