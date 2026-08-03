@@ -18,6 +18,7 @@ export type ParseResult = components['schemas']['ParseResponse'];
 export type UrlScrapeResult = components['schemas']['UrlScrapeResponse'];
 export type TokenUsage = components['schemas']['TokenUsage'];
 export type ChatResult = components['schemas']['ChatResponse'];
+export type FolderSuggestion = components['schemas']['FolderSuggestion'];
 
 // --- Frontend-only types (no backend equivalent, stay manual) ---
 

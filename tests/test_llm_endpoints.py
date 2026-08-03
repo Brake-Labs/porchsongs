@@ -1625,3 +1625,182 @@ def test_parse_stream_rate_limit_error(mock_amessages: AsyncMock, client: TestCl
             break
     else:
         raise AssertionError("No error event with error_type found in SSE stream")
+
+
+# --- POST /api/folders/suggest ---
+
+
+def _make_song_in_folder(client: TestClient, profile_id: int, title: str, folder: str) -> None:
+    client.post(
+        "/api/songs",
+        json={
+            "profile_id": profile_id,
+            "title": title,
+            "original_content": "G\nla la",
+            "rewritten_content": "G\nla la",
+            "folder": folder,
+        },
+    )
+
+
+@patch("app.services.llm_service.amessages")
+def test_suggest_folder_ranks_existing_folders_first(
+    mock_amessages: MagicMock, client: TestClient
+) -> None:
+    profile, song = _make_profile_and_song(client)
+    _make_song_in_folder(client, profile["id"], "A hymn", "Hymns")
+    _make_song_in_folder(client, profile["id"], "A shanty", "Sea Shanties")
+
+    mock_amessages.return_value = _fake_message_response(
+        '{"existing": [2, 1], "new": "Carter Family"}'
+    )
+    resp = client.post("/api/folders/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["suggestions"] == [
+        {"folder": "Sea Shanties", "is_new": False},
+        {"folder": "Hymns", "is_new": False},
+        {"folder": "Carter Family", "is_new": True},
+    ]
+    # Usage is reported so the premium guard can price the call from the response.
+    assert body["usage"]["output_tokens"] == 20
+
+
+@patch("app.services.llm_service.amessages")
+def test_suggest_folder_proposes_a_new_one_for_a_user_with_no_folders(
+    mock_amessages: MagicMock, client: TestClient
+) -> None:
+    _, song = _make_profile_and_song(client)
+    mock_amessages.return_value = _fake_message_response('{"existing": [], "new": "Test Artist"}')
+
+    resp = client.post("/api/folders/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
+
+    assert resp.status_code == 200
+    assert resp.json()["suggestions"] == [{"folder": "Test Artist", "is_new": True}]
+
+
+@patch("app.services.llm_service.amessages")
+def test_suggest_folder_falls_back_to_the_artist_when_the_reply_is_unusable(
+    mock_amessages: MagicMock, client: TestClient
+) -> None:
+    """An unreadable reply must still leave something to tap.
+
+    The credit is already spent by the time we parse, so returning nothing would
+    charge the user for a dead end.
+    """
+    _, song = _make_profile_and_song(client)
+    mock_amessages.return_value = _fake_message_response("I'm not sure, sorry!")
+
+    resp = client.post("/api/folders/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
+
+    assert resp.status_code == 200
+    assert resp.json()["suggestions"] == [{"folder": "Test Artist", "is_new": True}]
+
+
+@patch("app.services.llm_service.amessages")
+def test_suggest_folder_does_not_file_the_chart(
+    mock_amessages: MagicMock, client: TestClient
+) -> None:
+    """Suggesting is not filing. Only an explicit tap (a PUT) moves a chart."""
+    _, song = _make_profile_and_song(client)
+    mock_amessages.return_value = _fake_message_response('{"existing": [], "new": "Campfire"}')
+
+    client.post("/api/folders/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
+
+    assert client.get(f"/api/songs/{song['id']}").json()["folder"] is None
+
+
+@patch("app.services.llm_service.amessages")
+def test_suggest_folder_only_sees_the_callers_own_folders(
+    mock_amessages: MagicMock, client: TestClient, db_session: Session
+) -> None:
+    """Another account's folder names must never reach the prompt or the reply."""
+    profile, song = _make_profile_and_song(client)
+    _make_song_in_folder(client, profile["id"], "Mine", "Mine")
+
+    from app.models import Profile, User
+
+    other = User(email="other@porchsongs.local", name="Other", role="user", is_active=True)
+    db_session.add(other)
+    db_session.commit()
+    other_profile = Profile(user_id=other.id, is_default=True)
+    db_session.add(other_profile)
+    db_session.commit()
+    db_session.add(
+        Song(
+            user_id=other.id,
+            profile_id=other_profile.id,
+            title="Theirs",
+            original_content="x",
+            rewritten_content="x",
+            folder="Theirs",
+            status="draft",
+            current_version=1,
+        )
+    )
+    db_session.commit()
+
+    mock_amessages.return_value = _fake_message_response('{"existing": [1], "new": ""}')
+    resp = client.post("/api/folders/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
+
+    prompt = mock_amessages.call_args.kwargs["messages"][0]["content"]
+    assert "Theirs" not in prompt
+    assert "1. Mine" in prompt
+    assert resp.json()["suggestions"] == [{"folder": "Mine", "is_new": False}]
+
+
+def test_suggest_folder_rejects_another_users_song(client: TestClient, db_session: Session) -> None:
+    from app.models import Profile, User
+
+    other = User(email="other2@porchsongs.local", name="Other", role="user", is_active=True)
+    db_session.add(other)
+    db_session.commit()
+    other_profile = Profile(user_id=other.id, is_default=True)
+    db_session.add(other_profile)
+    db_session.commit()
+    other_song = Song(
+        user_id=other.id,
+        profile_id=other_profile.id,
+        title="Theirs",
+        original_content="x",
+        rewritten_content="x",
+        status="draft",
+        current_version=1,
+    )
+    db_session.add(other_song)
+    db_session.commit()
+
+    resp = client.post("/api/folders/suggest", json={"song_id": other_song.id, **LLM_SETTINGS})
+    assert resp.status_code == 404
+
+
+def test_suggest_folder_requires_gateway(client: TestClient) -> None:
+    """Self-hosters with no gateway get the same 503 slug as the other AI actions."""
+    from app.config import settings
+
+    _, song = _make_profile_and_song(client)
+    orig = settings.llm_api_base
+    settings.llm_api_base = None
+    try:
+        resp = client.post("/api/folders/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
+    finally:
+        settings.llm_api_base = orig
+
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["error_type"] == "gateway_not_configured"
+
+
+@patch("app.services.llm_service.amessages")
+def test_suggest_folder_reports_provider_failures(
+    mock_amessages: MagicMock, client: TestClient
+) -> None:
+    from any_llm import RateLimitError
+
+    _, song = _make_profile_and_song(client)
+    mock_amessages.side_effect = RateLimitError("Rate limit exceeded")
+
+    resp = client.post("/api/folders/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
+
+    assert resp.status_code == 502
+    assert resp.json()["detail"]["error_type"] == "provider_rate_limit"

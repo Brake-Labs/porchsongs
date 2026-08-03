@@ -33,6 +33,9 @@ from ..schemas import (
     DefaultPromptsResponse,
     FileExtractRequest,
     FileExtractResponse,
+    FolderSuggestion,
+    FolderSuggestRequest,
+    FolderSuggestResponse,
     ImageExtractRequest,
     ImageExtractResponse,
     ModelsResponse,
@@ -818,6 +821,77 @@ async def chat_stream(
         event_generator(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/folders/suggest", response_model=FolderSuggestResponse, tags=["songs"])
+async def suggest_folder(
+    req: FolderSuggestRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> FolderSuggestResponse:
+    """Suggest where one chart belongs, ranking the user's own folders first.
+
+    Opt-in and per chart. Importing a chart stays free and makes no LLM call at
+    all, so this is the only place organising can cost anything, and it costs it
+    only when someone asks for it.
+
+    Nothing is filed here. The response is a proposal; the client writes the
+    folder through the ordinary ``PUT /api/songs/{ref}`` when the user taps one.
+
+    Lives beside the other LLM endpoints rather than in ``songs.py`` because
+    that is what makes it metered: the premium guard intercepts LLM traffic by
+    path, and an organising endpoint hidden among the CRUD routes would be an
+    unmetered way onto the operator's gateway.
+    """
+    _require_gateway()
+    song = get_user_song(db, current_user, req.song_id)
+
+    folder_rows = (
+        db.query(Song.folder)
+        .filter(Song.user_id == current_user.id, Song.folder.isnot(None), Song.folder != "")
+        .distinct()
+        .all()
+    )
+    existing_folders = sorted(row[0] for row in folder_rows)
+
+    try:
+        result = await _cancellable(
+            request,
+            llm_service.suggest_folder(
+                title=song.title,
+                artist=song.artist,
+                content=song.rewritten_content or song.original_content,
+                existing_folders=existing_folders,
+                provider=settings.llm_provider,
+                model=req.model,
+                api_base=settings.llm_api_base,
+                api_key=settings.llm_api_key,
+                max_tokens=req.max_tokens,
+            ),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=502, detail=_format_llm_error(e, settings.llm_provider)
+        ) from None
+
+    suggestions = [FolderSuggestion(**s) for s in result["suggestions"]]
+
+    # A reply we could not read still has to leave the user with something to
+    # tap, so fall back to the artist. Costs nothing extra: the call is already
+    # paid for by the time we get here.
+    if not suggestions:
+        artist = (song.artist or "").strip()[: llm_service.FOLDER_NAME_MAX_CHARS]
+        if artist and artist.casefold() not in {f.casefold() for f in existing_folders}:
+            suggestions = [FolderSuggestion(folder=artist, is_new=True)]
+
+    usage_data = result.get("usage")
+    return FolderSuggestResponse(
+        suggestions=suggestions,
+        usage=TokenUsage(**usage_data) if usage_data else None,
     )
 
 

@@ -168,6 +168,32 @@ class FolderRename(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
 
+# --- Folder suggestion (AI, opt-in, per chart) ---
+class FolderSuggestRequest(BaseModel):
+    song_id: int
+    model: str
+    # Bounded here, not only in premium's guard. Premium rewrites this before the
+    # request is validated, so hosted users are clamped either way, but a
+    # self-hoster pointing at a shared gateway was previously able to ask for any
+    # number of output tokens on an endpoint documented as costing one credit.
+    # 64 is llm_service.FOLDER_SUGGEST_MAX_OUTPUT_TOKENS, repeated rather than
+    # imported so this module keeps out of the LLM dependency graph.
+    # test_folder_suggest_schema_bound_matches_the_service_cap pins them together.
+    max_tokens: int | None = Field(default=None, ge=1, le=64)
+
+
+class FolderSuggestion(BaseModel):
+    folder: str
+    # True when this folder does not exist yet, so the UI can say so before the
+    # user taps and one more folder quietly appears in their library.
+    is_new: bool
+
+
+class FolderSuggestResponse(BaseModel):
+    suggestions: list[FolderSuggestion]
+    usage: TokenUsage | None = None
+
+
 # --- Song Status ---
 class SongStatusUpdate(BaseModel):
     status: Literal["draft", "completed"]

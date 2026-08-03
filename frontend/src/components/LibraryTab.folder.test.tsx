@@ -1,4 +1,5 @@
 import { screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '@/test/test-utils';
 import LibraryTab from '@/components/LibraryTab';
 import type { AppShellContext } from '@/layouts/AppShell';
@@ -25,6 +26,7 @@ vi.mock('@/api', () => ({
     renameFolder: vi.fn(),
     deleteFolder: vi.fn(),
     downloadSongPdf: vi.fn(),
+    suggestFolder: vi.fn(),
   },
   STORAGE_KEYS: {
     DRAFT_INPUT: 'test_draft_input',
@@ -151,5 +153,49 @@ describe('LibraryTab folder pills', () => {
       expect(screen.getByText('Rename')).toBeInTheDocument();
     });
     expect(screen.getByText('Delete folder')).toBeInTheDocument();
+  });
+});
+
+describe('LibraryTab AI folder suggestion', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupContext();
+  });
+
+  async function openSongMenu(song: Song) {
+    vi.mocked(api.listSongs).mockResolvedValue([song]);
+    renderWithRouter(<LibraryTab />, { route: '/app/library' });
+    await waitFor(() => expect(screen.getByText(song.title as string)).toBeInTheDocument());
+    await userEvent.click(screen.getByLabelText('Song actions'));
+    await screen.findByText('Suggest a folder with AI…');
+  }
+
+  it('sits beside the manual moves and spends nothing until asked', async () => {
+    await openSongMenu(makeSong({ id: 1, title: 'Song A' }));
+
+    await userEvent.click(screen.getByText('Suggest a folder with AI…'));
+
+    // Opening the offer must not call the endpoint: the credit is spent by the
+    // button inside the dialog, not by browsing the menu.
+    await waitFor(() => expect(screen.getByText('Uses 1 AI credit.')).toBeInTheDocument());
+    expect(api.suggestFolder).not.toHaveBeenCalled();
+  });
+
+  it('files the chart only after the user taps a suggestion', async () => {
+    const song = makeSong({ id: 1, title: 'Song A' });
+    vi.mocked(api.suggestFolder).mockResolvedValue([{ folder: 'Hymns', is_new: true }]);
+    vi.mocked(api.updateSong).mockResolvedValue({ ...song, folder: 'Hymns' });
+
+    await openSongMenu(song);
+    await userEvent.click(screen.getByText('Suggest a folder with AI…'));
+    await userEvent.click(await screen.findByRole('button', { name: 'Suggest a folder' }));
+
+    const pick = await screen.findByRole('button', { name: /Hymns/ });
+    expect(api.updateSong).not.toHaveBeenCalled();
+
+    await userEvent.click(pick);
+    await waitFor(() =>
+      expect(api.updateSong).toHaveBeenCalledWith(song.uuid, { folder: 'Hymns' }),
+    );
   });
 });
