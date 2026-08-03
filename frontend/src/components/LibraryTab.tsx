@@ -204,6 +204,30 @@ const GRID_GAP_PX = 12; // 0.75rem
 // container, so the shortfall was taken out of every card by `overflow-hidden`,
 // and the date is the last line in a card, so the date is what vanished.
 const CARD_HEIGHT_FALLBACK_PX = 96;
+// The width at which the horizontal grid earns its second column, and therefore the
+// width below which it has nothing to offer. Shared with measureGrid's column count
+// so the control cannot be offered at a width where the layout it switches to is
+// still a single column.
+const HORIZONTAL_MIN_WIDTH_PX = 1024;
+const THREE_COLUMN_MIN_WIDTH_PX = 1536;
+
+/** Whether the viewport is wide enough for the horizontal grid to lay out in more
+ *  than one column. Initialised from `innerWidth` and kept current by a media query
+ *  listener, matching the pattern in `ui/resizable-columns.tsx`. */
+function useCanScrollHorizontally(): boolean {
+  const [wide, setWide] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth >= HORIZONTAL_MIN_WIDTH_PX
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia(`(min-width: ${HORIZONTAL_MIN_WIDTH_PX}px)`);
+    const handler = (e: MediaQueryListEvent) => setWide(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
+  return wide;
+}
 
 interface SongCardProps {
   song: Song;
@@ -333,6 +357,14 @@ export default function LibraryTab() {
     const stored = localStorage.getItem(STORAGE_KEYS.LIBRARY_LAYOUT);
     return stored === 'horizontal' ? 'horizontal' : 'vertical';
   });
+  const canScrollHorizontally = useCanScrollHorizontally();
+  // Below the breakpoint the horizontal grid is one column wide, so it cannot lay
+  // charts out any differently from the vertical list. It only moves some of them
+  // off the right edge behind a sideways swipe. The stored preference is left
+  // alone rather than rewritten, so a phone visit does not wipe the choice made
+  // on a desktop, and this is derived rather than a second piece of state so a
+  // stored 'horizontal' cannot strand a phone user with no control to escape it.
+  const layout = canScrollHorizontally ? scrollDir : 'vertical';
   const gridRef = useRef<HTMLDivElement>(null);
   const [visibleRows, setVisibleRows] = useState(5);
 
@@ -375,7 +407,7 @@ export default function LibraryTab() {
     localStorage.setItem(STORAGE_KEYS.PERFORMANCE_VERSION, value);
   }, []);
 
-  const containerClass = scrollDir === 'horizontal' ? 'w-full' : 'max-w-[1120px] mx-auto w-full';
+  const containerClass = layout === 'horizontal' ? 'w-full' : 'max-w-[1120px] mx-auto w-full';
 
   // Calculate grid dimensions from the screen:
   // - Column width matches the original responsive breakpoints (2 at lg, 3 at 2xl)
@@ -403,7 +435,7 @@ export default function LibraryTab() {
     // Use the grid's own clientWidth (includes the negative margin bleed)
     const containerWidth = el.clientWidth;
     const vw = window.innerWidth;
-    const cols = vw >= 1536 ? 3 : vw >= 1024 ? 2 : 1;
+    const cols = vw >= THREE_COLUMN_MIN_WIDTH_PX ? 3 : vw >= HORIZONTAL_MIN_WIDTH_PX ? 2 : 1;
     setColWidth(Math.floor((containerWidth - GRID_GAP_PX * (cols - 1)) / cols));
   }, []);
 
@@ -441,10 +473,10 @@ export default function LibraryTab() {
   }, [measureGrid]);
 
   useEffect(() => {
-    if (scrollDir !== 'horizontal') return;
+    if (layout !== 'horizontal') return;
     window.addEventListener('resize', measureGrid);
     return () => window.removeEventListener('resize', measureGrid);
-  }, [scrollDir, measureGrid]);
+  }, [layout, measureGrid]);
 
   // Records which surface a PWA relaunch should return to, the same way PlayPage
   // and RewriteTab do. The library was the one surface that never registered, so
@@ -536,9 +568,9 @@ export default function LibraryTab() {
   // This converges in one extra pass, because measureRowHeight does not feed
   // back into either colWidth or gridHeight.
   useEffect(() => {
-    if (scrollDir !== 'horizontal') return;
+    if (layout !== 'horizontal') return;
     measureRowHeight();
-  }, [scrollDir, measureRowHeight, colWidth, sortedSongs]);
+  }, [layout, measureRowHeight, colWidth, sortedSongs]);
 
   useEffect(() => {
     if (initialSongRef != null && loaded) {
@@ -988,7 +1020,7 @@ export default function LibraryTab() {
   const hasFolders = folders.length > 0;
 
   return (
-    <div className={cn('flex flex-col gap-4', containerClass, scrollDir === 'horizontal' && 'h-full min-h-0')}>
+    <div className={cn('flex flex-col gap-4', containerClass, layout === 'horizontal' && 'h-full min-h-0')}>
       {/* Chart-count status. Inert in OSS; premium renders a count as the plan cap
           approaches and an explanation once it is passed. The library owns the
           count, so it is passed in rather than refetched. */}
@@ -1020,30 +1052,36 @@ export default function LibraryTab() {
           >
             {sortDir === 'asc' ? '\u2191' : '\u2193'}
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={toggleScrollDir}
-            title={scrollDir === 'vertical' ? 'Switch to horizontal scroll' : 'Switch to vertical scroll'}
-            aria-label={scrollDir === 'vertical' ? 'Switch to horizontal scroll' : 'Switch to vertical scroll'}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-              {scrollDir === 'vertical' ? (
-                <>
-                  <rect x="2" y="3" width="12" height="10" rx="1" />
-                  <line x1="5" y1="3" x2="5" y2="13" />
-                  <line x1="11" y1="3" x2="11" y2="13" />
-                </>
-              ) : (
-                <>
-                  <rect x="2" y="3" width="12" height="10" rx="1" />
-                  <line x1="4" y1="6" x2="12" y2="6" />
-                  <line x1="4" y1="8" x2="12" y2="8" />
-                  <line x1="4" y1="10" x2="9" y2="10" />
-                </>
-              )}
-            </svg>
-          </Button>
+          {/* Hidden below the breakpoint rather than shown and made inert. At phone
+              width the grid it switches to is still one column, so the control
+              could only move charts off the right edge behind a sideways swipe. A
+              disabled button would still be asking the question. */}
+          {canScrollHorizontally && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={toggleScrollDir}
+              title={layout === 'vertical' ? 'Switch to horizontal scroll' : 'Switch to vertical scroll'}
+              aria-label={layout === 'vertical' ? 'Switch to horizontal scroll' : 'Switch to vertical scroll'}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+                {layout === 'vertical' ? (
+                  <>
+                    <rect x="2" y="3" width="12" height="10" rx="1" />
+                    <line x1="5" y1="3" x2="5" y2="13" />
+                    <line x1="11" y1="3" x2="11" y2="13" />
+                  </>
+                ) : (
+                  <>
+                    <rect x="2" y="3" width="12" height="10" rx="1" />
+                    <line x1="4" y1="6" x2="12" y2="6" />
+                    <line x1="4" y1="8" x2="12" y2="8" />
+                    <line x1="4" y1="10" x2="9" y2="10" />
+                  </>
+                )}
+              </svg>
+            </Button>
+          )}
         </div>
         <div className="flex flex-wrap gap-1.5 items-center overflow-x-auto">
           {hasFolders && (
@@ -1128,7 +1166,7 @@ export default function LibraryTab() {
         </div>
       )}
 
-      {scrollDir === 'horizontal' ? (
+      {layout === 'horizontal' ? (
         <div
           ref={setGridRef}
           data-testid="horizontal-grid"

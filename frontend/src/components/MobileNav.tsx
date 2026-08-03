@@ -41,9 +41,12 @@ export default function MobileNav({ onNewSong }: MobileNavProps) {
 
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="left">
+          {/* Stays, and stays screen-reader only. Radix requires a Title on a
+              Dialog and warns in the console without one. The visible "Navigation"
+              heading that used to sit here is gone: it labelled a list of links
+              that is self-evidently navigation, in a sheet opened by a hamburger. */}
           <DialogPrimitive.Title className="sr-only">Navigation menu</DialogPrimitive.Title>
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-            <span className="text-sm font-semibold text-foreground">Navigation</span>
+          <div className="flex items-center justify-end px-4 py-3 border-b border-border">
             <SheetClose asChild>
               <button
                 className="p-1 text-muted-foreground hover:text-foreground rounded-md transition-colors"
