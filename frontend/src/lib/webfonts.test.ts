@@ -25,8 +25,9 @@ describe('enableWebFonts', () => {
 
     enableWebFonts();
 
-    // Flipping media before the sheet arrives re-arms it as render-blocking,
-    // which is the blank launch screen this whole mechanism exists to avoid.
+    // Stay non-render-blocking until the sheet has actually arrived. Whether an
+    // early flip would re-arm render-blocking is unverified (it did not
+    // reproduce in Chromium), but waiting is the safe order and costs nothing.
     expect(link.media).toBe('print');
   });
 
