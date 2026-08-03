@@ -76,8 +76,13 @@ export const DEFAULT_FOLLOW_HEALTH: FollowHealthThresholds = {
 
 /**
  * Minimum confidence in an unambiguous estimate before the play view commits to
- * highlighting and scrolling it. Shared with the health check so "we warned that
- * nothing matches" can never contradict a chart that is visibly following along.
+ * highlighting and scrolling it. Shared with the health check so the two agree on
+ * what "committed" means.
+ *
+ * Note the implication runs one way only: `isMatchedEstimate` implies
+ * `isCommittableEstimate`, not the reverse. A committed estimate whose `support`
+ * is below MATCH_SUPPORT still counts as "not matched", so a chart CAN be
+ * scrolling correctly while the no-match warning is up. See MATCH_SUPPORT.
  */
 export const COMMIT_CONFIDENCE = 0.3;
 
@@ -99,6 +104,13 @@ export function isCommittableEstimate(est: FollowEstimate | null): boolean {
  * recognition scores 0.55 and up. Sitting near the bottom of that gap keeps the
  * "not matching" warning off the backs of people whose recognizer is merely
  * sloppy, while still catching a recognizer emitting nothing relevant.
+ *
+ * Caveat: `support` is recall over the claimed line, so it falls with line
+ * length. A recognizer that returns only two words of a thirteen-word line
+ * scores about 0.08 even when those words are correct and the tracker is
+ * locked on the right line, which trips the no-match warning over a chart that
+ * is following along. Wordy lyrics plus a sparse recognizer is exactly the
+ * degraded-device case this feature targets, so treat 0.15 as provisional.
  */
 export const MATCH_SUPPORT = 0.15;
 
@@ -165,8 +177,13 @@ const WARNINGS: Record<Exclude<FollowWarningKind, 'permission-denied' | 'not-fou
   },
   'no-words': {
     heading: 'Not picking up any words',
+    // Carries the Dictation hint even though 'no-transcript' says it too, because
+    // on iOS this is the message people actually get. WebKit emits no soundstart
+    // at all, and speechstart only alongside a transcription, so the
+    // 'no-transcript' branch clears itself the instant it could fire. Every iPad
+    // therefore lands here, and it is iPads this feature was written for.
     message:
-      'Follow mode is listening but has not recognized anything yet. Try singing closer to the device. If nothing happens, this browser may not support voice follow well.',
+      'Follow mode is listening but has not recognized anything yet. Try singing closer to the device. On an iPad or iPhone, check that Dictation is turned on in Settings, under General, then Keyboard.',
     fatal: false,
   },
   'no-match': {

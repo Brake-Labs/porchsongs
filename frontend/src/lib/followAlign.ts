@@ -294,6 +294,35 @@ function weightedEmission(
   return 0.5 * uni + 0.5 * bi;
 }
 
+/**
+ * Share of what we recently HEARD that belongs to this line, recency-weighted.
+ *
+ * Precision, deliberately, not recall. `weightedEmission` divides by the line's
+ * own length, which is right for the posterior but wrong as a "is this working"
+ * signal: a degraded recognizer returning two correct words of a thirteen-word
+ * lyric scores about 0.08, so a chart that is following along perfectly would be
+ * branded "not matching". That is the exact regime this signal exists to judge,
+ * and a warning that fires wrongly is worse than no warning.
+ *
+ * Precision keeps the property that matters. Unrelated speech still scores 0,
+ * because none of those words appear in the line, while sparse-but-correct
+ * recognition scores high regardless of how wordy the line is.
+ */
+function weightedPrecision(
+  presence: { uni: Map<string, number> },
+  lineTokens: string[],
+): number {
+  if (lineTokens.length === 0) return 0;
+  const lineSet = new Set(lineTokens);
+  let hit = 0;
+  let total = 0;
+  for (const [tok, w] of presence.uni) {
+    total += w;
+    if (lineSet.has(tok)) hit += w;
+  }
+  return total === 0 ? 0 : hit / total;
+}
+
 export interface FollowTracker {
   readonly song: NormalizedSong;
   /** Feed newly recognized words; returns the current estimate. */
@@ -420,7 +449,9 @@ export function createFollowTracker(
       const updated = new Array<number>(L);
       for (let i = 0; i < L; i++) {
         const raw = weightedEmission(presence, song.lyricStates[i]!.tokens);
-        support[i] = raw;
+        // The posterior keeps using recall-shaped emission; `support` is a
+        // separate precision-shaped read, so changing one cannot move the other.
+        support[i] = weightedPrecision(presence, song.lyricStates[i]!.tokens);
         updated[i] = predicted[i]! * Math.pow(Math.max(cfg.emissionFloor, raw), cfg.emissionSharpness);
       }
       const norm = updated.reduce((a, b) => a + b, 0);
@@ -451,6 +482,10 @@ export function createFollowTracker(
       // resolve a near-tie, soft enough that later audio can still override it.
       const blended = posterior.map((p, i) => 0.5 * p + (i === clamped ? 0.5 : 0));
       posterior = normalize(blended);
+      // Like collapseTo: the arbiter moved us, not the audio. Without this the
+      // previous observation's per-state support survives onto a line it was
+      // never measured against.
+      support = new Array<number>(L).fill(0);
       lastObserve = now;
       return estimateFrom(posterior, now);
     },

@@ -260,7 +260,9 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
         const est = tracker.observe(words, t);
         setEstimate(est);
         // Words arriving prove the recognizer is alive even if this engine never
-        // reported the capture milestones, so they promote the health stage too.
+        // reported the capture milestones. Only `firstWordsAt` is recorded, not
+        // the stage: the assessment short-circuits on `firstWordsAt` before it
+        // ever consults `stage`, so there is nothing to promote.
         let healthChanged = false;
         if (words.length > 0) {
           recentRef.current = [...recentRef.current, ...words].slice(-16);

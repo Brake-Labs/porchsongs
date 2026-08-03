@@ -193,3 +193,47 @@ describe('isMatchedEstimate', () => {
     expect(isMatchedEstimate(est)).toBe(true);
   });
 });
+
+describe('support survives sparse recognition on wordy lines', () => {
+  it('does not brand a correctly-following chart as "not matching"', () => {
+    // The reviewer's reproduction. A degraded recognizer returns a couple of
+    // correct words per line; the tracker locks on the RIGHT line and the chart
+    // scrolls correctly. A recall-shaped support divided by the line's own
+    // length scored ~0.08 here and fired "Not matching this chart" over a chart
+    // that was following perfectly, in exactly the degraded regime this feature
+    // targets.
+    const SONG = [
+      'I woke to find the morning cold and grey across the empty water',
+      'She packed the letters in a box and left them by the doorway',
+      'And nothing that we carried out was heavier than silence',
+    ].join('\n');
+    const t = createFollowTracker(SONG);
+
+    let now = 0;
+    const est = [
+      ['cold', 'water'],
+      ['packed', 'letters'],
+      ['nothing', 'carried'],
+    ].map(words => t.observe(words, (now += 1000)))[2]!;
+
+    expect(isCommittableEstimate(est)).toBe(true);
+    // The words heard genuinely belong to the claimed line, so support is high.
+    expect(est.support).toBeGreaterThan(MATCH_SUPPORT);
+    expect(isMatchedEstimate(est)).toBe(true);
+  });
+
+  it('still scores unrelated speech at zero', () => {
+    // The property the metric exists for must survive the change from recall to
+    // precision, or drift on noise stops being detectable.
+    const t = createFollowTracker('Amazing grace how sweet the sound\nThat saved a wretch like me');
+    let now = 0;
+    const est = [
+      ['pizza', 'delivery'],
+      ['airport', 'concrete'],
+      ['satellite', 'umbrella'],
+    ].map(w => t.observe(w, (now += 1000)))[2]!;
+
+    expect(est.support).toBe(0);
+    expect(isMatchedEstimate(est)).toBe(false);
+  });
+});

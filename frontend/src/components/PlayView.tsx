@@ -186,8 +186,9 @@ export function PerformanceSheet({
     // near-tied (e.g. an opening verse that is identical to the closing verse,
     // which is genuinely undecidable from the audio), hold the last committed
     // line instead of guessing, and move once a distinguishing line is sung.
-    // Shared with the health check so it can never warn "nothing matches" about
-    // a chart that is visibly following along.
+    // Shared with the health check so both agree on what "committed" means.
+    // Committing does not imply the health check counts it as a match: that
+    // additionally needs `support` (see MATCH_SUPPORT in followHealth).
     if (isCommittableEstimate(e) && e?.renderIndex != null) {
       setActiveIndex(e.renderIndex);
     }

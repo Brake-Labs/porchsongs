@@ -41,8 +41,11 @@ export default function FollowControls({
   const warning = followOn || follow.warning?.fatal ? follow.warning : null;
   // "Following" next to a chart that never moves is the whole bug. Once we know
   // Follow is not working, the toggle has to stop claiming that it is.
+  // "Follow error", not "Mic error": unsupported, network and aborted are all
+  // fatal but none of them is a microphone problem, and the card heading beside
+  // this already names the real cause.
   const label = warning?.fatal
-    ? 'Mic error'
+    ? 'Follow error'
     : !followOn
       ? 'Follow'
       : warning
