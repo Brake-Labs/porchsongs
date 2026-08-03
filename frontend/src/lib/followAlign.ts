@@ -64,6 +64,15 @@ export interface FollowEstimate {
   confidence: number;
   /** True when the top two states are within `marginThreshold` of each other. */
   ambiguous: boolean;
+  /**
+   * Recency-weighted share of the top line's words actually present in the
+   * recent window, in [0,1]. Distinct from `confidence`, which is posterior mass
+   * and can be high with no evidence at all: fed nothing but unrelated words,
+   * the transition prior alone piles belief up against the end of the song and
+   * reports a confident lock on the final line. `support` is the check on that
+   * (0 means "we are not hearing this line, we are only guessing").
+   */
+  support: number;
   /** Top candidates (for the debug overlay and the LLM arbiter), highest first. */
   top: FollowCandidate[];
 }
@@ -285,6 +294,35 @@ function weightedEmission(
   return 0.5 * uni + 0.5 * bi;
 }
 
+/**
+ * Share of what we recently HEARD that belongs to this line, recency-weighted.
+ *
+ * Precision, deliberately, not recall. `weightedEmission` divides by the line's
+ * own length, which is right for the posterior but wrong as a "is this working"
+ * signal: a degraded recognizer returning two correct words of a thirteen-word
+ * lyric scores about 0.08, so a chart that is following along perfectly would be
+ * branded "not matching". That is the exact regime this signal exists to judge,
+ * and a warning that fires wrongly is worse than no warning.
+ *
+ * Precision keeps the property that matters. Unrelated speech still scores 0,
+ * because none of those words appear in the line, while sparse-but-correct
+ * recognition scores high regardless of how wordy the line is.
+ */
+function weightedPrecision(
+  presence: { uni: Map<string, number> },
+  lineTokens: string[],
+): number {
+  if (lineTokens.length === 0) return 0;
+  const lineSet = new Set(lineTokens);
+  let hit = 0;
+  let total = 0;
+  for (const [tok, w] of presence.uni) {
+    total += w;
+    if (lineSet.has(tok)) hit += w;
+  }
+  return total === 0 ? 0 : hit / total;
+}
+
 export interface FollowTracker {
   readonly song: NormalizedSong;
   /** Feed newly recognized words; returns the current estimate. */
@@ -316,6 +354,9 @@ export function createFollowTracker(
   let posterior: number[] = uniform(L);
   let windowWords: Timed[] = [];
   let lastObserve = -Infinity;
+  // Per-state emission from the most recent observation, so an estimate can say
+  // how much of its answer came from heard words rather than from the prior.
+  let support: number[] = new Array<number>(L).fill(0);
 
   function uniform(n: number): number[] {
     return n === 0 ? [] : new Array<number>(n).fill(1 / n);
@@ -345,6 +386,7 @@ export function createFollowTracker(
         stateIndex: null,
         confidence: 0,
         ambiguous: false,
+        support: 0,
         top: [],
       };
     }
@@ -373,6 +415,7 @@ export function createFollowTracker(
       stateIndex: best.stateIndex,
       confidence: best.p,
       ambiguous,
+      support: support[best.stateIndex] ?? 0,
       top,
     };
   }
@@ -398,14 +441,18 @@ export function createFollowTracker(
       // No usable observation: let the prior stand (diffused by the transition).
       if (windowWords.length === 0) {
         posterior = predicted;
+        support = new Array<number>(L).fill(0);
         return estimateFrom(posterior, now);
       }
 
       const presence = recencyPresence(windowWords, now, cfg.halfLifeMs);
       const updated = new Array<number>(L);
       for (let i = 0; i < L; i++) {
-        const base = Math.max(cfg.emissionFloor, weightedEmission(presence, song.lyricStates[i]!.tokens));
-        updated[i] = predicted[i]! * Math.pow(base, cfg.emissionSharpness);
+        const raw = weightedEmission(presence, song.lyricStates[i]!.tokens);
+        // The posterior keeps using recall-shaped emission; `support` is a
+        // separate precision-shaped read, so changing one cannot move the other.
+        support[i] = weightedPrecision(presence, song.lyricStates[i]!.tokens);
+        updated[i] = predicted[i]! * Math.pow(Math.max(cfg.emissionFloor, raw), cfg.emissionSharpness);
       }
       const norm = updated.reduce((a, b) => a + b, 0);
       // If everything collapsed to zero (shouldn't, given the floor), keep the prior.
@@ -422,6 +469,8 @@ export function createFollowTracker(
       posterior = new Array<number>(L).fill(spread);
       posterior[clamped]! += 0.98;
       posterior = normalize(posterior);
+      // A human put us here, not the audio: claim no evidence for it.
+      support = new Array<number>(L).fill(0);
       lastObserve = now;
       return estimateFrom(posterior, now);
     },
@@ -433,6 +482,10 @@ export function createFollowTracker(
       // resolve a near-tie, soft enough that later audio can still override it.
       const blended = posterior.map((p, i) => 0.5 * p + (i === clamped ? 0.5 : 0));
       posterior = normalize(blended);
+      // Like collapseTo: the arbiter moved us, not the audio. Without this the
+      // previous observation's per-state support survives onto a line it was
+      // never measured against.
+      support = new Array<number>(L).fill(0);
       lastObserve = now;
       return estimateFrom(posterior, now);
     },
@@ -440,6 +493,7 @@ export function createFollowTracker(
     reset(): void {
       posterior = uniform(L);
       windowWords = [];
+      support = new Array<number>(L).fill(0);
       lastObserve = -Infinity;
     },
   };

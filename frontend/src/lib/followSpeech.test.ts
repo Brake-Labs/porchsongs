@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSpeechSignal, wordDelta } from './followSpeech';
-import type { SignalError, SignalTokens } from './followSignal';
+import type { SignalError, SignalStage, SignalTokens } from './followSignal';
 
 // A controllable stand-in for webkitSpeechRecognition. Tests fire its handlers.
 class MockRecognition {
@@ -11,6 +11,9 @@ class MockRecognition {
   onresult: ((e: unknown) => void) | null = null;
   onerror: ((e: unknown) => void) | null = null;
   onend: (() => void) | null = null;
+  onaudiostart: (() => void) | null = null;
+  onsoundstart: (() => void) | null = null;
+  onspeechstart: (() => void) | null = null;
   start = vi.fn();
   stop = vi.fn();
   abort = vi.fn();
@@ -127,6 +130,40 @@ describe('createSpeechSignal', () => {
       },
     );
     expect(err).toEqual({ type: 'insecure-context' });
+  });
+
+  it('reports the capture ladder so silent failures can be told apart', async () => {
+    const stages: SignalStage[] = [];
+    const signal = createSpeechSignal();
+    await signal.start(
+      () => {},
+      undefined,
+      (s) => stages.push(s),
+    );
+    const rec = MockRecognition.last!;
+
+    rec.onaudiostart!();
+    rec.onsoundstart!();
+    rec.onspeechstart!();
+
+    expect(stages).toEqual(['audio', 'sound', 'speech']);
+  });
+
+  it('stops reporting stages after stop()', async () => {
+    const stages: SignalStage[] = [];
+    const signal = createSpeechSignal();
+    await signal.start(
+      () => {},
+      undefined,
+      (s) => stages.push(s),
+    );
+    const rec = MockRecognition.last!;
+    signal.stop();
+
+    expect(rec.onaudiostart).toBeNull();
+    expect(rec.onsoundstart).toBeNull();
+    expect(rec.onspeechstart).toBeNull();
+    expect(stages).toEqual([]);
   });
 
   it('maps recognizer errors and ignores transient ones', async () => {

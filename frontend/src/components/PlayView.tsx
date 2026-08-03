@@ -7,6 +7,7 @@ import { useFollowScroll } from '@/hooks/useFollowScroll';
 import { normalizeSong } from '@/lib/followAlign';
 import { createCannedSignal, scriptFromSong } from '@/lib/followSignal';
 import { createSpeechSignal } from '@/lib/followSpeech';
+import { isCommittableEstimate } from '@/lib/followHealth';
 import usePerformanceLayout from '@/hooks/usePerformanceLayout';
 import type { Song } from '@/types';
 
@@ -185,7 +186,10 @@ export function PerformanceSheet({
     // near-tied (e.g. an opening verse that is identical to the closing verse,
     // which is genuinely undecidable from the audio), hold the last committed
     // line instead of guessing, and move once a distinguishing line is sung.
-    if (e && e.renderIndex != null && e.status !== 'disabled' && !e.ambiguous && e.confidence >= 0.3) {
+    // Shared with the health check so both agree on what "committed" means.
+    // Committing does not imply the health check counts it as a match: that
+    // additionally needs `support` (see MATCH_SUPPORT in followHealth).
+    if (isCommittableEstimate(e) && e?.renderIndex != null) {
       setActiveIndex(e.renderIndex);
     }
   }, [follow.estimate, followOn]);

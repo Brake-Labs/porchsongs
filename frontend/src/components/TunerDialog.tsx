@@ -3,6 +3,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import useTuner from '@/hooks/useTuner';
+import { micErrorCopy } from '@/lib/micErrorCopy';
 import TunerGauge from '@/components/TunerGauge';
 
 export type TuningStatus = 'intune' | 'close' | 'off' | 'idle';
@@ -108,9 +109,10 @@ export default function TunerDialog({ open, onOpenChange }: TunerDialogProps) {
 
 function ErrorState({ errorType, onRetry }: { errorType: string | null; onRetry: () => void }) {
   let icon: React.ReactNode;
-  let heading: string;
-  let message: string;
   let showRetry = true;
+  // Wording lives in one table shared with Follow mode, which asks for the same
+  // microphone and used to explain these failures not at all.
+  const { heading, message } = micErrorCopy(errorType);
 
   switch (errorType) {
     case 'permission-denied':
@@ -123,8 +125,6 @@ function ErrorState({ errorType, onRetry }: { errorType: string | null; onRetry:
           <line x1="8" y1="23" x2="16" y2="23" />
         </svg>
       );
-      heading = 'Microphone access needed';
-      message = 'Allow microphone access in your browser settings, then try again.';
       break;
     case 'not-found':
       icon = (
@@ -136,8 +136,6 @@ function ErrorState({ errorType, onRetry }: { errorType: string | null; onRetry:
           <line x1="8" y1="23" x2="16" y2="23" />
         </svg>
       );
-      heading = 'No microphone detected';
-      message = 'Connect a microphone and try again.';
       break;
     case 'audio-suspended':
       icon = (
@@ -147,8 +145,6 @@ function ErrorState({ errorType, onRetry }: { errorType: string | null; onRetry:
           <line x1="14" y1="15" x2="14" y2="9" />
         </svg>
       );
-      heading = 'Audio is paused';
-      message = 'Your browser paused audio, which can happen after voice follow or after the app was in the background. Tap to start listening again.';
       break;
     case 'insecure-context':
       icon = (
@@ -157,8 +153,6 @@ function ErrorState({ errorType, onRetry }: { errorType: string | null; onRetry:
           <path d="M7 11V7a5 5 0 0 1 9.9-1" />
         </svg>
       );
-      heading = 'Secure connection required';
-      message = 'Microphone access requires HTTPS or localhost. Try accessing this page via localhost instead.';
       showRetry = false;
       break;
     case 'unsupported':
@@ -169,14 +163,10 @@ function ErrorState({ errorType, onRetry }: { errorType: string | null; onRetry:
           <line x1="12" y1="16" x2="12.01" y2="16" />
         </svg>
       );
-      heading = 'Browser not supported';
-      message = "Your browser doesn't support audio input. Try Chrome or Firefox.";
       showRetry = false;
       break;
     default:
       icon = null;
-      heading = 'Something went wrong';
-      message = 'An unexpected error occurred.';
   }
 
   return (

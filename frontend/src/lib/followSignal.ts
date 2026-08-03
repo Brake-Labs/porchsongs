@@ -36,12 +36,25 @@ export interface SignalError {
   message?: string;
 }
 
+/**
+ * Capture milestones a live signal can report, in ascending order:
+ * 'audio' the recognizer began capturing, 'sound' something audible arrived,
+ * 'speech' the recognizer classified that sound as speech. They are what makes
+ * "follow is silently doing nothing" diagnosable: without them, a recognizer
+ * that never opens the mic is indistinguishable from a performer who has not
+ * started singing. Reporting them is optional; a signal that cannot tell simply
+ * never calls back, and the health check downgrades to a vaguer message rather
+ * than inventing a cause.
+ */
+export type SignalStage = 'audio' | 'sound' | 'speech';
+
 export type OnWords = (tokens: SignalTokens) => void;
 export type OnError = (err: SignalError) => void;
+export type OnStage = (stage: SignalStage) => void;
 
 export interface AdvanceSignal {
   /** Begin emitting words. Resolves once started (permission granted, etc.). */
-  start(onWords: OnWords, onError?: OnError): Promise<void>;
+  start(onWords: OnWords, onError?: OnError, onStage?: OnStage): Promise<void>;
   /** Stop emitting and release any resources. Safe to call more than once. */
   stop(): void;
 }

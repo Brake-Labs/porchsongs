@@ -11,6 +11,7 @@ describe('FollowDebugOverlay', () => {
           stateIndex: 0,
           confidence: 0.82,
           ambiguous: false,
+          support: 0.7,
           top: [{ stateIndex: 0, renderIndex: 2, p: 0.82 }],
         }}
         lyricStates={[{ renderIndex: 2, tokens: ['hold', 'me', 'now'] }]}
