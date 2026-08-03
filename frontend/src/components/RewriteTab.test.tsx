@@ -938,6 +938,21 @@ describe('RewriteTab', () => {
       expect(screen.queryByText('Add to library')).not.toBeInTheDocument();
     });
 
+    it('names its tablist, since the app nav is a second one on the same page', () => {
+      render(<RewriteTab {...makeProps()} />);
+      // Unlabelled, a screen reader announces two indistinguishable tab lists.
+      expect(screen.getByRole('tablist', { name: 'Import source' })).toBeInTheDocument();
+    });
+
+    it('focuses the URL field when the Link tab is chosen', () => {
+      // The dialog this replaced autofocused its field, so choosing "Link" and
+      // typing straight away worked. Losing that is a silent downgrade.
+      render(<RewriteTab {...makeProps()} />);
+      selectImportTab('Link');
+
+      expect(screen.getByPlaceholderText('https://...')).toHaveFocus();
+    });
+
     it('hands off to the Paste tab once a source produces text', async () => {
       vi.mocked(api.scrapeUrl).mockResolvedValue({
         text: 'G  D\nfetched placeholder line',

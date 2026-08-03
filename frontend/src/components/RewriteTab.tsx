@@ -1020,7 +1020,13 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
               >
                 {/* The shared TabsList is styled for the full-width app nav, so the
                     page gutters and centering are dropped here. */}
-                <TabsList className="px-0 sm:px-0 mx-0 max-w-none border-b border-border shrink-0">
+                {/* Labelled because this is the second tablist on the page: the app
+                    nav is the other one. Unlabelled, a screen reader announces two
+                    indistinguishable tab lists. */}
+                <TabsList
+                  aria-label="Import source"
+                  className="px-0 sm:px-0 mx-0 max-w-none border-b border-border shrink-0"
+                >
                   <TabsTrigger className="px-3 sm:px-4 py-2" value="paste">Paste</TabsTrigger>
                   <TabsTrigger className="px-3 sm:px-4 py-2" value="photo">Photo</TabsTrigger>
                   <TabsTrigger className="px-3 sm:px-4 py-2" value="file">File</TabsTrigger>
@@ -1171,6 +1177,11 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                         type="url"
                         className="flex-1 min-w-[12rem]"
                         value={linkUrl}
+                        // The dialog this replaced autofocused its field, so you could
+                        // choose "Link" and start typing. Radix mounts the panel fresh
+                        // on activation, so this fires each time the tab is chosen and
+                        // keeps that behaviour.
+                        autoFocus
                         onChange={e => setLinkUrl(e.target.value)}
                         placeholder="https://..."
                         onKeyDown={e => {
