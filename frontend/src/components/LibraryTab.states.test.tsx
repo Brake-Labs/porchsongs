@@ -158,3 +158,42 @@ describe('LibraryTab load states', () => {
     await waitFor(() => expect(screen.getByText('PLAY ROUTE')).toBeInTheDocument());
   });
 });
+
+describe('LibraryTab horizontal layout', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    capNoticeProps.current = null;
+  });
+
+  async function renderHorizontal() {
+    mockListSongs.mockResolvedValue([MOCK_SONG]);
+    localStorage.setItem('test_library_layout', 'horizontal');
+    renderLibrary();
+    return waitFor(() => screen.getByTestId('horizontal-grid'));
+  }
+
+  it('gives every grid row a floor, so a card can never be squeezed shorter than its content', async () => {
+    const grid = await renderHorizontal();
+
+    // jsdom reports every element as 0x0, so the live measurement is not
+    // observable here and the row height falls back to the constant. What this
+    // pins is the shape of the rule, which is where the bug was: rows were
+    // `minmax(0, 1fr)` inside a fixed-height container, so they were free to
+    // shrink below the height of the card sitting in them. Cards are
+    // `overflow-hidden` and the date is the last line in one, so the date was
+    // the part that got sliced off. Real geometry is covered in
+    // e2e/oss/library.spec.ts, which runs in a browser that does layout.
+    expect(grid.style.gridTemplateRows).toMatch(/repeat\(\d+, minmax\([1-9]\d*px, 1fr\)\)/);
+    expect(grid.style.gridTemplateRows).not.toContain('minmax(0');
+  });
+
+  it('marks song cards so the row-height measurement can find them', async () => {
+    await renderHorizontal();
+
+    // measureRowHeight selects on this attribute. If it is renamed or dropped,
+    // the measurement silently finds nothing and pins every row to the fallback
+    // constant forever, which is exactly the guess this change removed.
+    expect(document.querySelectorAll('[data-song-card]')).toHaveLength(1);
+  });
+});

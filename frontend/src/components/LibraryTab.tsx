@@ -195,6 +195,16 @@ type DialogState =
 
 const SONGS_PER_PAGE = 20;
 
+// Horizontal-scroll grid geometry.
+// GRID_GAP_PX must match the `gap` set on the grid element below.
+const GRID_GAP_PX = 12; // 0.75rem
+// Used only for the first paint, before a card exists to measure. This was
+// previously a hardcoded 76px used for every paint, which was 20px short of the
+// height a card actually needs. Rows were `minmax(0, 1fr)` inside a fixed-height
+// container, so the shortfall was taken out of every card by `overflow-hidden`,
+// and the date is the last line in a card, so the date is what vanished.
+const CARD_HEIGHT_FALLBACK_PX = 96;
+
 interface SongCardProps {
   song: Song;
   selectMode: boolean;
@@ -226,6 +236,9 @@ function SongCard({
 
   return (
     <Card
+      // Marks the card for the horizontal grid's row-height measurement, which
+      // reads a real card instead of assuming one. See measureRowHeight.
+      data-song-card=""
       className={cn(
         'group cursor-pointer transition-colors overflow-hidden min-w-0',
         stretch && 'h-full',
@@ -261,7 +274,12 @@ function SongCard({
           {preview && (
             <p className="text-xs text-muted-foreground truncate mt-0.5">{preview}</p>
           )}
-          <span className="text-xs text-muted-foreground font-[family-name:var(--font-data)] tabular-nums">
+          {/* The last line in the card, so the first thing to disappear if a row
+              is ever shorter than its card again. The e2e suite asserts on it. */}
+          <span
+            data-testid="song-card-date"
+            className="text-xs text-muted-foreground font-[family-name:var(--font-data)] tabular-nums"
+          >
             {date}
             {song.current_version > 1 ? ` \u00B7 v${song.current_version}` : ''}
             {song.folder ? ` \u00B7 ${song.folder}` : ''}
@@ -362,13 +380,16 @@ export default function LibraryTab() {
   // Calculate grid dimensions from the screen:
   // - Column width matches the original responsive breakpoints (2 at lg, 3 at 2xl)
   // - Row count fills the available viewport height
-  const CARD_HEIGHT_PX = 76; // approximate height of a song card + gap
   const [gridHeight, setGridHeight] = useState<number>(400);
   const [colWidth, setColWidth] = useState<number>(400);
+  const [cardHeight, setCardHeight] = useState<number>(CARD_HEIGHT_FALLBACK_PX);
   const measureGrid = useCallback(() => {
     const el = gridRef.current;
     if (!el) return;
-    // Measure from grid top to bottom of the <main> container (excludes footer + main padding)
+    // Measure from grid top to bottom of the <main> container (excludes footer + main padding).
+    // `main` is `flex-1` inside a viewport-height shell, so its bottom does not move
+    // when the grid's own height changes. That keeps this stable rather than feeding
+    // back into itself.
     const mainEl = el.closest('main');
     const bottomEdge = mainEl
       ? mainEl.getBoundingClientRect().bottom - parseFloat(getComputedStyle(mainEl).paddingBottom)
@@ -377,15 +398,41 @@ export default function LibraryTab() {
     const available = bottomEdge - top;
     const clamped = Math.max(200, available);
     setGridHeight(clamped);
-    setVisibleRows(Math.max(1, Math.floor(clamped / CARD_HEIGHT_PX)));
+
     // Width: match the original responsive column count (2 at lg, 3 at 2xl)
     // Use the grid's own clientWidth (includes the negative margin bleed)
     const containerWidth = el.clientWidth;
     const vw = window.innerWidth;
     const cols = vw >= 1536 ? 3 : vw >= 1024 ? 2 : 1;
-    const gap = 12; // 0.75rem gap
-    setColWidth(Math.floor((containerWidth - gap * (cols - 1)) / cols));
+    setColWidth(Math.floor((containerWidth - GRID_GAP_PX * (cols - 1)) / cols));
   }, []);
+
+  // Row height is measured separately, and deliberately after the column width
+  // has landed in the DOM. A card's height depends on its width, because a long
+  // title wraps to a second line. Measuring both in one pass read the height at
+  // the *previous* width, which overestimated it and cost a whole row of songs.
+  const measureRowHeight = useCallback(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    // Read the card's inner content div, not the card box. The box is stretched
+    // to fill its row by `h-full`, so measuring it would ratchet: each pass would
+    // read back the height the previous pass set.
+    //
+    // Every card is measured, not a sample. The tallest one sets the row height,
+    // and it can be anywhere in the list: on a phone the single column is narrow
+    // enough that a long title wraps, and sampling the first 12 left a card
+    // further down clipped. These are consecutive reads with no interleaved
+    // writes, so they cost one layout pass regardless of count.
+    let contentHeight = 0;
+    for (const card of el.querySelectorAll('[data-song-card]')) {
+      const content = card.firstElementChild;
+      if (content) contentHeight = Math.max(contentHeight, content.getBoundingClientRect().height);
+    }
+    const rowHeight = contentHeight > 0 ? Math.ceil(contentHeight) : CARD_HEIGHT_FALLBACK_PX;
+    setCardHeight(rowHeight);
+    // n rows have only n-1 gaps between them, so the gap is added back first.
+    setVisibleRows(Math.max(1, Math.floor((gridHeight + GRID_GAP_PX) / (rowHeight + GRID_GAP_PX))));
+  }, [gridHeight]);
 
   // Callback ref: fires when the horizontal grid mounts/unmounts
   const setGridRef = useCallback((node: HTMLDivElement | null) => {
@@ -481,6 +528,17 @@ export default function LibraryTab() {
 
   const totalPages = Math.ceil(sortedSongs.length / SONGS_PER_PAGE);
   const pagedSongs = sortedSongs.slice(page * SONGS_PER_PAGE, (page + 1) * SONGS_PER_PAGE);
+
+  // Measure the row height once the width and available height are in the DOM,
+  // and again whenever either changes or the rendered set does. Which card is
+  // tallest moves with the search and folder filters: a long title wraps at a
+  // narrow column width, and a chart with no lyrics preview is a line shorter.
+  // This converges in one extra pass, because measureRowHeight does not feed
+  // back into either colWidth or gridHeight.
+  useEffect(() => {
+    if (scrollDir !== 'horizontal') return;
+    measureRowHeight();
+  }, [scrollDir, measureRowHeight, colWidth, sortedSongs]);
 
   useEffect(() => {
     if (initialSongRef != null && loaded) {
@@ -1078,10 +1136,13 @@ export default function LibraryTab() {
           style={{
             height: `${gridHeight}px`,
             display: 'grid',
-            gridTemplateRows: `repeat(${visibleRows}, minmax(0, 1fr))`,
+            // The floor is the measured card height, so a row can never be shorter
+            // than the card it holds. 1fr still distributes whatever is left over,
+            // so the grid fills the space without cropping any card.
+            gridTemplateRows: `repeat(${visibleRows}, minmax(${cardHeight}px, 1fr))`,
             gridAutoFlow: 'column',
             gridAutoColumns: `${colWidth}px`,
-            gap: '0.75rem',
+            gap: `${GRID_GAP_PX}px`,
             scrollSnapType: 'x mandatory',
           }}
         >

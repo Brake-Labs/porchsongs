@@ -303,4 +303,62 @@ test.describe('OSS Library', () => {
       expect(songTitles.indexOf('Alpha Song')).toBeLessThan(songTitles.indexOf('Zeta Song'));
     }
   });
+
+  test('horizontal layout does not crop the date off the cards', async ({ page, baseURL }) => {
+    // Regression test for the horizontal scroll layout cropping every card.
+    // The grid sized its rows from a hardcoded 76px "approximate height of a song
+    // card", which was 20px short of the real 96px. Rows were `minmax(0, 1fr)`
+    // inside a fixed-height container, so each row shrank below its card, and
+    // because cards are `overflow-hidden` and the date is their last line, the
+    // date was sliced in half on every card.
+    //
+    // This has to run in a real browser: the measurement reads
+    // getBoundingClientRect, which jsdom always reports as zero, so no vitest
+    // test can observe the crop.
+    const profileId = await getDefaultProfileId(baseURL!);
+    // Titles of different lengths, because the tallest card sets the row height
+    // and a long title wraps to a second line at a narrow column width.
+    for (const title of [
+      'Grid Row Short',
+      'Grid Row With A Considerably Longer Title That Will Wrap At Narrow Widths',
+      'Grid Row Middling Length Title',
+    ]) {
+      await createSongViaApi(baseURL!, {
+        ...makeSongCreatePayload(profileId),
+        title,
+      });
+    }
+
+    await page.goto('/');
+    await waitForAppReady(page);
+    await navigateToTab(page, 'Library');
+    await expect(page.getByText('Grid Row Short').first()).toBeVisible({ timeout: 5_000 });
+
+    await page.getByLabel('Switch to horizontal scroll').click();
+    const grid = page.locator('[data-testid="horizontal-grid"]');
+    await expect(grid).toBeVisible();
+
+    // Let the two measurement passes settle (width first, then row height).
+    await expect
+      .poll(async () => grid.evaluate(el => el.querySelectorAll('[data-song-card]').length))
+      .toBeGreaterThan(0);
+
+    const cropped = await grid.evaluate(el => {
+      const bad: { title: string; overflowPx: number }[] = [];
+      for (const card of el.querySelectorAll('[data-song-card]')) {
+        const date = card.querySelector('[data-testid="song-card-date"]');
+        if (!date) continue;
+        const overflow = date.getBoundingClientRect().bottom - card.getBoundingClientRect().bottom;
+        if (overflow > 0.5) {
+          bad.push({
+            title: card.querySelector('h3')?.textContent ?? '(untitled)',
+            overflowPx: Math.round(overflow),
+          });
+        }
+      }
+      return bad;
+    });
+
+    expect(cropped).toEqual([]);
+  });
 });
