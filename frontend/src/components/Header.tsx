@@ -33,7 +33,13 @@ export default function Header({ user, authRequired, onLogout, isPremium, leftSl
           <img src="/logo.svg" alt="" className="w-7 h-7 sm:w-9 sm:h-9 mr-2 sm:mr-2.5 self-center" />
           <h1 className="font-display text-xl tracking-tight hidden sm:inline">porchsongs</h1>
         </Link>
-        <span className="text-sm opacity-70 ml-4 hidden md:inline">Make every song yours</span>
+        {/* Reuses the marketing hero sentence verbatim, in both repos, rather than
+            paraphrasing it. Positioning belongs in one place: this line was the last
+            survivor of the rewriting-first pitch and had been contradicting the home
+            page since the rebrand. */}
+        <span className="text-sm opacity-70 ml-4 hidden md:inline">
+          Your chord charts, ready to play
+        </span>
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {/* Gated on a signed-in user because sending feedback needs an account to

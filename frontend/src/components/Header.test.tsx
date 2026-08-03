@@ -30,7 +30,15 @@ describe('Header', () => {
   it('renders the app name and tagline', () => {
     renderWithRouter(<Header {...defaults} />);
     expect(screen.getByText('porchsongs')).toBeInTheDocument();
-    expect(screen.getByText('Make every song yours')).toBeInTheDocument();
+    expect(screen.getByText('Your chord charts, ready to play')).toBeInTheDocument();
+  });
+
+  it('does not carry the pre-rebrand rewriting pitch', () => {
+    // Mirrors the guard already in premium's HomePage.test.tsx. That test caught
+    // the marketing copy; this line outlived it in the app chrome, where it
+    // contradicted the home page for the whole rebrand.
+    renderWithRouter(<Header {...defaults} />);
+    expect(screen.queryByText('Make every song yours')).not.toBeInTheDocument();
   });
 
   it('hides title text on mobile via hidden sm:inline class', () => {
