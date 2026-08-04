@@ -37,6 +37,8 @@ interface SpeechRecognitionLike {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
+  /** Optional: an engine that ignores it simply returns one alternative. */
+  maxAlternatives?: number;
   start(): void;
   stop(): void;
   abort(): void;
@@ -84,7 +86,25 @@ export interface SpeechSignalOptions {
   lang?: string;
   /** Clock for emission timestamps (default Date.now). */
   now?: () => number;
+  /** How many transcripts to ask the recognizer for per phrase. See MAX_ALTERNATIVES. */
+  maxAlternatives?: number;
 }
+
+/**
+ * How many candidate transcripts to ask for per phrase.
+ *
+ * Singing over a guitar is the case this exists for. The recognizer often has the
+ * right words somewhere in its candidate list while its top pick is wrong, and we
+ * were reading `results[i][0]` only, so everything below first place was thrown
+ * away. The tracker scores a recency-weighted presence of unigrams and ordered
+ * bigrams, so a candidate that matches no line contributes nothing to any state
+ * while a correct one lifts the right line: extra candidates are close to free
+ * information for this particular consumer.
+ *
+ * Five rather than more because the list is ranked and the tail gets noisy fast,
+ * and because every extra candidate is another chance to support a wrong line.
+ */
+const MAX_ALTERNATIVES = 5;
 
 /**
  * How many transient 'network' failures to absorb before treating the session as
@@ -97,6 +117,10 @@ export function createSpeechSignal(opts: SpeechSignalOptions = {}): AdvanceSigna
   const now = opts.now ?? Date.now;
   let rec: SpeechRecognitionLike | null = null;
   let stopped = false;
+  // Result indices whose runner-up candidates have already been harvested. Only
+  // finalized results are harvested, and a finalized result never changes again,
+  // so one pass each is both sufficient and non-repeating.
+  const harvested = new Set<number>();
   // Words already emitted from the in-progress utterance (interim results grow).
   let prevWords: string[] = [];
   // Budget for transient 'network' failures before we call it fatal. Reset every
@@ -142,6 +166,7 @@ export function createSpeechSignal(opts: SpeechSignalOptions = {}): AdvanceSigna
       r.continuous = true;
       r.interimResults = true;
       r.lang = opts.lang ?? 'en-US';
+      r.maxAlternatives = opts.maxAlternatives ?? MAX_ALTERNATIVES;
 
       // Capture ladder. On iOS these are the only evidence we get that the mic
       // is actually feeding the recognizer, which is the difference between
@@ -176,10 +201,37 @@ export function createSpeechSignal(opts: SpeechSignalOptions = {}): AdvanceSigna
           }
         }
         const tail = wordDelta(prevWords, full);
-        if (tail.length > 0) {
+
+        // Runner-up candidates, harvested only from finalized results.
+        //
+        // The delta above is a common-prefix comparison against the top candidate,
+        // which needs a stable, append-mostly sequence. Folding other candidates
+        // into it would make that prefix thrash and re-emit words already sent.
+        // So they travel separately, and only from finalized results: an interim
+        // result's candidates are both the least reliable and revised repeatedly,
+        // and re-emitting a revision would reinforce a wrong guess every time the
+        // recognizer changed its mind.
+        const primary = new Set(full);
+        const alternates: string[] = [];
+        for (let i = 0; i < e.results.length; i++) {
+          const res = e.results[i];
+          if (!res?.isFinal || harvested.has(i)) continue;
+          harvested.add(i);
+          for (let a = 1; a < res.length; a++) {
+            const transcript = res[a]?.transcript ?? '';
+            for (const word of transcript.trim().split(/\s+/)) {
+              const w = word.toLowerCase();
+              // Words the top candidate already supplied would double-count.
+              if (w && !primary.has(w)) alternates.push(w);
+            }
+          }
+        }
+
+        const words = alternates.length > 0 ? [...tail, ...alternates] : tail;
+        if (words.length > 0) {
           // Recognition is working, so forgive earlier network blips.
           networkRetries = 0;
-          onWords({ words: tail, t: now() });
+          onWords({ words, t: now() });
         }
         prevWords = full;
       };

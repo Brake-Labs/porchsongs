@@ -8,6 +8,8 @@ class MockRecognition {
   continuous = false;
   interimResults = false;
   lang = '';
+  // Set by createSpeechSignal; a real engine that ignores it returns one candidate.
+  maxAlternatives = 1;
   onresult: ((e: unknown) => void) | null = null;
   onerror: ((e: unknown) => void) | null = null;
   onend: (() => void) | null = null;
@@ -290,5 +292,91 @@ describe('transient network failures', () => {
     expect(errors.map(e => e.type)).toEqual(['permission-denied']);
     expect(rec.onend).toBeNull();
     expect(rec.start).toHaveBeenCalledTimes(1);
+  });
+});
+
+/** Build an event whose results each carry several ranked candidates. */
+function altResultEvent(segments: { alts: string[]; isFinal: boolean }[]) {
+  const results = segments.map(({ alts, isFinal }) =>
+    Object.assign(
+      alts.map((transcript) => ({ transcript })),
+      { isFinal, length: alts.length },
+    ),
+  );
+  return { resultIndex: 0, results: Object.assign(results, { length: results.length }) };
+}
+
+/**
+ * Runner-up candidates.
+ *
+ * Singing over a guitar, the recognizer often has the right words somewhere in its
+ * candidate list while its top pick is wrong. Only `results[i][0]` was ever read,
+ * so everything below first place was discarded. The tracker scores presence of
+ * unigrams and bigrams, so a candidate matching no line costs nothing while a
+ * correct one lifts the right line.
+ */
+describe('createSpeechSignal alternatives', () => {
+  async function startWith(opts: Parameters<typeof createSpeechSignal>[0] = {}) {
+    const words: SignalTokens[] = [];
+    const signal = createSpeechSignal({ now: () => 1000, ...opts });
+    await signal.start((tok) => words.push(tok));
+    return { words, rec: MockRecognition.last!, signal };
+  }
+
+  it('asks the recognizer for several candidates', async () => {
+    const { rec } = await startWith();
+    expect(rec.maxAlternatives).toBeGreaterThan(1);
+  });
+
+  it('honours an explicit candidate count', async () => {
+    const { rec } = await startWith({ maxAlternatives: 2 });
+    expect(rec.maxAlternatives).toBe(2);
+  });
+
+  it('emits words from runner-up candidates of a finalized phrase', async () => {
+    const { words, rec } = await startWith();
+    rec.onresult!(altResultEvent([{ alts: ['wander down the road', 'walking down the road'], isFinal: true }]));
+    // The top candidate mishears "walking" as "wander"; the correct word is in
+    // second place and used to be thrown away.
+    expect(words.flatMap((w) => w.words)).toContain('walking');
+  });
+
+  it('does not repeat words the top candidate already supplied', async () => {
+    const { words, rec } = await startWith();
+    rec.onresult!(altResultEvent([{ alts: ['down the road', 'down the road'], isFinal: true }]));
+    const emitted = words.flatMap((w) => w.words);
+    // "down" once, not twice: double-counting would over-weight the line.
+    expect(emitted.filter((w) => w === 'down')).toHaveLength(1);
+  });
+
+  it('ignores candidates on an interim phrase', async () => {
+    // Interim candidates are the least reliable and get revised repeatedly, so
+    // harvesting them would reinforce a wrong guess on every revision.
+    const { words, rec } = await startWith();
+    rec.onresult!(altResultEvent([{ alts: ['wander', 'walking'], isFinal: false }]));
+    expect(words.flatMap((w) => w.words)).not.toContain('walking');
+  });
+
+  it('harvests a phrase only once, however often the event refires', async () => {
+    const { words, rec } = await startWith();
+    const event = altResultEvent([{ alts: ['wander down', 'walking down'], isFinal: true }]);
+    rec.onresult!(event);
+    rec.onresult!(event);
+    rec.onresult!(event);
+    expect(words.flatMap((w) => w.words).filter((w) => w === 'walking')).toHaveLength(1);
+  });
+
+  it('still emits the top candidate when there are no runner-ups', async () => {
+    const { words, rec } = await startWith();
+    rec.onresult!(altResultEvent([{ alts: ['walking down the road'], isFinal: true }]));
+    expect(words.flatMap((w) => w.words)).toEqual(['walking', 'down', 'the', 'road']);
+  });
+
+  it('lowercases candidate words like the primary transcript', async () => {
+    const { words, rec } = await startWith();
+    rec.onresult!(altResultEvent([{ alts: ['wander', 'Walking Down'], isFinal: true }]));
+    const emitted = words.flatMap((w) => w.words);
+    expect(emitted).toContain('walking');
+    expect(emitted).not.toContain('Walking');
   });
 });
