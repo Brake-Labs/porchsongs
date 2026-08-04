@@ -76,12 +76,47 @@ async def health(db: Session = Depends(get_db)) -> HealthResponse | JSONResponse
     return HealthResponse(status="ok", version=__version__)
 
 
+# Files that decide which build everything else comes from, and so must never be
+# answered from a cache.
+#
+# `/sw.js` is the important one and the reason this set exists. It is not under
+# `/assets/`, it is not `text/html`, and it is not hash-named, so it used to fall
+# through this middleware with no Cache-Control at all. A CDN in front of the origin
+# then applies its own default, and Cloudflare's is a 4 hour browser TTL. That is
+# enough to wedge an installed PWA completely: the stale worker keeps precaching the
+# previous entry bundle, `registration.update()` re-fetches the same bytes and finds
+# nothing new, so no worker ever reaches `waiting` while `/api/web-build-id` (which
+# is `no-store`) correctly reports the new build. The update banner appears, has
+# nothing to activate, and cannot be dismissed by reloading, because reloading is
+# answered from the old worker's precache. Observed in production on 2026-08-04 with
+# `cf-cache-status: HIT`, `age: 2587`, and a live `sw.js` still naming the previous
+# bundle.
+#
+# `workbox-*.js` is deliberately absent: it is content-hashed, so a long cache is
+# correct and a new build simply requests a new URL.
+_NEVER_CACHE_PATHS = frozenset(
+    {
+        "/sw.js",
+        # Emitted only when vite-plugin-pwa's `injectRegister` is set to 'script'.
+        # Listed so turning that on cannot quietly reintroduce the same wedge.
+        "/registerSW.js",
+        # The PWA's identity: name, icons, start_url. Stale copies survive reinstalls.
+        "/manifest.json",
+    }
+)
+
+
 class CacheHeadersMiddleware:
     """Tune Cache-Control so deploys are picked up without serving stale code.
 
     Hashed assets (Vite ``/assets/*``) are immutable and cached for a year; the
-    HTML shell (index.html / SPA fallback) is served ``no-cache`` so the browser
-    always revalidates and learns about a new entry bundle after a deploy.
+    HTML shell (index.html / SPA fallback) and the service worker are served
+    ``no-cache`` so the browser always revalidates and learns about a new entry
+    bundle after a deploy.
+
+    Every response gets an explicit Cache-Control. Saying nothing is not neutral:
+    it hands the decision to whatever CDN is in front, which is how the service
+    worker came to be cached for four hours.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -94,11 +129,16 @@ class CacheHeadersMiddleware:
 
         path: str = scope.get("path", "")
         is_hashed_asset = path.startswith("/assets/")
+        never_cache = path in _NEVER_CACHE_PATHS
 
         async def send_with_cache(message: Message) -> None:
             if message["type"] == "http.response.start":
                 headers = list(message.get("headers", []))
-                if is_hashed_asset:
+                if never_cache:
+                    headers = [(k, v) for (k, v) in headers if k.lower() != b"cache-control"]
+                    headers.append((b"cache-control", b"no-cache"))
+                    message = {**message, "headers": headers}
+                elif is_hashed_asset:
                     headers.append((b"cache-control", b"public, max-age=31536000, immutable"))
                     message = {**message, "headers": headers}
                 else:
