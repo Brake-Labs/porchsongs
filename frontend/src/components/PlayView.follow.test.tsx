@@ -124,3 +124,91 @@ describe('PerformanceSheet follow mode', () => {
     expect(MockRecognition.instances).toHaveLength(1);
   });
 });
+
+/**
+ * Tap-to-reposition.
+ *
+ * Follow guesses from audio and sometimes guesses wrong, most often on a repeated
+ * chorus where two positions are genuinely indistinguishable. The tracker could
+ * always be told the answer, but nothing in the UI called `reposition`, so the only
+ * way to correct a wrong lock was to stop and restart Follow.
+ *
+ * SONG_TEXT lines: 0 chord, 1 lyric, 2 chord, 3 lyric. So the lyric states are
+ * render indices 1 and 3.
+ */
+describe('PerformanceSheet tap to reposition', () => {
+  const line = (i: number) => document.querySelector(`[data-line="${i}"]`) as HTMLElement;
+  const isHighlighted = (i: number) => !!line(i)?.style.background;
+
+  async function followOn(user: ReturnType<typeof userEvent.setup>) {
+    render(<PerformanceSheet song={makeSong()} version="rewritten" />);
+    await user.click(followButton());
+    expect(followButton()).toHaveAttribute('aria-pressed', 'true');
+  }
+
+  it('moves the highlight to a tapped lyric line', async () => {
+    const user = userEvent.setup();
+    await followOn(user);
+    // Nothing has been heard yet, so nothing is locked.
+    expect(isHighlighted(3)).toBe(false);
+
+    await user.click(line(3));
+
+    expect(isHighlighted(3)).toBe(true);
+  });
+
+  it('treats a tap on a chord row as the lyric it sits above', async () => {
+    // Chord lines are not tracker states. Snapping backwards would jump the singer
+    // to the previous verse, so the tap resolves forward to the line it labels.
+    const user = userEvent.setup();
+    await followOn(user);
+
+    await user.click(line(2));
+
+    expect(isHighlighted(3)).toBe(true);
+    expect(isHighlighted(1)).toBe(false);
+  });
+
+  it('centres the page again even when the tapped line is already the target', async () => {
+    // The dead zone means the follow-along effect ignores a line it already
+    // considers centred, so this tap has to force the scroll or it does nothing.
+    const user = userEvent.setup();
+    await followOn(user);
+    await user.click(line(3));
+    const scrollTo = Element.prototype.scrollTo as ReturnType<typeof vi.fn>;
+    scrollTo.mockClear();
+
+    await user.click(line(3));
+
+    expect(scrollTo).toHaveBeenCalled();
+  });
+
+  it('renders no tappable lines while Follow is off, so reading a chart is inert', async () => {
+    // This is the real mechanism, and worth asserting rather than assuming: with
+    // Follow off the sheet is one block of text with no per-line spans and no click
+    // handler, so a stray tap cannot move anything. Asserting only that a click did
+    // nothing would pass even if the guard were deleted.
+    const user = userEvent.setup();
+    render(<PerformanceSheet song={makeSong()} version="rewritten" />);
+    const scrollTo = Element.prototype.scrollTo as ReturnType<typeof vi.fn>;
+    scrollTo.mockClear();
+
+    expect(document.querySelectorAll('[data-line]')).toHaveLength(0);
+
+    const pre = document.querySelector('pre') as HTMLElement;
+    await user.click(pre);
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it('renders tappable lines once Follow is on', async () => {
+    const user = userEvent.setup();
+    await followOn(user);
+    expect(document.querySelectorAll('[data-line]').length).toBeGreaterThan(0);
+  });
+
+  it('says what a tap does, since the affordance is otherwise invisible', async () => {
+    const user = userEvent.setup();
+    await followOn(user);
+    expect(screen.getByLabelText(/Tap a line to move Follow to it/)).toBeInTheDocument();
+  });
+});

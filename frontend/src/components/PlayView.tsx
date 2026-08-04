@@ -193,7 +193,63 @@ export function PerformanceSheet({
       setActiveIndex(e.renderIndex);
     }
   }, [follow.estimate, followOn]);
-  const { paused, resume } = useFollowScroll(sheetRef, activeIndex, { enabled: followOn, reducedMotion });
+  const { paused, resume, recenter } = useFollowScroll(sheetRef, activeIndex, { enabled: followOn, reducedMotion });
+
+  /**
+   * Tap a line to say "I am here".
+   *
+   * Follow guesses from the audio and sometimes guesses wrong, most often on a
+   * repeated chorus where two positions are genuinely indistinguishable. The
+   * tracker has always been able to be told the answer (`reposition` collapses it
+   * onto a state, and treats a human as near-certain) but nothing in the UI called
+   * it, so the only way to correct a wrong lock was to stop and restart Follow.
+   *
+   * Doing both things matters. Repositioning fixes a wrong guess; re-centring fixes
+   * a right guess that has scrolled out of view, and tapping the line that is
+   * already the target would otherwise do nothing at all.
+   */
+  const handleLineTap = useCallback(
+    (renderIndex: number) => {
+      // No `followOn` guard. The only caller is the click handler on the follow
+      // branch's <pre>, which does not exist when Follow is off, so a guard here
+      // could never fire and would be an untestable branch claiming to be a gate.
+      // Two tests pin that structure instead: no `data-line` elements exist with
+      // Follow off, and they do exist with it on.
+      const states = norm.lyricStates;
+      if (states.length === 0) return;
+      // Chord lines sit above their lyric, and section headers and blanks are not
+      // states at all, so snap forward to the first lyric line at or after the tap.
+      // Tapping a chord row therefore means the line it belongs to, which is what
+      // it looks like it means. Past the last lyric, hold the last state.
+      let stateIndex = states.findIndex(s => s.renderIndex >= renderIndex);
+      if (stateIndex === -1) stateIndex = states.length - 1;
+      follow.reposition(stateIndex);
+      recenter(states[stateIndex]!.renderIndex);
+    },
+    [norm.lyricStates, follow, recenter],
+  );
+
+  /**
+   * One listener on the container rather than a handler per line.
+   *
+   * A chart is hundreds of lines. Making each one focusable would bury a keyboard
+   * user in tab stops, and the alternative of per-line click handlers allocates
+   * hundreds of closures on every render of the hottest component in the app.
+   */
+  const handleSheetClick = useCallback(
+    (e: React.MouseEvent<HTMLElement>) => {
+      // No `followOn` check: this handler and the `data-line` spans it reads only
+      // exist inside the follow branch below, so with Follow off there is nothing to
+      // tap and nothing listening. `handleLineTap` keeps the guard as the one
+      // semantic gate.
+      const line = (e.target as HTMLElement).closest?.('[data-line]');
+      if (!(line instanceof HTMLElement)) return;
+      const index = Number(line.dataset.line);
+      if (!Number.isFinite(index)) return;
+      handleLineTap(index);
+    },
+    [handleLineTap],
+  );
 
   const startMic = useCallback(() => {
     setFollowOn(true);
@@ -245,7 +301,14 @@ export function PerformanceSheet({
         )}
       >
         {followOn ? (
-          <pre className={PRE_BASE_CLASS} style={fontStyle}>
+          <pre
+            className={cn(PRE_BASE_CLASS, 'cursor-pointer')}
+            style={fontStyle}
+            onClick={handleSheetClick}
+            // Not a button or a listbox: it is a chart you can also tap. The label
+            // says what a tap does, since the affordance is otherwise invisible.
+            aria-label="Chart. Tap a line to move Follow to it."
+          >
             {lines.map((ln, i) => {
               const isActive =
                 activeIndex != null &&
