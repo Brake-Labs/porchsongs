@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { PerformanceSheet } from '@/components/PlayView';
+
+const uploadMock = vi.hoisted(() => vi.fn<(r: unknown) => Promise<boolean>>());
+vi.mock('@/extensions', async () => {
+  const actual = await vi.importActual<typeof import('@/extensions')>('@/extensions');
+  return { ...actual, uploadFollowLog: uploadMock };
+});
 import type { Song } from '@/types';
 
 /**
@@ -210,5 +216,70 @@ describe('PerformanceSheet tap to reposition', () => {
     const user = userEvent.setup();
     await followOn(user);
     expect(screen.getByLabelText(/Tap a line to move Follow to it/)).toBeInTheDocument();
+  });
+});
+
+/**
+ * Saving a capture.
+ *
+ * The sessions worth diagnosing happen on a phone, usually an installed PWA, where
+ * a downloaded JSON file is not something anyone gets onto a laptop. So the save
+ * uploads when a store exists and downloads only as a fallback, and it says which
+ * happened, because whether it left the device is the one part the person holding
+ * the phone cannot check.
+ */
+describe('PerformanceSheet saving a capture', () => {
+  let clickSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    uploadMock.mockReset();
+    localStorage.setItem('porchsongs_follow_debug', '1');
+    // jsdom implements neither, and the download path needs both.
+    URL.createObjectURL = vi.fn(() => 'blob:stub');
+    URL.revokeObjectURL = vi.fn();
+    // The anchor click IS the download, so it is what a test must observe. The
+    // status label alone is set either way and would pass with no download at all.
+    clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  });
+
+  async function recordThenSave() {
+    const user = userEvent.setup();
+    render(<PerformanceSheet song={makeSong()} version="rewritten" />);
+    await user.click(screen.getByRole('button', { name: 'Record' }));
+    await user.click(screen.getByRole('button', { name: /Save logs/ }));
+    return user;
+  }
+
+  it('uploads the capture when a store is available', async () => {
+    uploadMock.mockResolvedValue(true);
+    await recordThenSave();
+    await waitFor(() => expect(uploadMock).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('Saved to server')).toBeInTheDocument();
+    // And no file is dumped on the phone when the upload succeeded.
+    expect(clickSpy).not.toHaveBeenCalled();
+  });
+
+  it('falls back to a download when there is no store', async () => {
+    uploadMock.mockResolvedValue(false);
+    await recordThenSave();
+    expect(await screen.findByText('Downloaded to this device')).toBeInTheDocument();
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to a download when the upload throws', async () => {
+    // A failed upload must not cost the capture.
+    uploadMock.mockRejectedValue(new Error('offline'));
+    await recordThenSave();
+    expect(await screen.findByText('Downloaded to this device')).toBeInTheDocument();
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends the recording itself, so it can be replayed offline', async () => {
+    uploadMock.mockResolvedValue(true);
+    await recordThenSave();
+    await waitFor(() => expect(uploadMock).toHaveBeenCalled());
+    const payload = uploadMock.mock.calls[0]![0] as { songText: string; events: unknown[] };
+    expect(payload.songText).toContain('walking down the empty road');
+    expect(Array.isArray(payload.events)).toBe(true);
   });
 });

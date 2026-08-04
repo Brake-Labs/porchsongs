@@ -50,6 +50,7 @@ const MANIFEST: Record<string, string[]> = {
     'getSubscription',
     'listPlans',
     'tryRestoreSession',
+    'uploadFollowLog',
   ],
   feedback: ['FeedbackButton'],
 };

@@ -15,6 +15,8 @@ interface FollowControlsProps {
   onResume: () => void;
   onDemo: () => void;
   onSaveJson: () => void;
+  /** Outcome of the last save, so a phone user knows whether it left the device. */
+  saveState: 'idle' | 'saving' | 'uploaded' | 'downloaded';
 }
 
 /**
@@ -33,6 +35,7 @@ export default function FollowControls({
   onResume,
   onDemo,
   onSaveJson,
+  saveState,
 }: FollowControlsProps) {
   // Non-fatal warnings ("not following") only make sense while Follow is on. A
   // fatal one has to outlive it: a mic failure now switches Follow off by
@@ -131,13 +134,25 @@ export default function FollowControls({
               Play demo
             </Button>
             {follow.recording ? (
-              <Button size="sm" variant="secondary" onClick={onSaveJson}>
-                Save JSON
+              <Button size="sm" variant="secondary" onClick={onSaveJson} disabled={saveState === 'saving'}>
+                {saveState === 'saving' ? 'Saving...' : 'Save logs'}
               </Button>
             ) : (
               <Button size="sm" variant="secondary" onClick={follow.startRecording}>
                 Record
               </Button>
+            )}
+            {/* Whether it left the device is the only part a phone user cannot
+                check for themselves, so it is stated rather than implied. */}
+            {saveState === 'uploaded' && (
+              <span role="status" className="self-center text-[11px] text-green-600">
+                Saved to server
+              </span>
+            )}
+            {saveState === 'downloaded' && (
+              <span role="status" className="self-center text-[11px] text-muted-foreground">
+                Downloaded to this device
+              </span>
             )}
           </div>
         </div>
