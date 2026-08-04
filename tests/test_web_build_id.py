@@ -32,3 +32,43 @@ def test_web_build_id_is_not_cached(client: TestClient) -> None:
     cache_control = resp.headers.get("cache-control", "")
     assert "no-store" in cache_control
     assert "immutable" not in cache_control
+
+
+def _cache_control_for(path: str) -> str:
+    """Run one request through the real middleware stack and read Cache-Control.
+
+    Goes through `CacheHeadersMiddleware` on a route that exists, rather than
+    constructing the middleware by hand, so the assertion covers the wiring too.
+    """
+    from app.main import app
+
+    with TestClient(app) as c:
+        return c.get(path).headers.get("cache-control", "")
+
+
+def test_service_worker_is_never_cached() -> None:
+    # The wedge this prevents: with no Cache-Control from the origin, a CDN applies
+    # its own default. Cloudflare used 4 hours, so an installed PWA kept fetching a
+    # stale sw.js that precached the previous entry bundle. registration.update()
+    # found nothing new, no worker reached `waiting`, and the update banner had
+    # nothing to activate while /api/web-build-id correctly reported a new build.
+    # Reloading could not escape it either, because the reload was answered from the
+    # stale worker's precache.
+    cache_control = _cache_control_for("/sw.js")
+    assert "no-cache" in cache_control
+    assert "immutable" not in cache_control
+    assert "max-age=31536000" not in cache_control
+
+
+def test_manifest_is_never_cached() -> None:
+    # A stale manifest survives an uninstall/reinstall of the PWA, so the icons and
+    # name can outlive the build that changed them.
+    assert "no-cache" in _cache_control_for("/manifest.json")
+
+
+def test_hashed_assets_are_still_immutable() -> None:
+    # The other half of the rule: content-hashed files must keep the year-long
+    # cache, or every deploy would re-download the whole bundle.
+    cache_control = _cache_control_for("/assets/index-abc123.js")
+    assert "immutable" in cache_control
+    assert "max-age=31536000" in cache_control
