@@ -11,20 +11,25 @@
  *   permission-denied / not-found    the recognizer told us why it stopped
  *   no-audio                         we started, but capture never began
  *   no-transcript                    sound is reaching it, no words come out
- *   no-words                         listening, nothing recognized, cause unknown
  *   no-match                         words arrive, none of them fit this chart
+ *
+ * There is deliberately no warning for "listening, nothing recognized yet". Silence
+ * is not a symptom: an intro, a solo, a count-in and a capo change all produce it,
+ * and so does a device that will never recognize anything. With no way to tell those
+ * apart we said the alarming thing, and told performers mid-song that Follow was
+ * broken when they simply had not started singing.
  *
  * Two deliberate biases, because a warning that fires wrongly is worse than no
  * warning at all:
  *
- * 1. We only claim a cause we have positive evidence for. Distinguishing "no
- *    audio reached the recognizer" from "audio reached it but produced no
- *    words" needs the capture ladder (see SignalStage). When an engine reports
- *    'sound' we say so; when it reports nothing we fall back to 'no-words',
- *    which describes the symptom and does not guess between the two. We do NOT
- *    open a second getUserMedia stream to measure input level: on the very iOS
- *    devices this targets, a competing capture is as likely to cause the
- *    silence as to explain it.
+ * 1. We only claim a cause we have positive evidence for, and absence of evidence
+ *    does not qualify. Distinguishing "no audio reached the recognizer" from
+ *    "audio reached it but produced no words" needs the capture ladder (see
+ *    SignalStage). When an engine reports 'sound' we say so; when it reports
+ *    nothing we say nothing, because the only honest reading of silence is that
+ *    we do not know. We do NOT open a second getUserMedia stream to measure input
+ *    level: on the very iOS devices this targets, a competing capture is as likely
+ *    to cause the silence as to explain it.
  * 2. Every warning clears the moment its condition resolves, so a performer who
  *    is simply quiet for a while sees a message disappear rather than an error
  *    they have to dismiss.
@@ -43,7 +48,6 @@ export type FollowWarningKind =
   | 'aborted'
   | 'no-audio'
   | 'no-transcript'
-  | 'no-words'
   | 'no-match';
 
 export interface FollowWarning {
@@ -175,17 +179,6 @@ const WARNINGS: Record<Exclude<FollowWarningKind, 'permission-denied' | 'not-fou
       'Sound is reaching the microphone but your browser is not turning it into words. On an iPad or iPhone, check that Dictation is turned on in Settings, under General, then Keyboard.',
     fatal: false,
   },
-  'no-words': {
-    heading: 'Not picking up any words',
-    // Carries the Dictation hint even though 'no-transcript' says it too, because
-    // on iOS this is the message people actually get. WebKit emits no soundstart
-    // at all, and speechstart only alongside a transcription, so the
-    // 'no-transcript' branch clears itself the instant it could fire. Every iPad
-    // therefore lands here, and it is iPads this feature was written for.
-    message:
-      'Follow mode is listening but has not recognized anything yet. Try singing closer to the device. On an iPad or iPhone, check that Dictation is turned on in Settings, under General, then Keyboard.',
-    fatal: false,
-  },
   'no-match': {
     heading: 'Not matching this chart',
     message:
@@ -232,10 +225,19 @@ export function assessFollowHealth(
       return s.now - s.startedAt >= t.audioMs ? { kind: 'no-audio', ...WARNINGS['no-audio'] } : null;
     }
     if (s.now - s.audioAt < t.wordsMs) return null;
-    // Capture is running. Only claim "we hear you" when the engine said so.
+    // Capture is running and nothing has been recognized. Only say so when the
+    // engine confirmed sound actually reached it, which is the one case where the
+    // silence is evidence of a fault rather than of an instrumental passage.
+    //
+    // Note what this gives up. WebKit emits no soundstart at all, so on an iPad the
+    // stage never reaches 'sound' and this branch never fires, which means an iPad
+    // with Dictation switched off is silent about it again. That was the case this
+    // check was written for. The trade is deliberate: that is a one-time setup
+    // problem, and paying for it with a false alarm during every intro of every song
+    // is the wrong price. It belongs in a first-run explainer, not mid-performance.
     return s.stage === 'sound' || s.stage === 'speech'
       ? { kind: 'no-transcript', ...WARNINGS['no-transcript'] }
-      : { kind: 'no-words', ...WARNINGS['no-words'] };
+      : null;
   }
 
   // Words are flowing. Once anything has ever matched we stay quiet for the

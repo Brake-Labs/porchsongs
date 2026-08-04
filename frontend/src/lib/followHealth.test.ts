@@ -60,12 +60,19 @@ describe('assessFollowHealth', () => {
     expect(assessFollowHealth(s)).toBeNull();
   });
 
-  it('distinguishes "no words at all" from "sound but no transcript"', () => {
-    // Capturing, but the engine never told us sound arrived: do not guess which.
+  it('stays quiet when capture is running but no words have arrived', () => {
+    // Silence is not a symptom. An intro, a solo, a count-in and a device that
+    // cannot recognize speech all look identical from here, so warning means
+    // telling performers Follow is broken every time they play an intro.
     const quiet = snapshot({ stage: 'audio', audioAt: 0, now: wordsMs });
-    expect(assessFollowHealth(quiet)?.kind).toBe('no-words');
+    expect(assessFollowHealth(quiet)).toBeNull();
+    // Still quiet much later: this is not a threshold that was merely raised.
+    expect(assessFollowHealth(snapshot({ stage: 'audio', audioAt: 0, now: wordsMs * 20 }))).toBeNull();
+  });
 
-    // Capturing AND the engine confirmed sound: we can name the real cause.
+  it('warns only when the engine confirmed sound arrived and produced no words', () => {
+    // The one case where silence IS evidence of a fault rather than of an
+    // instrumental passage, because the recognizer said it heard something.
     const noisy = snapshot({ stage: 'sound', audioAt: 0, now: wordsMs });
     expect(assessFollowHealth(noisy)?.kind).toBe('no-transcript');
     expect(assessFollowHealth(snapshot({ stage: 'speech', audioAt: 0, now: wordsMs }))?.kind).toBe(
