@@ -23,6 +23,7 @@ export {
   listPlans,
   createCheckout,
   createPortal,
+  uploadFollowLog,
 } from './api';
 export type {
   SubscriptionInfo,

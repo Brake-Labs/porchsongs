@@ -328,3 +328,54 @@ describe('useFollow health warnings', () => {
     expect(result.current.warning).toBeNull();
   });
 });
+
+/**
+ * Ground truth in recordings.
+ *
+ * `FollowRecording.truth` was designed for "the line the performer said they were
+ * on" and had no producer at all until tapping a line existed. It is what makes a
+ * captured session scorable offline rather than merely replayable.
+ */
+describe('useFollow recording ground truth', () => {
+  it('records a reposition as ground truth', () => {
+    const { result } = renderHook(() => useFollow(SONG));
+    act(() => result.current.startRecording());
+    act(() => result.current.reposition(2));
+
+    let rec: ReturnType<typeof result.current.stopRecording>;
+    act(() => { rec = result.current.stopRecording(); });
+
+    expect(rec!.truth).toHaveLength(1);
+    // The rendered line, not the state index: a scorer compares against what was
+    // on screen.
+    expect(rec!.truth![0]!.renderIndex).toBeGreaterThanOrEqual(0);
+    expect(rec!.truth![0]!.at).toBeGreaterThanOrEqual(0);
+  });
+
+  it('omits truth entirely when nothing was corrected', () => {
+    // An empty array would claim ground truth was collected and happened to be
+    // none, which a scorer would read as "the performer never disagreed".
+    const { result } = renderHook(() => useFollow(SONG));
+    act(() => result.current.startRecording());
+    let rec: ReturnType<typeof result.current.stopRecording>;
+    act(() => { rec = result.current.stopRecording(); });
+    expect(rec!.truth).toBeUndefined();
+  });
+
+  it('does not record truth when no capture is running', () => {
+    const { result } = renderHook(() => useFollow(SONG));
+    act(() => result.current.reposition(1));
+    act(() => result.current.startRecording());
+    let rec: ReturnType<typeof result.current.stopRecording>;
+    act(() => { rec = result.current.stopRecording(); });
+    expect(rec!.truth).toBeUndefined();
+  });
+
+  it('stamps when the capture was taken', () => {
+    const { result } = renderHook(() => useFollow(SONG));
+    act(() => result.current.startRecording());
+    let rec: ReturnType<typeof result.current.stopRecording>;
+    act(() => { rec = result.current.stopRecording(); });
+    expect(rec!.recordedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+});

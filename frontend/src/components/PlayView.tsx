@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { isFollowDebugEnabled } from '@/lib/followDebug';
+import { uploadFollowLog } from '@/extensions';
 import FollowControls from '@/components/FollowControls';
 import { useFollow } from '@/hooks/useFollow';
 import { useFollowScroll } from '@/hooks/useFollowScroll';
@@ -278,8 +279,30 @@ export function PerformanceSheet({
   useEffect(() => {
     if (follow.error) setFollowOn(false);
   }, [follow.error]);
-  const saveJson = useCallback(() => {
-    downloadRecording(follow.stopRecording(), `follow-recording-${Date.now()}.json`);
+  /**
+   * Finish a capture and put it somewhere it can be read from another device.
+   *
+   * Upload first, download as the fallback. The whole point is that the sessions
+   * worth diagnosing happen on a phone, and a JSON file downloaded inside an
+   * installed PWA is not something anyone gets onto a laptop. When there is no
+   * server-side store (OSS, or an upload that fails) the download is still better
+   * than losing the capture.
+   */
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'uploaded' | 'downloaded'>('idle');
+  const saveJson = useCallback(async () => {
+    const recording = follow.stopRecording();
+    setSaveState('saving');
+    let uploaded = false;
+    try {
+      uploaded = await uploadFollowLog(recording);
+    } catch {
+      // An upload failure must not cost the capture, so fall through and download.
+      uploaded = false;
+    }
+    if (!uploaded) {
+      downloadRecording(recording, `follow-recording-${Date.now()}.json`);
+    }
+    setSaveState(uploaded ? 'uploaded' : 'downloaded');
   }, [follow]);
 
   // While following we present a single scrolling column (teleprompter) with the
@@ -360,6 +383,7 @@ export function PerformanceSheet({
           onResume={resume}
           onDemo={startDemo}
           onSaveJson={saveJson}
+          saveState={saveState}
         />
       )}
     </div>

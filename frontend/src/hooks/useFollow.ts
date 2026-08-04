@@ -96,7 +96,12 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
 
   const signalRef = useRef<AdvanceSignal | null>(null);
   const cancelledRef = useRef(false);
-  const recordingRef = useRef<{ start: number; events: CannedEvent[] } | null>(null);
+  const recordingRef = useRef<{
+    start: number;
+    events: CannedEvent[];
+    /** Human repositions: the line the performer said they were on, and when. */
+    truth: { at: number; renderIndex: number }[];
+  } | null>(null);
   const recentRef = useRef<string[]>([]);
   // Arbiter gating state.
   const ambiguousSinceRef = useRef<number | null>(null);
@@ -333,13 +338,23 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
 
   const reposition = useCallback(
     (stateIndex: number) => {
-      setEstimate(tracker.collapseTo(stateIndex, nowFn()));
+      const t = nowFn();
+      const est = tracker.collapseTo(stateIndex, t);
+      setEstimate(est);
+      // A human reposition is the one moment we know where the performer really
+      // was, which is what makes a recording scorable rather than merely
+      // replayable. `FollowRecording.truth` was designed for this and had no
+      // producer until tapping a line existed.
+      const rec = recordingRef.current;
+      if (rec && est.renderIndex != null) {
+        rec.truth.push({ at: t - rec.start, renderIndex: est.renderIndex });
+      }
     },
     [tracker, nowFn],
   );
 
   const startRecording = useCallback(() => {
-    recordingRef.current = { start: nowFn(), events: [] };
+    recordingRef.current = { start: nowFn(), events: [], truth: [] };
     setRecording(true);
   }, [nowFn]);
 
@@ -347,7 +362,14 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
     const rec = recordingRef.current;
     recordingRef.current = null;
     setRecording(false);
-    return { songText, events: rec?.events ?? [] };
+    return {
+      songText,
+      events: rec?.events ?? [],
+      // Only present when the performer actually corrected something. An empty
+      // array would claim ground truth was collected and happened to be nothing.
+      ...(rec?.truth.length ? { truth: rec.truth } : {}),
+      recordedAt: new Date(nowFn()).toISOString(),
+    };
   }, [songText]);
 
   // Release the mic/signal on unmount.
