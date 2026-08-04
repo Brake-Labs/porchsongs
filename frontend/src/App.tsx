@@ -61,7 +61,13 @@ export default function App() {
         <Route path="play/:uuid" element={<ErrorBoundary fallbackLabel="Play"><PlayPage /></ErrorBoundary>} />
         <Route path="settings/:tab" element={<ErrorBoundary fallbackLabel="Settings"><SettingsPage /></ErrorBoundary>} />
         <Route path="settings" element={<Navigate to={`/app/settings/${getDefaultSettingsTab(isPremium)}`} replace />} />
-        <Route path="admin" element={<ErrorBoundary fallbackLabel="Admin">{getAdminPageElement()}</ErrorBoundary>} />
+        {/* Splat, so the admin surface can own everything below /app/admin and route
+            its own sections and detail pages. An exact `admin` path matched only
+            /app/admin and dropped anything deeper into the 404 below, which forced
+            the panel to keep its sections in component state and made a per-user
+            detail page unreachable. Harmless in OSS, where `getAdminPageElement`
+            redirects to /app, so the splat just redirects a wider set of paths. */}
+        <Route path="admin/*" element={<ErrorBoundary fallbackLabel="Admin">{getAdminPageElement()}</ErrorBoundary>} />
       </Route>
 
       {/* OSS root redirects to app; premium root handled by extension routes */}

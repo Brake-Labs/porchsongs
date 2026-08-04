@@ -71,4 +71,25 @@ test.describe('OSS Navigation', () => {
       'active'
     );
   });
+
+  test('paths under /app/admin resolve to the admin route, not the 404 page', async ({ page }) => {
+    // The admin route is a splat (`admin/*`) so a premium build can own everything
+    // below /app/admin and route its own sections and per-user detail pages. With an
+    // exact `admin` path, anything deeper fell through to the catch-all 404.
+    //
+    // In OSS the admin element redirects to /app, which then lands on the library.
+    // That redirect is the observable proof the splat matched: the 404 page renders
+    // "Page not found" and does not navigate anywhere.
+    for (const path of ['/app/admin', '/app/admin/users', '/app/admin/users/42']) {
+      await page.goto(path);
+      await expect(page).toHaveURL(/\/app\/library$/, { timeout: 10_000 });
+      await expect(page.getByText('Page not found')).toHaveCount(0);
+    }
+  });
+
+  test('an unknown path outside /app/admin still shows the 404 page', async ({ page }) => {
+    // Guards the other direction: the splat must not have swallowed the catch-all.
+    await page.goto('/app/definitely-not-a-route');
+    await expect(page.getByText('Page not found')).toBeVisible({ timeout: 10_000 });
+  });
 });
