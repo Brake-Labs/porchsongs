@@ -69,3 +69,75 @@ describe('useFollowScroll', () => {
     expect(el.scrollTo).toHaveBeenCalledWith({ top: 810, behavior: 'auto' });
   });
 });
+
+describe('useFollowScroll recenter', () => {
+  it('centres a line that the dead zone would have left alone', () => {
+    // Within the band, so the follow-along effect deliberately does not move. A
+    // human asking to be re-centred must still be obeyed, otherwise the tap looks
+    // broken on exactly the small drift someone taps to correct.
+    const { el } = makeContainer({ clientHeight: 400, scrollTop: 0, lineTop: 200, lineH: 20 });
+    const ref = { current: el };
+    const { result } = renderHook(() => useFollowScroll(ref, 5, { enabled: true, reducedMotion: true }));
+    expect(el.scrollTo).not.toHaveBeenCalled();
+
+    act(() => result.current.recenter(5));
+
+    expect(el.scrollTo).toHaveBeenCalledWith({ top: 10, behavior: 'auto' });
+  });
+
+  it('ignores the rate limit, so two taps in a row both move the page', () => {
+    const { el } = makeContainer({ clientHeight: 400, scrollTop: 0, lineTop: 1000, lineH: 20 });
+    const ref = { current: el };
+    const { result } = renderHook(() => useFollowScroll(ref, 5, { enabled: true, reducedMotion: true }));
+    const before = (el.scrollTo as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    act(() => result.current.recenter(5));
+    act(() => result.current.recenter(5));
+
+    expect((el.scrollTo as ReturnType<typeof vi.fn>).mock.calls.length).toBe(before + 2);
+  });
+
+  it('re-arms auto-follow, because a tap also ends the manual scroll', () => {
+    const { el } = makeContainer({ clientHeight: 400, scrollTop: 0, lineTop: 1000, lineH: 20 });
+    const ref = { current: el };
+    const { result } = renderHook(() => useFollowScroll(ref, 5, { enabled: true, reducedMotion: true }));
+    act(() => { el.dispatchEvent(new Event('wheel')); });
+    expect(result.current.paused).toBe(true);
+
+    act(() => result.current.recenter(5));
+
+    expect(result.current.paused).toBe(false);
+  });
+
+  it('falls back to the current target when called with no index', () => {
+    const { el } = makeContainer({ clientHeight: 400, scrollTop: 0, lineTop: 1000, lineH: 20 });
+    const ref = { current: el };
+    const { result } = renderHook(() => useFollowScroll(ref, 5, { enabled: true, reducedMotion: true }));
+    (el.scrollTo as ReturnType<typeof vi.fn>).mockClear();
+
+    act(() => result.current.recenter());
+
+    expect(el.scrollTo).toHaveBeenCalledWith({ top: 810, behavior: 'auto' });
+  });
+
+  it('does nothing when there is no target at all', () => {
+    const { el } = makeContainer({ clientHeight: 400, scrollTop: 0, lineTop: 1000, lineH: 20 });
+    const ref = { current: el };
+    const { result } = renderHook(() => useFollowScroll(ref, null, { enabled: true }));
+
+    act(() => result.current.recenter());
+
+    expect(el.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it('does not throw for a line that is not rendered', () => {
+    const { el } = makeContainer({ clientHeight: 400, scrollTop: 0, lineTop: 1000, lineH: 20 });
+    const ref = { current: el };
+    const { result } = renderHook(() => useFollowScroll(ref, 5, { enabled: true }));
+    (el.scrollTo as ReturnType<typeof vi.fn>).mockClear();
+
+    act(() => result.current.recenter(999));
+
+    expect(el.scrollTo).not.toHaveBeenCalled();
+  });
+});
