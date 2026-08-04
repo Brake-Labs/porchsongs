@@ -237,8 +237,9 @@ describe('useFollow health warnings', () => {
     await act(async () => {
       vi.advanceTimersByTime(wordsMs);
     });
-    // Capturing, but no evidence sound ever arrived: describe the symptom only.
-    expect(result.current.warning?.kind).toBe('no-words');
+    // Capturing, but no evidence sound ever arrived: say nothing at all, because
+    // this is what an intro looks like.
+    expect(result.current.warning).toBeNull();
 
     await act(async () => {
       hooks.stage!('sound');
