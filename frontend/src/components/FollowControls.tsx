@@ -22,8 +22,8 @@ interface FollowControlsProps {
 /**
  * The visible Follow-mode chrome layered over the performance sheet: the
  * primary Follow toggle, the "Resume follow" affordance after a manual scroll,
- * and (only when Follow capture is enabled) the diagnostics HUD with demo/record
- * controls.
+ * and (only when the account has Follow capture enabled) the diagnostics HUD with
+ * demo/record controls.
  */
 export default function FollowControls({
   follow,

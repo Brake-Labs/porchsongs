@@ -234,8 +234,7 @@ describe('PerformanceSheet saving a capture', () => {
 
   beforeEach(() => {
     uploadMock.mockReset();
-    captureEnabledMock.mockReturnValue(false);
-    localStorage.setItem('porchsongs_follow_debug', '1');
+    captureEnabledMock.mockReturnValue(true);
     // jsdom implements neither, and the download path needs both.
     URL.createObjectURL = vi.fn(() => 'blob:stub');
     URL.revokeObjectURL = vi.fn();
@@ -287,36 +286,40 @@ describe('PerformanceSheet saving a capture', () => {
 });
 
 /**
- * Turning capture on for an account, rather than per device.
+ * The capture controls are gated on the account and nothing else.
  *
- * The sessions worth capturing happen on a phone running the installed app, where
- * `start_url` is fixed and there is no address bar to append ?followdebug to. An
- * account-level switch is the only route that reaches that device without someone
- * first arming it there, which is the whole point of the setting.
+ * They used to also be reachable with `?followdebug`, which armed a flag in that
+ * browser's localStorage. Two ways in is one too many for an operator tool whose
+ * captures carry the performer's song text and transcript, and the device route was
+ * the useless one: the sessions worth capturing happen on a phone running the
+ * installed app, where `start_url` is fixed and there is no address bar to put a
+ * query string in. So the account is now the only switch.
  */
 describe('PerformanceSheet capture controls gating', () => {
   beforeEach(() => {
-    localStorage.removeItem('porchsongs_follow_debug');
     captureEnabledMock.mockReturnValue(false);
   });
 
-  it('hides the capture controls when neither the account nor the device opted in', () => {
+  it('hides the capture controls when the account has not enabled them', () => {
     render(<PerformanceSheet song={makeSong()} version="rewritten" />);
     expect(screen.queryByRole('button', { name: 'Record' })).toBeNull();
   });
 
-  it('shows them when the account has capture enabled, with no query string', () => {
+  it('shows them when the account has capture enabled', () => {
     captureEnabledMock.mockReturnValue(true);
     render(<PerformanceSheet song={makeSong()} version="rewritten" />);
     expect(screen.getByRole('button', { name: 'Record' })).toBeInTheDocument();
-    // Reading the account setting must not arm the device flag: switching it off on
-    // the account has to switch it off, not leave the phone stuck opted in.
-    expect(localStorage.getItem('porchsongs_follow_debug')).toBeNull();
   });
 
-  it('still shows them for a device that opted in with ?followdebug', () => {
-    localStorage.setItem('porchsongs_follow_debug', '1');
-    render(<PerformanceSheet song={makeSong()} version="rewritten" />);
-    expect(screen.getByRole('button', { name: 'Record' })).toBeInTheDocument();
+  it('ignores a query string, so an old ?followdebug link grants nothing', () => {
+    // The param is gone, not merely undocumented. A link someone saved must not be a
+    // way around the account setting.
+    window.history.replaceState(null, '', '/app/play/1?followdebug');
+    try {
+      render(<PerformanceSheet song={makeSong()} version="rewritten" />);
+      expect(screen.queryByRole('button', { name: 'Record' })).toBeNull();
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
   });
 });

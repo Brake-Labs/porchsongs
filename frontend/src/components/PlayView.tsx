@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { cn } from '@/lib/utils';
-import { isFollowDebugEnabled } from '@/lib/followDebug';
 import { uploadFollowLog, useFollowCaptureEnabled } from '@/extensions';
 import FollowControls from '@/components/FollowControls';
 import { useFollow } from '@/hooks/useFollow';
@@ -164,12 +163,11 @@ export function PerformanceSheet({
   const follow = useFollow(text, { arbiter });
   const [followOn, setFollowOn] = useState(false);
   const norm = useMemo(() => normalizeSong(text), [text]);
-  // Capture is on when the account has it enabled or this device opted in with
-  // ?followdebug. Two routes because they serve different people: an operator
-  // turning it on for their own account (premium), and a self-hosted install with
-  // no account settings to turn anything on with.
-  const captureOnAccount = useFollowCaptureEnabled();
-  const debug = captureOnAccount || isFollowDebugEnabled();
+  // Whether to show the capture controls (the tracker overlay, Play demo, Record and
+  // Save logs). An operator tool, so it is off unless the account it belongs to has
+  // it switched on; the extensions seam is what knows, and OSS has no such setting so
+  // its stub says no.
+  const debug = useFollowCaptureEnabled();
   const micSupported = useMemo(
     () => typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window),
     [],

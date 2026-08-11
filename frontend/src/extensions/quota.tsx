@@ -54,13 +54,17 @@ export function useReadOnly(): boolean {
 /**
  * True when this account has Follow diagnostics capture switched on.
  *
- * The capture controls (Record / Save logs and the tracker overlay) are an
- * operator tool, not a user feature, so something has to opt in. Self-hosted
- * porchsongs opts in with `?followdebug`, which is why this stub can honestly
- * return false: nothing is lost without a premium layer. Premium reads a setting
- * an admin turns on for their own account, because the sessions worth capturing
- * happen on a phone running the installed app, where there is no address bar to
- * put a query string in.
+ * The capture controls (Record / Save logs and the tracker overlay) are an operator
+ * tool for debugging Follow against a real device, not a user feature, and a capture
+ * uploads the song text the performer had open plus everything the recognizer heard.
+ * So it stays off unless something with a notion of accounts says otherwise, which is
+ * why this stub returns false: bare porchsongs has nowhere to upload a capture to and
+ * no admin to read one, so the controls would lead nowhere.
+ *
+ * Premium reads a setting an admin turns on for their own account. That has to live on
+ * the account rather than the URL or the device, because the sessions worth capturing
+ * happen on a phone running the installed app, where `start_url` is fixed and there is
+ * no address bar to put a query string in.
  */
 export function useFollowCaptureEnabled(): boolean {
   return false;
