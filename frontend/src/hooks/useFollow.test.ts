@@ -131,11 +131,17 @@ describe('useFollow', () => {
 
   it('consults the arbiter when sustained-ambiguous and applies its choice', async () => {
     vi.useFakeTimers();
-    const request = vi.fn().mockResolvedValue(3);
-    // Five identical lines -> singing the shared words is ambiguous.
+    const request = vi.fn().mockResolvedValue(12);
+    // One line appearing twice, FAR apart, with nothing but distinct lines between:
+    // states 6 and 12 fit the words equally and neither is reachable from the other,
+    // so the tracker genuinely cannot say which part of the song this is. Adjacent
+    // repeats do not qualify any more, and rightly so: they are the same place.
     const song = [
-      '[A]', 'hello world', '[B]', 'hello world', '[C]', 'hello world',
-      '[D]', 'hello world', '[E]', 'hello world',
+      '[A]',
+      'alpha one', 'alpha two', 'alpha three', 'alpha four', 'alpha five', 'alpha six',
+      'hello world',
+      'beta eight', 'beta nine', 'beta ten', 'beta eleven', 'beta twelve',
+      'hello world',
     ].join('\n');
     const { result } = renderHook(() =>
       useFollow(song, { arbiter: { enabled: true, model: 'm', request, ambiguousMs: 400, cooldownMs: 0 } }),
@@ -153,8 +159,8 @@ describe('useFollow', () => {
     const req = request.mock.calls[0]![0];
     expect(req.model).toBe('m');
     expect(req.candidates.length).toBeGreaterThan(0);
-    expect(result.current.lastArbiter?.choice).toBe(3);
-    expect(result.current.estimate?.stateIndex).toBe(3);
+    expect(result.current.lastArbiter?.choice).toBe(12);
+    expect(result.current.estimate?.stateIndex).toBe(12);
   });
 });
 

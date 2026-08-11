@@ -4,9 +4,10 @@ import userEvent from '@testing-library/user-event';
 import { PerformanceSheet } from '@/components/PlayView';
 
 const uploadMock = vi.hoisted(() => vi.fn<(r: unknown) => Promise<boolean>>());
+const captureEnabledMock = vi.hoisted(() => vi.fn<() => boolean>(() => false));
 vi.mock('@/extensions', async () => {
   const actual = await vi.importActual<typeof import('@/extensions')>('@/extensions');
-  return { ...actual, uploadFollowLog: uploadMock };
+  return { ...actual, uploadFollowLog: uploadMock, useFollowCaptureEnabled: captureEnabledMock };
 });
 import type { Song } from '@/types';
 
@@ -233,7 +234,7 @@ describe('PerformanceSheet saving a capture', () => {
 
   beforeEach(() => {
     uploadMock.mockReset();
-    localStorage.setItem('porchsongs_follow_debug', '1');
+    captureEnabledMock.mockReturnValue(true);
     // jsdom implements neither, and the download path needs both.
     URL.createObjectURL = vi.fn(() => 'blob:stub');
     URL.revokeObjectURL = vi.fn();
@@ -281,5 +282,44 @@ describe('PerformanceSheet saving a capture', () => {
     const payload = uploadMock.mock.calls[0]![0] as { songText: string; events: unknown[] };
     expect(payload.songText).toContain('walking down the empty road');
     expect(Array.isArray(payload.events)).toBe(true);
+  });
+});
+
+/**
+ * The capture controls are gated on the account and nothing else.
+ *
+ * They used to also be reachable with `?followdebug`, which armed a flag in that
+ * browser's localStorage. Two ways in is one too many for an operator tool whose
+ * captures carry the performer's song text and transcript, and the device route was
+ * the useless one: the sessions worth capturing happen on a phone running the
+ * installed app, where `start_url` is fixed and there is no address bar to put a
+ * query string in. So the account is now the only switch.
+ */
+describe('PerformanceSheet capture controls gating', () => {
+  beforeEach(() => {
+    captureEnabledMock.mockReturnValue(false);
+  });
+
+  it('hides the capture controls when the account has not enabled them', () => {
+    render(<PerformanceSheet song={makeSong()} version="rewritten" />);
+    expect(screen.queryByRole('button', { name: 'Record' })).toBeNull();
+  });
+
+  it('shows them when the account has capture enabled', () => {
+    captureEnabledMock.mockReturnValue(true);
+    render(<PerformanceSheet song={makeSong()} version="rewritten" />);
+    expect(screen.getByRole('button', { name: 'Record' })).toBeInTheDocument();
+  });
+
+  it('ignores a query string, so an old ?followdebug link grants nothing', () => {
+    // The param is gone, not merely undocumented. A link someone saved must not be a
+    // way around the account setting.
+    window.history.replaceState(null, '', '/app/play/1?followdebug');
+    try {
+      render(<PerformanceSheet song={makeSong()} version="rewritten" />);
+      expect(screen.queryByRole('button', { name: 'Record' })).toBeNull();
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
   });
 });

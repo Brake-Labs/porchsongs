@@ -51,6 +51,25 @@ export function useReadOnly(): boolean {
   return false;
 }
 
+/**
+ * True when this account has Follow diagnostics capture switched on.
+ *
+ * The capture controls (Record / Save logs and the tracker overlay) are an operator
+ * tool for debugging Follow against a real device, not a user feature, and a capture
+ * uploads the song text the performer had open plus everything the recognizer heard.
+ * So it stays off unless something with a notion of accounts says otherwise, which is
+ * why this stub returns false: bare porchsongs has nowhere to upload a capture to and
+ * no admin to read one, so the controls would lead nowhere.
+ *
+ * Premium reads a setting an admin turns on for their own account. That has to live on
+ * the account rather than the URL or the device, because the sessions worth capturing
+ * happen on a phone running the installed app, where `start_url` is fixed and there is
+ * no address bar to put a query string in.
+ */
+export function useFollowCaptureEnabled(): boolean {
+  return false;
+}
+
 export function UsageFooter({ tokenUsage }: { tokenUsage: TokenUsage }): ReactNode {
   if (tokenUsage.input_tokens === 0 && tokenUsage.output_tokens === 0) return null;
   return (

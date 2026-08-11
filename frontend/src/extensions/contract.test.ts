@@ -42,6 +42,7 @@ const MANIFEST: Record<string, string[]> = {
     'SongCapNotice',
     'UsageFooter',
     'isQuotaError',
+    'useFollowCaptureEnabled',
     'useReadOnly',
   ],
   api: [
@@ -156,6 +157,7 @@ describe('extensions seam contract', () => {
 
     it('hook stubs return the off value, never undefined', () => {
       expect(quota.useReadOnly()).toBe(false);
+      expect(quota.useFollowCaptureEnabled()).toBe(false);
       expect(auth.isPremiumAuth(null)).toBe(false);
       expect(quota.isQuotaError('anything')).toBe(false);
     });

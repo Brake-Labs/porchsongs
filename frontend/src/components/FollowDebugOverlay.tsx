@@ -49,6 +49,12 @@ export default function FollowDebugOverlay({
         <span className="text-muted-foreground">
           conf {(estimate?.confidence ?? 0).toFixed(2)}
         </span>
+        {/* The number the commit rule actually reads: belief that we are within a
+            couple of lines of the top pick. Repeated lines split `conf` between
+            neighbours, so `conf` alone reads as uncertainty that is not there. */}
+        <span className="text-muted-foreground" title="Confidence in the region (±2 lines)">
+          region {(estimate?.regionConfidence ?? 0).toFixed(2)}
+        </span>
         {running && (
           <span className="flex items-center gap-1 text-primary">
             <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-primary" />

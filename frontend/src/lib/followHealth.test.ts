@@ -33,8 +33,10 @@ function estimate(over: Partial<FollowEstimate> = {}): FollowEstimate {
     renderIndex: 3,
     stateIndex: 1,
     confidence: 0.8,
+    regionConfidence: 0.85,
     ambiguous: false,
     support: 0.6,
+    origin: 'audio',
     top: [],
     ...over,
   };
@@ -144,11 +146,19 @@ describe('isCommittableEstimate', () => {
     expect(isCommittableEstimate(estimate())).toBe(true);
   });
 
+  it('reads the region, not the top line, so a split repeat still commits', () => {
+    // Two adjacent lines that both fit share the mass. The place is known; only the
+    // exact line is not, and either one puts the right text on screen.
+    expect(isCommittableEstimate(estimate({ confidence: 0.28, regionConfidence: 0.55 }))).toBe(
+      true,
+    );
+  });
+
   it('rejects null, disabled, ambiguous, and low-confidence estimates', () => {
     expect(isCommittableEstimate(null)).toBe(false);
     expect(isCommittableEstimate(estimate({ status: 'disabled', renderIndex: null }))).toBe(false);
     expect(isCommittableEstimate(estimate({ ambiguous: true }))).toBe(false);
-    expect(isCommittableEstimate(estimate({ confidence: 0.29 }))).toBe(false);
+    expect(isCommittableEstimate(estimate({ regionConfidence: 0.29 }))).toBe(false);
   });
 });
 
