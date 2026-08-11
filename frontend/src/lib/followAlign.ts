@@ -48,6 +48,16 @@ export interface NormalizedSong {
 
 export type FollowStatus = 'disabled' | 'searching' | 'locked' | 'ambiguous';
 
+/**
+ * Where an estimate came from, which is what says how much it should be trusted to
+ * move the page a long way.
+ *
+ *   'audio'    inferred from recognized words. Can be wrong about which verse.
+ *   'arbiter'  the LLM's answer to an ambiguity. A guess, softly applied.
+ *   'human'    the performer tapped a line. This is not a guess; it is the answer.
+ */
+export type FollowOrigin = 'audio' | 'arbiter' | 'human';
+
 export interface FollowCandidate {
   stateIndex: number;
   renderIndex: number;
@@ -62,7 +72,28 @@ export interface FollowEstimate {
   stateIndex: number | null;
   /** Posterior mass on the top state (0..1). */
   confidence: number;
-  /** True when the top two states are within `marginThreshold` of each other. */
+  /**
+   * Posterior mass within `nearRadius` lines of the top state (0..1).
+   *
+   * This, not `confidence`, is the honest answer to "do we know where in the song
+   * we are". Repeated and near-repeated lines sit next to each other constantly
+   * (a couplet sung twice, a refrain line closing every verse), and they split
+   * `confidence` between neighbours that mean the same place on screen. Judging
+   * certainty by the single top line therefore under-reports it exactly when
+   * tracking is going well, which is what kept the chart frozen mid-verse.
+   */
+  regionConfidence: number;
+  /**
+   * True when a position FAR from the top candidate is nearly as likely, i.e. we
+   * cannot tell which part of the song this is.
+   *
+   * Deliberately not "the top two states are close". Measured over real sessions,
+   * almost every close top-two pair is a pair of adjacent lines, where either
+   * choice puts the same text on screen and holding still costs far more than
+   * being one line out. The case worth holding for is the genuinely undecidable
+   * one: verse 1 and verse 5 are word-for-word identical and the audio cannot say
+   * which you are on. Only a rival more than `nearRadius` lines away can be that.
+   */
   ambiguous: boolean;
   /**
    * Recency-weighted share of the top line's words actually present in the
@@ -73,6 +104,8 @@ export interface FollowEstimate {
    * (0 means "we are not hearing this line, we are only guessing").
    */
   support: number;
+  /** What produced this estimate. See FollowOrigin. */
+  origin: FollowOrigin;
   /** Top candidates (for the debug overlay and the LLM arbiter), highest first. */
   top: FollowCandidate[];
 }
@@ -84,10 +117,19 @@ export interface FollowConfig {
   staleMs: number;
   /** Recency half-life (ms): a word this old counts half as much in emission. */
   halfLifeMs: number;
-  /** Min top posterior to report 'locked'. */
+  /** Min region posterior (see `regionConfidence`) to report 'locked'. */
   confThreshold: number;
-  /** Min (top1 - top2) gap to NOT be 'ambiguous'. */
+  /** Min (top region - best distant rival region) gap to NOT be 'ambiguous'. */
   marginThreshold: number;
+  /**
+   * How many lines either side of the top candidate count as "the same place".
+   *
+   * Two lines: the chart is centred on the top line, so a neighbour within two is
+   * on screen and reads as correct. It is also the width of the smallest genuine
+   * repeat (a line sung twice in a row), which is the pair that should never be
+   * treated as a disagreement about position.
+   */
+  nearRadius: number;
   /** Uniform per-line probability floor added before renormalizing (restart/jump). */
   teleport: number;
   /** Forward transition reach (lines). */
@@ -114,6 +156,7 @@ export const DEFAULT_FOLLOW_CONFIG: FollowConfig = {
   halfLifeMs: 2500,
   confThreshold: 0.45,
   marginThreshold: 0.12,
+  nearRadius: 2,
   teleport: 0.008,
   maxForward: 2,
   maxBackward: 4,
@@ -378,15 +421,17 @@ export function createFollowTracker(
     return normalize(next);
   }
 
-  function estimateFrom(post: number[], now: number): FollowEstimate {
+  function estimateFrom(post: number[], now: number, origin: FollowOrigin): FollowEstimate {
     if (L === 0) {
       return {
         status: 'disabled',
         renderIndex: null,
         stateIndex: null,
         confidence: 0,
+        regionConfidence: 0,
         ambiguous: false,
         support: 0,
+        origin,
         top: [],
       };
     }
@@ -400,12 +445,26 @@ export function createFollowTracker(
 
     const top = order.slice(0, cfg.topK);
     const best = order[0]!;
-    const second = order[1]?.p ?? 0;
-    const ambiguous = best.p - second < cfg.marginThreshold;
+    const near = (i: number) => Math.abs(i - best.stateIndex) <= cfg.nearRadius;
+
+    // Belief that we are HERE, meaning within a couple of lines of the top pick.
+    const regionConfidence = regionMass(post, best.stateIndex, cfg.nearRadius);
+
+    // The strongest claim that we are somewhere else entirely, measured the same
+    // way so the two are comparable. `order` is sorted, so the first candidate
+    // outside the top region is the best rival there is.
+    const rival = order.find((c) => !near(c.stateIndex));
+    const rivalMass =
+      rival == null
+        ? 0
+        : // Its own region, minus anything already counted as "here", so the two
+          // masses never double-count the lines between two close-ish clusters.
+          regionMass(post, rival.stateIndex, cfg.nearRadius, near);
+    const ambiguous = regionConfidence - rivalMass < cfg.marginThreshold;
     const stale = now - lastObserve > cfg.staleMs;
 
     let status: FollowStatus;
-    if (stale || best.p < cfg.confThreshold) status = 'searching';
+    if (stale || regionConfidence < cfg.confThreshold) status = 'searching';
     else if (ambiguous) status = 'ambiguous';
     else status = 'locked';
 
@@ -414,8 +473,10 @@ export function createFollowTracker(
       renderIndex: best.renderIndex,
       stateIndex: best.stateIndex,
       confidence: best.p,
+      regionConfidence,
       ambiguous,
       support: support[best.stateIndex] ?? 0,
+      origin,
       top,
     };
   }
@@ -424,7 +485,7 @@ export function createFollowTracker(
     song,
 
     observe(words: string[], now: number): FollowEstimate {
-      if (L === 0) return estimateFrom(posterior, now);
+      if (L === 0) return estimateFrom(posterior, now, 'audio');
 
       if (words.length > 0) {
         lastObserve = now;
@@ -442,7 +503,7 @@ export function createFollowTracker(
       if (windowWords.length === 0) {
         posterior = predicted;
         support = new Array<number>(L).fill(0);
-        return estimateFrom(posterior, now);
+        return estimateFrom(posterior, now, 'audio');
       }
 
       const presence = recencyPresence(windowWords, now, cfg.halfLifeMs);
@@ -457,11 +518,11 @@ export function createFollowTracker(
       const norm = updated.reduce((a, b) => a + b, 0);
       // If everything collapsed to zero (shouldn't, given the floor), keep the prior.
       posterior = norm > 0 ? updated.map((x) => x / norm) : predicted;
-      return estimateFrom(posterior, now);
+      return estimateFrom(posterior, now, 'audio');
     },
 
     collapseTo(stateIndex: number, now: number): FollowEstimate {
-      if (L === 0) return estimateFrom(posterior, now);
+      if (L === 0) return estimateFrom(posterior, now, 'human');
       const clamped = Math.max(0, Math.min(L - 1, stateIndex));
       // A human reposition is near-certain: leave only a tiny floor elsewhere so
       // one contradicting observation can't immediately teleport the lock away.
@@ -472,11 +533,11 @@ export function createFollowTracker(
       // A human put us here, not the audio: claim no evidence for it.
       support = new Array<number>(L).fill(0);
       lastObserve = now;
-      return estimateFrom(posterior, now);
+      return estimateFrom(posterior, now, 'human');
     },
 
     nudge(stateIndex: number, now: number): FollowEstimate {
-      if (L === 0) return estimateFrom(posterior, now);
+      if (L === 0) return estimateFrom(posterior, now, 'arbiter');
       const clamped = Math.max(0, Math.min(L - 1, stateIndex));
       // Blend the current posterior toward the chosen state: firm enough to
       // resolve a near-tie, soft enough that later audio can still override it.
@@ -487,7 +548,7 @@ export function createFollowTracker(
       // never measured against.
       support = new Array<number>(L).fill(0);
       lastObserve = now;
-      return estimateFrom(posterior, now);
+      return estimateFrom(posterior, now, 'arbiter');
     },
 
     reset(): void {
@@ -515,6 +576,27 @@ function transitionWeight(delta: number, cfg: FollowConfig): number {
   if (delta >= 3 && delta <= cfg.maxForward) return 1.5 * Math.pow(0.5, delta - 2);
   if (delta < 0 && -delta <= cfg.maxBackward) return cfg.backwardBias * Math.pow(0.6, -delta - 1);
   return 0;
+}
+
+/**
+ * Posterior mass within `radius` lines of `centre`, skipping any line `exclude`
+ * accepts. Clamped to the song, so a region at the very top or bottom is simply
+ * smaller rather than wrapping or reading off the end.
+ */
+function regionMass(
+  post: number[],
+  centre: number,
+  radius: number,
+  exclude?: (i: number) => boolean,
+): number {
+  let sum = 0;
+  const lo = Math.max(0, centre - radius);
+  const hi = Math.min(post.length - 1, centre + radius);
+  for (let i = lo; i <= hi; i++) {
+    if (exclude?.(i)) continue;
+    sum += post[i]!;
+  }
+  return sum;
 }
 
 function normalize(v: number[]): number[] {

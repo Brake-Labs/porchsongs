@@ -51,6 +51,21 @@ export function useReadOnly(): boolean {
   return false;
 }
 
+/**
+ * True when this account has Follow diagnostics capture switched on.
+ *
+ * The capture controls (Record / Save logs and the tracker overlay) are an
+ * operator tool, not a user feature, so something has to opt in. Self-hosted
+ * porchsongs opts in with `?followdebug`, which is why this stub can honestly
+ * return false: nothing is lost without a premium layer. Premium reads a setting
+ * an admin turns on for their own account, because the sessions worth capturing
+ * happen on a phone running the installed app, where there is no address bar to
+ * put a query string in.
+ */
+export function useFollowCaptureEnabled(): boolean {
+  return false;
+}
+
 export function UsageFooter({ tokenUsage }: { tokenUsage: TokenUsage }): ReactNode {
   if (tokenUsage.input_tokens === 0 && tokenUsage.output_tokens === 0) return null;
   return (

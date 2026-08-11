@@ -83,6 +83,12 @@ export const DEFAULT_FOLLOW_HEALTH: FollowHealthThresholds = {
  * highlighting and scrolling it. Shared with the health check so the two agree on
  * what "committed" means.
  *
+ * Read against `regionConfidence`, not `confidence`. Two adjacent lines that both
+ * fit what was heard split the single-line mass between them, so a chart being
+ * tracked perfectly through a repeated couplet reported around 0.28 and failed
+ * this gate; the mass is there, it is just spread over lines that mean the same
+ * place. See FollowEstimate.regionConfidence.
+ *
  * Note the implication runs one way only: `isMatchedEstimate` implies
  * `isCommittableEstimate`, not the reverse. A committed estimate whose `support`
  * is below MATCH_SUPPORT still counts as "not matched", so a chart CAN be
@@ -97,7 +103,7 @@ export function isCommittableEstimate(est: FollowEstimate | null): boolean {
     est.renderIndex != null &&
     est.status !== 'disabled' &&
     !est.ambiguous &&
-    est.confidence >= COMMIT_CONFIDENCE
+    est.regionConfidence >= COMMIT_CONFIDENCE
   );
 }
 

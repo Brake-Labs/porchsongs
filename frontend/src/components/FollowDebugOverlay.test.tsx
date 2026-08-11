@@ -10,8 +10,10 @@ describe('FollowDebugOverlay', () => {
           renderIndex: 2,
           stateIndex: 0,
           confidence: 0.82,
+          regionConfidence: 0.9,
           ambiguous: false,
           support: 0.7,
+          origin: 'audio',
           top: [{ stateIndex: 0, renderIndex: 2, p: 0.82 }],
         }}
         lyricStates={[{ renderIndex: 2, tokens: ['hold', 'me', 'now'] }]}
@@ -23,6 +25,7 @@ describe('FollowDebugOverlay', () => {
     );
     expect(screen.getByText('locked')).toBeInTheDocument();
     expect(screen.getByText('conf 0.82')).toBeInTheDocument();
+    expect(screen.getByText('region 0.90')).toBeInTheDocument();
     expect(screen.getByText('hold me now')).toBeInTheDocument();
     expect(screen.getByText('walking down the')).toBeInTheDocument();
     expect(screen.getByText('live')).toBeInTheDocument();

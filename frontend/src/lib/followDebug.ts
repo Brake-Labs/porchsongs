@@ -1,16 +1,17 @@
 /**
- * Follow-mode debug gating. The diagnostics overlay is a development tool, not a
- * user feature, so it is off unless something opts in.
+ * Per-DEVICE Follow capture gating. The diagnostics overlay is a development tool,
+ * not a user feature, so it is off unless something opts in.
  *
- * Two ways in, for a reason. `?followdebug` is the quick desktop route. The
- * persisted flag exists because the interesting sessions happen on a phone, usually
- * an installed PWA, where `start_url` is fixed at /app and there is no address bar
- * to add a query string to. Without a persisted flag, diagnosing the case this
- * exists for was only possible on the machine least likely to reproduce it.
+ * This is the self-hosted route, and the only one that works with no account
+ * settings behind it: `?followdebug` for the desktop tab, persisted to localStorage
+ * so opting in once survives into the installed PWA, where `start_url` is fixed at
+ * /app and there is no address bar to add a query string to. `?followdebug=off` is
+ * the way back out on a device with no address bar to edit.
  *
- * `?followdebug` also turns the persisted flag ON, so opting in once from a browser
- * tab survives into the installed app, and `?followdebug=off` is the way back out on
- * a device with no address bar to edit.
+ * A deployment with accounts should prefer the per-ACCOUNT setting
+ * (`useFollowCaptureEnabled` in the extensions seam): it follows the operator onto
+ * whatever device they are about to reproduce the problem on, rather than having to
+ * be armed on each one. PlayView honours either.
  */
 
 const STORAGE_KEY = 'porchsongs_follow_debug';

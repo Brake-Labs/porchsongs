@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { isFollowDebugEnabled } from '@/lib/followDebug';
-import { uploadFollowLog } from '@/extensions';
+import { uploadFollowLog, useFollowCaptureEnabled } from '@/extensions';
 import FollowControls from '@/components/FollowControls';
 import { useFollow } from '@/hooks/useFollow';
 import { useFollowScroll } from '@/hooks/useFollowScroll';
 import { normalizeSong } from '@/lib/followAlign';
 import { createCannedSignal, scriptFromSong } from '@/lib/followSignal';
 import { createSpeechSignal } from '@/lib/followSpeech';
-import { isCommittableEstimate } from '@/lib/followHealth';
+import { commitFollowEstimate, INITIAL_COMMIT_STATE } from '@/lib/followCommit';
 import usePerformanceLayout from '@/hooks/usePerformanceLayout';
 import type { Song } from '@/types';
 
@@ -164,7 +164,12 @@ export function PerformanceSheet({
   const follow = useFollow(text, { arbiter });
   const [followOn, setFollowOn] = useState(false);
   const norm = useMemo(() => normalizeSong(text), [text]);
-  const debug = isFollowDebugEnabled();
+  // Capture is on when the account has it enabled or this device opted in with
+  // ?followdebug. Two routes because they serve different people: an operator
+  // turning it on for their own account (premium), and a self-hosted install with
+  // no account settings to turn anything on with.
+  const captureOnAccount = useFollowCaptureEnabled();
+  const debug = captureOnAccount || isFollowDebugEnabled();
   const micSupported = useMemo(
     () => typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window),
     [],
@@ -173,26 +178,22 @@ export function PerformanceSheet({
     () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
     [],
   );
-  // Only commit the highlight/scroll on a confident lock; hold steady while the
-  // tracker is searching or torn between repeated lines, so the page doesn't
-  // chase every ambiguous flicker.
+  // What the chart shows. Deliberately not the raw estimate: moving one line early
+  // is unnoticeable, while being thrown into another verse loses the performer
+  // their place, so `followCommit` commits local moves at once and makes a distant
+  // relocation prove itself first. Held in a ref because it is a fold over the
+  // estimate stream, not derived state.
+  const commitRef = useRef(INITIAL_COMMIT_STATE);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   useEffect(() => {
     if (!followOn) {
+      commitRef.current = INITIAL_COMMIT_STATE;
       setActiveIndex(null);
       return;
     }
-    const e = follow.estimate;
-    // Commit only on a confident, UNAMBIGUOUS estimate. When two positions are
-    // near-tied (e.g. an opening verse that is identical to the closing verse,
-    // which is genuinely undecidable from the audio), hold the last committed
-    // line instead of guessing, and move once a distinguishing line is sung.
-    // Shared with the health check so both agree on what "committed" means.
-    // Committing does not imply the health check counts it as a match: that
-    // additionally needs `support` (see MATCH_SUPPORT in followHealth).
-    if (isCommittableEstimate(e) && e?.renderIndex != null) {
-      setActiveIndex(e.renderIndex);
-    }
+    const next = commitFollowEstimate(commitRef.current, follow.estimate, Date.now());
+    commitRef.current = next;
+    setActiveIndex(next.renderIndex);
   }, [follow.estimate, followOn]);
   const { paused, resume, recenter } = useFollowScroll(sheetRef, activeIndex, { enabled: followOn, reducedMotion });
 

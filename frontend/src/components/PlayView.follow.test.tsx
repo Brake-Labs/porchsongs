@@ -4,9 +4,10 @@ import userEvent from '@testing-library/user-event';
 import { PerformanceSheet } from '@/components/PlayView';
 
 const uploadMock = vi.hoisted(() => vi.fn<(r: unknown) => Promise<boolean>>());
+const captureEnabledMock = vi.hoisted(() => vi.fn<() => boolean>(() => false));
 vi.mock('@/extensions', async () => {
   const actual = await vi.importActual<typeof import('@/extensions')>('@/extensions');
-  return { ...actual, uploadFollowLog: uploadMock };
+  return { ...actual, uploadFollowLog: uploadMock, useFollowCaptureEnabled: captureEnabledMock };
 });
 import type { Song } from '@/types';
 
@@ -233,6 +234,7 @@ describe('PerformanceSheet saving a capture', () => {
 
   beforeEach(() => {
     uploadMock.mockReset();
+    captureEnabledMock.mockReturnValue(false);
     localStorage.setItem('porchsongs_follow_debug', '1');
     // jsdom implements neither, and the download path needs both.
     URL.createObjectURL = vi.fn(() => 'blob:stub');
@@ -281,5 +283,40 @@ describe('PerformanceSheet saving a capture', () => {
     const payload = uploadMock.mock.calls[0]![0] as { songText: string; events: unknown[] };
     expect(payload.songText).toContain('walking down the empty road');
     expect(Array.isArray(payload.events)).toBe(true);
+  });
+});
+
+/**
+ * Turning capture on for an account, rather than per device.
+ *
+ * The sessions worth capturing happen on a phone running the installed app, where
+ * `start_url` is fixed and there is no address bar to append ?followdebug to. An
+ * account-level switch is the only route that reaches that device without someone
+ * first arming it there, which is the whole point of the setting.
+ */
+describe('PerformanceSheet capture controls gating', () => {
+  beforeEach(() => {
+    localStorage.removeItem('porchsongs_follow_debug');
+    captureEnabledMock.mockReturnValue(false);
+  });
+
+  it('hides the capture controls when neither the account nor the device opted in', () => {
+    render(<PerformanceSheet song={makeSong()} version="rewritten" />);
+    expect(screen.queryByRole('button', { name: 'Record' })).toBeNull();
+  });
+
+  it('shows them when the account has capture enabled, with no query string', () => {
+    captureEnabledMock.mockReturnValue(true);
+    render(<PerformanceSheet song={makeSong()} version="rewritten" />);
+    expect(screen.getByRole('button', { name: 'Record' })).toBeInTheDocument();
+    // Reading the account setting must not arm the device flag: switching it off on
+    // the account has to switch it off, not leave the phone stuck opted in.
+    expect(localStorage.getItem('porchsongs_follow_debug')).toBeNull();
+  });
+
+  it('still shows them for a device that opted in with ?followdebug', () => {
+    localStorage.setItem('porchsongs_follow_debug', '1');
+    render(<PerformanceSheet song={makeSong()} version="rewritten" />);
+    expect(screen.getByRole('button', { name: 'Record' })).toBeInTheDocument();
   });
 });

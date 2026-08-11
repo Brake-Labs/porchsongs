@@ -39,5 +39,6 @@ export {
   UsageFooter,
   SongCapNotice,
   useReadOnly,
+  useFollowCaptureEnabled,
 } from './quota';
 export { FeedbackButton } from './feedback';
