@@ -230,6 +230,46 @@ describe('useFollow health warnings', () => {
     expect(result.current.warning).toBeNull();
   });
 
+  /**
+   * The health check consults the ladder but only ever speaks in warnings, and
+   * it stays deliberately silent in the "capturing, nothing heard" state. That
+   * silence is the case an operator most needs to see, so the rung itself is
+   * exposed for the diagnostics HUD to render.
+   */
+  it('exposes the capture rung it reached, and never walks it back', async () => {
+    const { factory, hooks } = manualSignal();
+    const { result } = renderHook(() => useFollow(SONG));
+
+    expect(result.current.stage).toBeNull();
+    await act(async () => {
+      await result.current.start(factory);
+    });
+    expect(result.current.stage).toBeNull();
+
+    await act(async () => {
+      hooks.stage!('audio');
+    });
+    expect(result.current.stage).toBe('audio');
+
+    await act(async () => {
+      hooks.stage!('sound');
+    });
+    expect(result.current.stage).toBe('sound');
+
+    // A recognizer restart replays the ladder from the bottom. Reporting that as
+    // a fall back to 'audio' would read as the mic having closed.
+    await act(async () => {
+      hooks.stage!('audio');
+    });
+    expect(result.current.stage).toBe('sound');
+
+    // Stopping ends the session, so the rung stops being a claim about now.
+    await act(async () => {
+      result.current.stop();
+    });
+    expect(result.current.stage).toBeNull();
+  });
+
   it('blames the transcriber only when the recognizer confirms it heard sound', async () => {
     const { factory, hooks } = manualSignal();
     const { result } = renderHook(() => useFollow(SONG));
