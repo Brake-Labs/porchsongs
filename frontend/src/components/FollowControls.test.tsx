@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 import FollowControls from './FollowControls';
 import type { UseFollowResult } from '@/hooks/useFollow';
@@ -9,6 +10,7 @@ function followStub(over: Partial<UseFollowResult> = {}): UseFollowResult {
     estimate: null,
     running: true,
     error: null,
+    stage: null,
     warning: null,
     recording: false,
     recentWords: [],
@@ -22,7 +24,7 @@ function followStub(over: Partial<UseFollowResult> = {}): UseFollowResult {
   };
 }
 
-function renderControls(over: Partial<UseFollowResult> = {}, followOn = true) {
+function renderControls(over: Partial<UseFollowResult> = {}, followOn = true, debug = false) {
   return render(
     <FollowControls
       follow={followStub(over)}
@@ -30,7 +32,7 @@ function renderControls(over: Partial<UseFollowResult> = {}, followOn = true) {
       paused={false}
       micSupported
       lyricStates={[]}
-      debug={false}
+      debug={debug}
       onToggleFollow={vi.fn()}
       onResume={vi.fn()}
       saveState="idle"
@@ -83,5 +85,46 @@ describe('FollowControls', () => {
     renderControls({ warning: NO_AUDIO }, false);
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Follow mode: Follow' })).toBeInTheDocument();
+  });
+});
+
+describe('FollowControls diagnostics panel', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('is not there at all for an account without Follow capture', () => {
+    renderControls();
+    expect(screen.queryByLabelText('Follow debug overlay')).not.toBeInTheDocument();
+    expect(screen.queryByText('Follow · debug')).not.toBeInTheDocument();
+  });
+
+  it('collapses to a chip that brings it back', async () => {
+    const user = userEvent.setup();
+    renderControls({}, true, true);
+    expect(screen.getByLabelText('Follow debug overlay')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Hide Follow debug panel' }));
+    expect(screen.queryByLabelText('Follow debug overlay')).not.toBeInTheDocument();
+
+    // Collapsed to a chip, not to nothing: without it the panel is unrecoverable.
+    await user.click(screen.getByRole('button', { name: 'Follow · debug' }));
+    expect(screen.getByLabelText('Follow debug overlay')).toBeInTheDocument();
+  });
+
+  it('remembers that it was hidden, because the panel remounts every song', async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderControls({}, true, true);
+    await user.click(screen.getByRole('button', { name: 'Hide Follow debug panel' }));
+    unmount();
+
+    renderControls({}, true, true);
+    expect(screen.queryByLabelText('Follow debug overlay')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Follow · debug' })).toBeInTheDocument();
+  });
+
+  it('shows by default, so a first-time capture session is not silently blind', () => {
+    renderControls({}, true, true);
+    expect(screen.getByLabelText('Follow debug overlay')).toBeInTheDocument();
   });
 });

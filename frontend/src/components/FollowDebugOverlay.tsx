@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils';
 import type { FollowEstimate, LyricState } from '@/lib/followAlign';
-import type { SignalError } from '@/lib/followSignal';
+import type { SignalError, SignalStage } from '@/lib/followSignal';
 import type { FollowArbiterEvent } from '@/hooks/useFollow';
 
 interface FollowDebugOverlayProps {
@@ -10,8 +10,13 @@ interface FollowDebugOverlayProps {
   running: boolean;
   recording: boolean;
   error: SignalError | null;
+  /** Highest capture milestone reached this session, or null if none reported. */
+  stage?: SignalStage | null;
   lastArbiter?: FollowArbiterEvent | null;
 }
+
+/** The capture ladder, in the order a working session climbs it. */
+const STAGES: SignalStage[] = ['audio', 'sound', 'speech'];
 
 const STATUS_STYLE: Record<string, string> = {
   locked: 'bg-primary text-white',
@@ -37,9 +42,11 @@ export default function FollowDebugOverlay({
   running,
   recording,
   error,
+  stage = null,
   lastArbiter,
 }: FollowDebugOverlayProps) {
   const status = estimate?.status ?? 'searching';
+  const reached = stage ? STAGES.indexOf(stage) : -1;
   return (
     <div className="text-xs font-mono" aria-label="Follow debug overlay">
       <div className="flex items-center gap-2 mb-2">
@@ -62,6 +69,32 @@ export default function FollowDebugOverlay({
           </span>
         )}
         {recording && <span className="text-danger">● rec</span>}
+      </div>
+
+      {/* Capture ladder. Which rung it stops on is the whole diagnosis: never
+          reaching 'audio' means the browser never opened the mic, stopping at
+          'audio' means it is open and hearing silence (wrong input device, or a
+          muted one), and reaching 'sound' with no words below means it hears you
+          and is not recognizing. Dimmed rather than hidden when unreached, so
+          the rung that is missing is as visible as the ones that are not. */}
+      <div className="mb-2 flex items-center gap-1" aria-label="Capture stage">
+        <span className="mr-1 uppercase text-muted-foreground">capture:</span>
+        {STAGES.map((s, i) => (
+          <span
+            key={s}
+            data-reached={i <= reached}
+            className={cn(
+              'rounded px-1.5 py-0.5',
+              i <= reached ? 'bg-primary text-white' : 'bg-panel text-muted-foreground opacity-60',
+            )}
+          >
+            {s}
+          </span>
+        ))}
+        {/* An engine can legitimately report no milestones at all (WebKit never
+            fires soundstart), so say "unreported" rather than let three dim
+            pills read as three failures. */}
+        {reached === -1 && <span className="text-muted-foreground">unreported</span>}
       </div>
 
       {error && (

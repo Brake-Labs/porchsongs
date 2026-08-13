@@ -57,6 +57,17 @@ export interface UseFollowResult {
   running: boolean;
   error: SignalError | null;
   /**
+   * Highest capture milestone the signal has reported this session, or null if
+   * it has reported none. The health check reads this from a ref; it is mirrored
+   * into state here purely so the diagnostics HUD can show which rung the mic is
+   * stuck on. That distinction is the difference between "your browser never
+   * opened the mic", "it is open and hearing silence" and "it hears you but
+   * produces no words", and without it the three are indistinguishable from
+   * outside. Null on an engine that reports no milestones at all, which is not
+   * the same as a failure.
+   */
+  stage: SignalStage | null;
+  /**
    * Why Follow is not working, or null when it looks healthy. Covers both
    * reported errors and the silent failures that have no error at all.
    */
@@ -120,6 +131,7 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
   const [estimate, setEstimate] = useState<FollowEstimate | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<SignalError | null>(null);
+  const [stage, setStage] = useState<SignalStage | null>(null);
   const [warning, setWarning] = useState<FollowWarning | null>(null);
   const [recording, setRecording] = useState(false);
   const [recentWords, setRecentWords] = useState<string[]>([]);
@@ -226,6 +238,9 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
     clearHealthTimer();
     startedAtRef.current = null;
     setWarning(null);
+    // A milestone from a session that is over would keep claiming the mic is
+    // open, which is the one thing this readout exists to be trusted about.
+    setStage(null);
   }, [clearHealthTimer]);
 
   const start = useCallback(
@@ -240,6 +255,7 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
       clearHealthTimer();
       setWarning(null);
       stageRef.current = null;
+      setStage(null);
       audioAtRef.current = null;
       firstWordsAtRef.current = null;
       matchedRef.current = false;
@@ -306,6 +322,7 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
         const prev = stageRef.current;
         if (prev != null && STAGE_RANK[stage] <= STAGE_RANK[prev]) return;
         stageRef.current = stage;
+        setStage(stage);
         audioAtRef.current ??= nowFn();
         evaluateRef.current();
       };
@@ -387,6 +404,7 @@ export function useFollow(songText: string, opts: UseFollowOptions = {}): UseFol
     estimate,
     running,
     error,
+    stage,
     warning,
     recording,
     recentWords,
