@@ -34,7 +34,6 @@ function renderControls(over: Partial<UseFollowResult> = {}, followOn = true) {
       onToggleFollow={vi.fn()}
       onResume={vi.fn()}
       saveState="idle"
-      onDemo={vi.fn()}
       onSaveJson={vi.fn()}
     />,
   );

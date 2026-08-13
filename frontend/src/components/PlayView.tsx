@@ -5,7 +5,6 @@ import FollowControls from '@/components/FollowControls';
 import { useFollow } from '@/hooks/useFollow';
 import { useFollowScroll } from '@/hooks/useFollowScroll';
 import { normalizeSong } from '@/lib/followAlign';
-import { createCannedSignal, scriptFromSong } from '@/lib/followSignal';
 import { createSpeechSignal } from '@/lib/followSpeech';
 import { commitFollowEstimate, INITIAL_COMMIT_STATE } from '@/lib/followCommit';
 import usePerformanceLayout from '@/hooks/usePerformanceLayout';
@@ -163,8 +162,8 @@ export function PerformanceSheet({
   const follow = useFollow(text, { arbiter });
   const [followOn, setFollowOn] = useState(false);
   const norm = useMemo(() => normalizeSong(text), [text]);
-  // Whether to show the capture controls (the tracker overlay, Play demo, Record and
-  // Save logs). An operator tool, so it is off unless the account it belongs to has
+  // Whether to show the capture controls (the tracker overlay, Record and Save
+  // logs). An operator tool, so it is off unless the account it belongs to has
   // it switched on; the extensions seam is what knows, and OSS has no such setting so
   // its stub says no.
   const debug = useFollowCaptureEnabled();
@@ -255,10 +254,6 @@ export function PerformanceSheet({
     setFollowOn(true);
     follow.start(() => createSpeechSignal());
   }, [follow]);
-  const startDemo = useCallback(() => {
-    setFollowOn(true);
-    follow.start(() => createCannedSignal(scriptFromSong(text)));
-  }, [follow, text]);
   const stopFollow = useCallback(() => {
     setFollowOn(false);
     follow.stop();
@@ -380,7 +375,6 @@ export function PerformanceSheet({
           debug={debug}
           onToggleFollow={toggleFollow}
           onResume={resume}
-          onDemo={startDemo}
           onSaveJson={saveJson}
           saveState={saveState}
         />

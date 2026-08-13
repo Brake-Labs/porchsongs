@@ -115,8 +115,9 @@ export function createCannedSignal(
 
 /**
  * Build a scripted "someone sings this exact song, top to bottom" token stream
- * from a song's own lyrics. Lets the debug overlay demo Follow on any real song
- * with no microphone: pipe it through createCannedSignal or replayScript.
+ * from a song's own lyrics. Lets tests and the offline replay harness drive the
+ * whole loop over any real song with no microphone: pipe it through
+ * createCannedSignal or replayScript.
  */
 export function scriptFromSong(songText: string, gapMs = 2500, startAt = 0): CannedEvent[] {
   const song = normalizeSong(songText);

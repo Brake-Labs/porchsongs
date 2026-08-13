@@ -13,7 +13,6 @@ interface FollowControlsProps {
   debug: boolean;
   onToggleFollow: () => void;
   onResume: () => void;
-  onDemo: () => void;
   onSaveJson: () => void;
   /** Outcome of the last save, so a phone user knows whether it left the device. */
   saveState: 'idle' | 'saving' | 'uploaded' | 'downloaded';
@@ -23,7 +22,7 @@ interface FollowControlsProps {
  * The visible Follow-mode chrome layered over the performance sheet: the
  * primary Follow toggle, the "Resume follow" affordance after a manual scroll,
  * and (only when the account has Follow capture enabled) the diagnostics HUD with
- * demo/record controls.
+ * its record/save controls.
  */
 export default function FollowControls({
   follow,
@@ -34,7 +33,6 @@ export default function FollowControls({
   debug,
   onToggleFollow,
   onResume,
-  onDemo,
   onSaveJson,
   saveState,
 }: FollowControlsProps) {
@@ -131,9 +129,6 @@ export default function FollowControls({
             />
           </div>
           <div className="flex flex-wrap gap-1.5 border-t border-border bg-panel px-3 py-2">
-            <Button size="sm" variant="secondary" onClick={onDemo} disabled={lyricStates.length === 0}>
-              Play demo
-            </Button>
             {follow.recording ? (
               <Button size="sm" variant="secondary" onClick={onSaveJson} disabled={saveState === 'saving'}>
                 {saveState === 'saving' ? 'Saving...' : 'Save logs'}
