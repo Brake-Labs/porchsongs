@@ -219,4 +219,14 @@ describe('parseChordName', () => {
     expect(parseChordName('a')).toBeNull();
     expect(parseChordName('and')).toBeNull();
   });
+
+  it('is not fooled by a suffix that names something on Object.prototype', () => {
+    // The alias table is looked up with a slice of a chart, and a chart is
+    // arbitrary text. An object literal answers "toString" with a function,
+    // which findQuality would then call .toLowerCase() on, throwing during the
+    // render of the play route rather than returning null.
+    for (const word of ['toString', 'valueOf', 'constructor', 'hasOwnProperty', '__proto__']) {
+      expect(parseChordName(`G${word}`)).toBeNull();
+    }
+  });
 });

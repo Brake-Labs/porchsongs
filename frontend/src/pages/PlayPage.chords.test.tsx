@@ -189,6 +189,20 @@ describe('PlayPage chord panel', () => {
     expect(shownChord()).toBe('D7');
   });
 
+  it('hands focus back to the button that opened it', async () => {
+    // The close button is the element focus is sitting on when it unmounts, and
+    // the browser drops focus to <body> from there, so a keyboard user's next
+    // Tab restarts at the top of the surface instead of where they were.
+    const user = userEvent.setup();
+    renderPlay();
+    await waitFor(() => expect(screen.getByTestId('sheet')).toBeInTheDocument());
+    await openPanel(user);
+
+    await user.click(screen.getByLabelText('Close chords'));
+    await waitFor(() => expect(screen.queryByRole('complementary')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Chords' })).toHaveFocus();
+  });
+
   it('closes on Escape pressed inside it', async () => {
     const user = userEvent.setup();
     renderPlay();

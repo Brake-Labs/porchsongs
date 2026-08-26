@@ -75,6 +75,13 @@ export default function usePerformanceLayout(
       const longestLineLen = longestLineLength(text);
       if (longestLineLen === 0) return;
 
+      // A hidden container measures 0x0, and that is not a measurement. The
+      // chord panel hides the chart at phone width, and solving against nothing
+      // answers with the minimum font, which then flashes on screen as the panel
+      // closes and leaves the size stepper anchored to 10px if it is tapped
+      // first. Keep the last real answer until there is a real box again.
+      if (container.clientWidth === 0 || container.clientHeight === 0) return;
+
       const totalLines = text.split('\n').length;
       const result: SolveResult = solvePerformanceLayout({
         containerWidth: container.clientWidth,

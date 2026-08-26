@@ -6,8 +6,9 @@ import { createSongViaApi, getDefaultProfileId } from '../fixtures/test-helpers'
  *
  * Its unit tests cover what it knows about the chart. What they cannot cover is
  * the layout, because it is entirely CSS: from `lg` up the panel is a column
- * beside the chart, and below `lg` it takes the surface and the chart is not
- * rendered at all. jsdom applies no stylesheet, so both look identical there.
+ * beside the chart, and below `lg` it takes the surface and the chart is hidden
+ * with `display: none`. jsdom applies no stylesheet, so both look identical
+ * there.
  */
 
 const CHART = [

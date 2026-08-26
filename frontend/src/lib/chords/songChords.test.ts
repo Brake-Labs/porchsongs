@@ -80,6 +80,42 @@ describe('chordsUsedIn', () => {
     expect(chordsUsedIn(many).length).toBeLessThanOrEqual(MAX_SONG_CHORDS);
   });
 
+  it('reports chords in the order they appear, not one format before the other', () => {
+    // The value of the first entry is not academic: it is the chord the panel
+    // opens on. Reading every bracketed chord before every chord row put a
+    // chorus ahead of the intro on any chart that mixes the two.
+    const song = [
+      'G       C       D',
+      'Words underneath the chords',
+      '',
+      '[Verse 2]',
+      '[Am]Later [F]on in the song',
+    ].join('\n');
+
+    expect(names(song)).toEqual(['G', 'C', 'D', 'Am', 'F']);
+  });
+
+  it("reads a chart's own \"Chords used\" legend", () => {
+    // normalizeSong files this as metadata, which is right for Follow and wrong
+    // here: it is the one line where a chart lists its chords on purpose.
+    const song = [
+      'Chords used: G C D Em',
+      '',
+      '[Verse]',
+      'G       C',
+      'the words',
+    ].join('\n');
+
+    expect(names(song)).toEqual(['G', 'C', 'D', 'Em']);
+  });
+
+  it('survives a bracketed token that names something on Object.prototype', () => {
+    // Every bracketed token is handed to the parser, and a chart is arbitrary
+    // text. This runs inside a useMemo during the play route's render, so a
+    // throw here is a blank screen rather than a missing pill.
+    expect(names('[GtoString]words [G]real')).toEqual(['G']);
+  });
+
   it('returns nothing for an empty or wordless chart', () => {
     expect(chordsUsedIn('')).toEqual([]);
     expect(chordsUsedIn('   \n\n  ')).toEqual([]);

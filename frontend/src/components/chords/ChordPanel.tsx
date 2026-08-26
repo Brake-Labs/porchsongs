@@ -13,10 +13,11 @@ import { cn } from '@/lib/utils';
  * fourteen grid is not something anyone is going to do.
  *
  * One element for both layouts rather than a drawer and a panel. On a phone it
- * fills the surface and the chart is unmounted behind it, which is what makes
- * it a full screen without needing a portal, a focus trap, or anything hidden
- * from screen readers. From `lg` up the same element is a column beside the
- * chart, which reflows to make room.
+ * fills the surface and the chart is hidden behind it with `display: none`,
+ * which takes the chart out of the tab order and out of the accessibility tree
+ * and so gives a full screen without needing a portal or a focus trap. From
+ * `lg` up the same element is a column beside the chart, which reflows to make
+ * room.
  */
 
 interface ChordPanelProps {
@@ -32,9 +33,15 @@ export default function ChordPanel({ state, className }: ChordPanelProps) {
 
   // Focus lands in the panel when it opens, so a keyboard or screen reader user
   // is put where they just asked to go, and so Escape below has something to
-  // fire on.
+  // fire on. It goes back to whatever opened it on the way out: closing with the
+  // panel's own button unmounts the element focus is sitting on, and the browser
+  // then drops focus to <body>, restarting Tab at the top of the surface.
   useEffect(() => {
+    const opener = document.activeElement;
     ref.current?.focus();
+    return () => {
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+    };
   }, []);
 
   // Bound to the panel rather than the window on purpose. A window listener

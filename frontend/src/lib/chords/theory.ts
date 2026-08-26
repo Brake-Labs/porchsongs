@@ -161,8 +161,13 @@ export interface Chord {
  * major and "m" is minor. `findQuality` lowercases before it looks up, so it
  * answers "minor" for "M", and this table has to catch that spelling before the
  * lookup rather than after it.
+ *
+ * A Map rather than an object literal, because the lookup key is a slice of a
+ * chart. `{}['toString']` answers with a function off Object.prototype, which
+ * `findQuality` then calls `.toLowerCase()` on and throws, and this runs during
+ * render, so a chart containing "[GtoString]" would blank the play route.
  */
-const QUALITY_ALIASES: Record<string, string> = {
+const QUALITY_ALIASES = new Map<string, string>(Object.entries({
   M: '',
   maj: '',
   major: '',
@@ -184,7 +189,7 @@ const QUALITY_ALIASES: Record<string, string> = {
   min7b5: 'm7b5',
   '69': '6/9',
   add2: 'add9',
-};
+}));
 
 /**
  * Read a written chord name ("G", "Bbm7", "F#sus4", "D/F#") into a chord.
@@ -214,8 +219,8 @@ export function parseChordName(name: string): Chord | null {
     suffix = suffix.slice(0, slash);
   }
 
-  const aliased = QUALITY_ALIASES[suffix];
-  const quality = aliased !== undefined ? findQuality(aliased) : findQuality(suffix);
+  const aliased = QUALITY_ALIASES.get(suffix);
+  const quality = findQuality(aliased ?? suffix);
   return quality ? { root, quality } : null;
 }
 

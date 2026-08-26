@@ -29,6 +29,16 @@ export const MAX_SONG_CHORDS = 24;
 
 const BRACKETED = /\[([^\]\n]+)\]/g;
 
+/**
+ * A chart's own legend of the chords in it.
+ *
+ * `normalizeSong` files this as metadata rather than as a chord row, which is
+ * right for Follow (it is not a row anyone sings along to) and wrong here: it is
+ * the one line where a chart lists its chords deliberately. Matched separately
+ * rather than by loosening the classifier, which the rest of the app depends on.
+ */
+const CHORDS_USED = /^\s*chords?\s+used\b\s*[:|-]\s*(.*)$/i;
+
 export function chordsUsedIn(text: string): Chord[] {
   if (!text.trim()) return [];
 
@@ -46,18 +56,34 @@ export function chordsUsedIn(text: string): Chord[] {
     found.push(chord);
   };
 
-  // Both passes run over the whole chart rather than one being a fallback for
-  // the other. A chart can carry a "Chords used:" row of bare names at the top
-  // and bracketed chords in the body, and picking a single format would drop
-  // half of a chart like that.
-  for (const match of text.matchAll(BRACKETED)) add(match[1]!.trim());
+  /** A bare token from a chord row, which sometimes wears parentheses. */
+  const addToken = (token: string): void => {
+    if (token) add(token.replace(/^\(|\)$/g, ''));
+  };
 
+  // One walk down the chart rather than a pass per format, so the order really
+  // is the order they appear. Running the formats as two passes reported every
+  // bracketed chord ahead of every chord row, which on a chart that mixes them
+  // meant `chordsUsedIn(...)[0]` was not the chart's first chord, and that is
+  // the value the panel opens on.
   const lines = text.split('\n');
   const { lineKind } = normalizeSong(text);
+
   for (let i = 0; i < lines.length; i++) {
-    if (lineKind[i] !== 'chord') continue;
-    for (const token of lines[i]!.split(/\s+/)) {
-      if (token) add(token.replace(/^\(|\)$/g, ''));
+    const line = lines[i]!;
+
+    // Bracketed chords can share a line with anything, a chord row included, so
+    // this runs on every line and the dedupe sorts out the overlap.
+    for (const match of line.matchAll(BRACKETED)) add(match[1]!.trim());
+
+    const legend = CHORDS_USED.exec(line);
+    if (legend) {
+      for (const token of legend[1]!.split(/\s+/)) addToken(token);
+      continue;
+    }
+
+    if (lineKind[i] === 'chord') {
+      for (const token of line.split(/\s+/)) addToken(token);
     }
   }
 

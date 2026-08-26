@@ -445,8 +445,11 @@ export default function PlayPage() {
 /**
  * Fills the surface on a phone and takes a column from `lg` up.
  *
- * The chart is unmounted rather than scrolled off underneath, which is what
- * makes the phone case a real full screen without a portal or a focus trap.
+ * On a phone the chart is hidden with `display: none` rather than scrolled off
+ * underneath, which takes it out of the tab order and the accessibility tree and
+ * so makes a real full screen without a portal or a focus trap. It stays mounted,
+ * so its effects keep running against a box that now measures 0x0; the layout
+ * solver ignores a zero-size container for that reason.
  */
 const PANEL_CLASS = 'flex-1 min-w-0 lg:flex-none lg:w-[22rem] xl:w-[24rem]';
 
