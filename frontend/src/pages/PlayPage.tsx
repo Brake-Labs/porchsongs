@@ -12,6 +12,8 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import TunerDialog from '@/components/TunerDialog';
+import ChordPanel from '@/components/chords/ChordPanel';
+import useChordPanel from '@/hooks/useChordPanel';
 import { PerformanceSheet, FontSizeStepper } from '@/components/PlayView';
 import DocumentSheet from '@/components/DocumentSheet';
 import type { ColumnPref, SongVersion } from '@/components/PlayView';
@@ -87,6 +89,27 @@ export default function PlayPage() {
   const [keepBusy, setKeepBusy] = useState(false);
 
   const wakeLock = useWakeLock();
+
+  // Hoisted above the early returns below, because the chord panel is a hook and
+  // hooks cannot live behind a conditional. Every branch is guarded on `song`
+  // being loaded, and on it being a chart: a tab PDF has no text to read chords
+  // out of, so the panel opens on the dictionary alone there.
+  const hasDistinctOriginal =
+    !!song &&
+    song.kind !== 'document' &&
+    song.original_content.trim() !== '' &&
+    song.original_content.trim() !== song.rewritten_content.trim();
+  const activeVersion: SongVersion = hasDistinctOriginal ? perfVersion : 'rewritten';
+  const activeContent =
+    !song || song.kind === 'document'
+      ? ''
+      : activeVersion === 'original'
+        ? song.original_content
+        : song.rewritten_content;
+
+  // Follows the version on screen, so switching to the original re-reads the
+  // chords from it rather than showing the rewrite's.
+  const chords = useChordPanel(activeContent);
 
   // Resolve the song by uuid. The library's old deep-link path only matched songs
   // already present in its in-memory list, so a cold link (a bookmark, a share, a
@@ -246,6 +269,7 @@ export default function PlayPage() {
         artist={song.artist ?? ''}
         actions={
           <>
+            <ChordsButton open={chords.open} onClick={chords.toggle} />
             <TunerButton onClick={() => setTunerOpen(true)} />
             <WakeLockButton wakeLock={wakeLock} />
             <DropdownMenu>
@@ -278,6 +302,7 @@ export default function PlayPage() {
             </DropdownMenu>
           </>
         }
+        panel={chords.open ? <ChordPanel state={chords} className={PANEL_CLASS} /> : null}
       >
         {fileError ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center text-muted-foreground">
@@ -295,12 +320,6 @@ export default function PlayPage() {
     );
   }
 
-  const hasDistinctOriginal =
-    song.original_content.trim() !== '' &&
-    song.original_content.trim() !== song.rewritten_content.trim();
-  const activeVersion: SongVersion = hasDistinctOriginal ? perfVersion : 'rewritten';
-  const activeContent =
-    activeVersion === 'original' ? song.original_content : song.rewritten_content;
   const maxCols = maxColumnsForContent(activeContent);
 
   if (!activeContent.trim()) {
@@ -324,6 +343,7 @@ export default function PlayPage() {
       artist={song.artist ?? ''}
       actions={
         <>
+          <ChordsButton open={chords.open} onClick={chords.toggle} />
           <TunerButton onClick={() => setTunerOpen(true)} />
           <WakeLockButton wakeLock={wakeLock} />
           <DropdownMenu>
@@ -406,6 +426,7 @@ export default function PlayPage() {
           )}
         </>
       }
+      panel={chords.open ? <ChordPanel state={chords} className={PANEL_CLASS} /> : null}
     >
       <PerformanceSheet
         song={song}
@@ -418,6 +439,45 @@ export default function PlayPage() {
       />
       <TunerDialog open={tunerOpen} onOpenChange={setTunerOpen} />
     </PlayChrome>
+  );
+}
+
+/**
+ * Fills the surface on a phone and takes a column from `lg` up.
+ *
+ * The chart is unmounted rather than scrolled off underneath, which is what
+ * makes the phone case a real full screen without a portal or a focus trap.
+ */
+const PANEL_CLASS = 'flex-1 min-w-0 lg:flex-none lg:w-[22rem] xl:w-[24rem]';
+
+/** Shared by both play surfaces: a chart has chords to look up, and so does a tab. */
+function ChordsButton({ open, onClick }: { open: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={open}
+      className={cn(
+        'min-w-[2.75rem] min-h-[2.75rem] inline-flex items-center justify-center rounded-md border cursor-pointer',
+        open
+          ? 'border-primary bg-primary text-white'
+          : 'border-border text-muted-foreground hover:bg-panel hover:text-foreground',
+      )}
+      // Named for what it opens, with the state on aria-pressed rather than in
+      // the name. The panel has its own close button, and two controls both
+      // announcing "Close chords" is a coin toss for anyone listening.
+      aria-label="Chords"
+      title="Chords"
+    >
+      {/* A chord diagram: nut, strings, and two stopped frets. */}
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+        <path d="M4 6h16" strokeWidth="3" />
+        <path d="M8 6v14M16 6v14" />
+        <path d="M4 12h16" />
+        <circle cx="8" cy="16" r="1.6" fill="currentColor" stroke="none" />
+        <circle cx="16" cy="9" r="1.6" fill="currentColor" stroke="none" />
+      </svg>
+    </button>
   );
 }
 
@@ -470,6 +530,8 @@ interface PlayChromeProps {
   artist?: string;
   actions?: React.ReactNode;
   controls?: React.ReactNode;
+  /** The chord panel, when it is open. Beside the chart, or instead of it. */
+  panel?: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -478,7 +540,7 @@ interface PlayChromeProps {
  * chart itself all keep a route home. A full-screen surface with no way back is
  * a dead end, and this route has no header or tab bar to escape through.
  */
-function PlayChrome({ onBack, title, artist, actions, controls, children }: PlayChromeProps) {
+function PlayChrome({ onBack, title, artist, actions, controls, panel, children }: PlayChromeProps) {
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="shrink-0 flex items-center gap-2 px-1 py-1 flex-wrap">
@@ -506,10 +568,25 @@ function PlayChrome({ onBack, title, artist, actions, controls, children }: Play
         </div>
         <div className="flex items-center gap-1.5 shrink-0">{actions}</div>
       </div>
+      {/* The chart's own controls go with the chart: on a phone the panel has
+          replaced it, so a font size stepper for something not on screen is
+          just another thing in the way. */}
       {controls && (
-        <div className="shrink-0 flex items-center gap-2 px-1 pb-1 flex-wrap">{controls}</div>
+        <div
+          className={cn(
+            'shrink-0 items-center gap-2 px-1 pb-1 flex-wrap',
+            panel ? 'hidden lg:flex' : 'flex',
+          )}
+        >
+          {controls}
+        </div>
       )}
-      {children}
+      <div className="flex-1 min-h-0 flex">
+        <div className={cn('flex-1 min-w-0 min-h-0 flex-col', panel ? 'hidden lg:flex' : 'flex')}>
+          {children}
+        </div>
+        {panel}
+      </div>
     </div>
   );
 }

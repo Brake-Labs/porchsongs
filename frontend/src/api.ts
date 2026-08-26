@@ -36,6 +36,12 @@ const STORAGE_KEYS = {
   LIBRARY_BROWSE_MODE: 'porchsongs_library_browse_mode',
   PERFORMANCE_LAYOUT: 'porchsongs_performance_layout',
   PERFORMANCE_VERSION: 'porchsongs_performance_version',
+  // Which instrument the chord panel opens on. A player owns one instrument and
+  // opens the panel on every song, so asking again each time is asking a
+  // question that has the same answer forever. The chord itself is not stored:
+  // that one really does change per song, and the panel seeds it from the chart.
+  CHORD_INSTRUMENT: 'porchsongs_chord_instrument',
+  CHORD_TUNING: 'porchsongs_chord_tuning',
   // Which surface the user was last on ('play' | 'workshop' | 'library').
   // CURRENT_SONG_ID records WHICH song but not WHERE, so a PWA relaunch used to
   // drop someone who force-quit mid-performance into the rewrite editor. Every

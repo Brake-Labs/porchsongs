@@ -154,6 +154,71 @@ export interface Chord {
   quality: ChordQuality;
 }
 
+/**
+ * Suffixes players write that are not the ones `CHORD_QUALITIES` uses.
+ *
+ * Case matters here in a way it does not anywhere else in this file: "M" is
+ * major and "m" is minor. `findQuality` lowercases before it looks up, so it
+ * answers "minor" for "M", and this table has to catch that spelling before the
+ * lookup rather than after it.
+ */
+const QUALITY_ALIASES: Record<string, string> = {
+  M: '',
+  maj: '',
+  major: '',
+  min: 'm',
+  minor: 'm',
+  '-': 'm',
+  dom7: '7',
+  M7: 'maj7',
+  ma7: 'maj7',
+  'Δ': 'maj7',
+  min7: 'm7',
+  '-7': 'm7',
+  sus: 'sus4',
+  '+': 'aug',
+  '°': 'dim',
+  '°7': 'dim7',
+  'ø': 'm7b5',
+  'm7-5': 'm7b5',
+  min7b5: 'm7b5',
+  '69': '6/9',
+  add2: 'add9',
+};
+
+/**
+ * Read a written chord name ("G", "Bbm7", "F#sus4", "D/F#") into a chord.
+ *
+ * Null for anything that is not one, which is what makes it safe to point at
+ * every bracketed token in a chart: "[Verse 1]" and "[Chorus]" come back null
+ * and simply do not become chords.
+ *
+ * The root must be capitalised. A chart is full of lowercase words that would
+ * otherwise parse, and "a" is far more often the article than the chord.
+ */
+export function parseChordName(name: string): Chord | null {
+  const trimmed = name.trim();
+  const m = /^([A-G][#b\u266f\u266d]?)(.*)$/.exec(trimmed);
+  if (!m) return null;
+
+  const root = parseNote(m[1]!);
+  if (root === null) return null;
+
+  let suffix = m[2]!.trim();
+
+  // A slash chord names a bass note this dictionary has no way to show, so it
+  // is dropped and the chord above it kept: "D/F#" is a D. Only stripped when
+  // what follows the slash really is a note, or "6/9" would lose its 9.
+  const slash = suffix.lastIndexOf('/');
+  if (slash >= 0 && parseNote(suffix.slice(slash + 1)) !== null) {
+    suffix = suffix.slice(0, slash);
+  }
+
+  const aliased = QUALITY_ALIASES[suffix];
+  const quality = aliased !== undefined ? findQuality(aliased) : findQuality(suffix);
+  return quality ? { root, quality } : null;
+}
+
 /** Display name, e.g. "Bbm7". */
 export function chordName(chord: Chord): string {
   return noteName(chord.root) + chord.quality.suffix;
