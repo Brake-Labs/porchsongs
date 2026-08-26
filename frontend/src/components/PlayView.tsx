@@ -32,28 +32,31 @@ export type ColumnPref = 'auto' | 1 | 2 | 3 | 4;
 export type SongVersion = 'rewritten' | 'original';
 
 /**
- * Discrete font sizes for the stepper.
+ * The size range the stepper can reach, in px.
  *
- * Replaces a 23-step range input that was 80px wide and 4px tall, which is an
- * unusable control on a touch screen and was the primary text-size affordance on
- * the one screen you look at from six feet away. The steps are the sizes people
- * actually want; the top end reaches a tablet on a music stand.
+ * A whole number of pixels anywhere in here, rather than a ladder of seven
+ * preset sizes. The ladder was a reaction to the 23-step range input it
+ * replaced, which was 80px wide and 4px tall and unusable on a touch screen, but
+ * it answered that with a second problem: the size you wanted was often between
+ * two rungs, and the top rung stopped at 32px whether or not the chart was on a
+ * music stand across the room. The bottom fits a dense chart on a phone; the top
+ * is legible from further away than anyone stands from a stand.
  */
-export const FONT_STEPS = [12, 14, 16, 18, 22, 26, 32] as const;
+export const FONT_SIZE_MIN = 10;
+export const FONT_SIZE_MAX = 64;
 
-/** Nearest step to an arbitrary px value, so a legacy stored size lands cleanly. */
-export function nearestFontStep(px: number): number {
-  return FONT_STEPS.reduce((best, step) =>
-    Math.abs(step - px) < Math.abs(best - px) ? step : best,
-  );
+/** Hold an arbitrary px value inside the range, rounded to whole pixels. */
+export function clampFontSize(px: number): number {
+  return Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, Math.round(px)));
 }
 
-/** Step up or down from the current size. `null` means auto. */
+/**
+ * One pixel up or down. `null` means auto, and stepping off auto starts from
+ * the size the layout had picked, so the first tap is a nudge rather than a
+ * jump to somewhere unrelated.
+ */
 export function stepFontSize(current: number | null, direction: 1 | -1, autoSize = 16): number {
-  const from = current === null ? nearestFontStep(autoSize) : nearestFontStep(current);
-  const index = FONT_STEPS.indexOf(from as (typeof FONT_STEPS)[number]);
-  const next = Math.min(FONT_STEPS.length - 1, Math.max(0, index + direction));
-  return FONT_STEPS[next]!;
+  return clampFontSize((current ?? autoSize) + direction);
 }
 
 interface FontSizeStepperProps {
@@ -71,8 +74,8 @@ export function FontSizeStepper({ value, autoSize, onChange, onCommit }: FontSiz
     onChange(next);
     onCommit?.(next);
   };
-  const atMin = value !== null && value <= FONT_STEPS[0];
-  const atMax = value !== null && value >= FONT_STEPS[FONT_STEPS.length - 1]!;
+  const atMin = value !== null && value <= FONT_SIZE_MIN;
+  const atMax = value !== null && value >= FONT_SIZE_MAX;
 
   return (
     <div className="flex items-center gap-1" role="group" aria-label="Text size">
@@ -86,12 +89,17 @@ export function FontSizeStepper({ value, autoSize, onChange, onCommit }: FontSiz
       >
         A&minus;
       </button>
+      {/* Reads out the size, and resets. It used to be a toggle, which meant the
+          button labelled "Auto" was the one that turned auto off. Now it says
+          what is in force and does the one thing that has any meaning while it
+          says it: on auto there is nothing to reset, so it is inert. */}
       <button
         type="button"
-        onClick={() => apply(value === null ? stepFontSize(null, 0 as 1, autoSize) : null)}
-        className="min-w-[2.75rem] min-h-[2.75rem] px-2 flex items-center justify-center rounded-md border border-border bg-transparent text-xs text-muted-foreground hover:bg-panel hover:text-foreground cursor-pointer whitespace-nowrap"
-        title={value === null ? 'Auto size' : 'Reset to auto size'}
-        aria-label={value === null ? 'Text size: auto' : `Text size: ${value}px. Reset to auto`}
+        onClick={() => apply(null)}
+        disabled={value === null}
+        className="min-w-[2.75rem] min-h-[2.75rem] px-2 flex items-center justify-center rounded-md border border-border bg-transparent text-xs text-muted-foreground hover:bg-panel hover:text-foreground disabled:hover:bg-transparent disabled:hover:text-muted-foreground cursor-pointer disabled:cursor-default whitespace-nowrap"
+        title={value === null ? 'Sized to fit the screen' : 'Reset to auto size'}
+        aria-label={value === null ? 'Text size: auto' : `Text size: ${Math.round(value)}px. Reset to auto`}
       >
         {value === null ? 'Auto' : `${Math.round(value)}px`}
       </button>
@@ -304,7 +312,12 @@ export function PerformanceSheet({
   const lines = useMemo(() => text.split('\n'), [text]);
 
   return (
-    <div className={cn('relative', className)}>
+    // A hairline of padding on the left. The play route is chromeless, so
+    // without it the first character of every chord line is flush against the
+    // window edge, which reads as the chart having been cut off rather than as
+    // it starting there. On the outer wrapper rather than the scroller, so the
+    // layout solver still measures the width the text actually gets.
+    <div className={cn('relative pl-px', className)}>
       <div
         ref={sheetRef}
         className={cn(

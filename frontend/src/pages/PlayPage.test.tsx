@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route, Outlet, useLocation } from 'react-router-dom';
 import api from '@/api';
 import PlayPage from '@/pages/PlayPage';
-import { stepFontSize, nearestFontStep, FONT_STEPS } from '@/components/PlayView';
+import { stepFontSize, clampFontSize, FONT_SIZE_MIN, FONT_SIZE_MAX } from '@/components/PlayView';
 import type { Song } from '@/types';
 
 vi.mock('@/api', () => ({
@@ -213,28 +213,35 @@ describe('PlayPage', () => {
 });
 
 describe('font size stepping', () => {
-  it('exposes sizes that reach a tablet on a music stand', () => {
-    // The old range input topped out at 28 with a solver ceiling of 18.
-    expect(FONT_STEPS[FONT_STEPS.length - 1]).toBe(32);
+  it('reaches a tablet on a music stand at one end and a dense chart at the other', () => {
+    // The ladder this replaced stopped at 32 whether or not the chart was
+    // across the room, and its rungs were the only sizes reachable at all.
+    expect(FONT_SIZE_MAX).toBe(64);
+    expect(FONT_SIZE_MIN).toBe(10);
   });
 
-  it('snaps an arbitrary stored size to the nearest step', () => {
-    expect(nearestFontStep(15)).toBe(14);
-    expect(nearestFontStep(21)).toBe(22);
-    expect(nearestFontStep(99)).toBe(32);
-    expect(nearestFontStep(1)).toBe(12);
+  it('lands on any whole pixel, not on a rung', () => {
+    expect(stepFontSize(16, 1)).toBe(17);
+    expect(stepFontSize(16, -1)).toBe(15);
+    expect(stepFontSize(23, 1)).toBe(24);
   });
 
-  it('steps up and down without leaving the range', () => {
-    expect(stepFontSize(16, 1)).toBe(18);
-    expect(stepFontSize(16, -1)).toBe(14);
-    expect(stepFontSize(32, 1)).toBe(32);
-    expect(stepFontSize(12, -1)).toBe(12);
+  it('stops at the ends of the range', () => {
+    expect(stepFontSize(FONT_SIZE_MAX, 1)).toBe(FONT_SIZE_MAX);
+    expect(stepFontSize(FONT_SIZE_MIN, -1)).toBe(FONT_SIZE_MIN);
   });
 
   it('steps off auto starting from the size the layout picked', () => {
-    expect(stepFontSize(null, 1, 16)).toBe(18);
-    expect(stepFontSize(null, -1, 16)).toBe(14);
-    expect(stepFontSize(null, 1, 26)).toBe(32);
+    // A nudge from where the text already is, not a jump to somewhere else.
+    expect(stepFontSize(null, 1, 16)).toBe(17);
+    expect(stepFontSize(null, -1, 16)).toBe(15);
+    expect(stepFontSize(null, 1, 26)).toBe(27);
+  });
+
+  it('brings a stored size from the old ladder, or a wild one, into range', () => {
+    expect(clampFontSize(22)).toBe(22);
+    expect(clampFontSize(15.4)).toBe(15);
+    expect(clampFontSize(999)).toBe(FONT_SIZE_MAX);
+    expect(clampFontSize(1)).toBe(FONT_SIZE_MIN);
   });
 });

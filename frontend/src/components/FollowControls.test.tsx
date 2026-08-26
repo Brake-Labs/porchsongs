@@ -99,32 +99,35 @@ describe('FollowControls diagnostics panel', () => {
     expect(screen.queryByText('Follow · debug')).not.toBeInTheDocument();
   });
 
-  it('collapses to a chip that brings it back', async () => {
-    const user = userEvent.setup();
+  it('stays closed until it is switched on', () => {
+    // Turning capture on for an account says logs may be uploaded. It does not
+    // ask for diagnostics parked over the bottom-right of every song. The switch
+    // is an item in the chart actions menu, so there is nothing here to click.
     renderControls({}, true, true);
-    expect(screen.getByLabelText('Follow debug overlay')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Hide Follow debug panel' }));
     expect(screen.queryByLabelText('Follow debug overlay')).not.toBeInTheDocument();
+    expect(screen.queryByText('Follow · debug')).not.toBeInTheDocument();
+  });
 
-    // Collapsed to a chip, not to nothing: without it the panel is unrecoverable.
-    await user.click(screen.getByRole('button', { name: 'Follow · debug' }));
+  it('shows the panel when the stored preference says so', () => {
+    window.localStorage.setItem('porchsongs.followDebugHud', 'shown');
+    renderControls({}, true, true);
+
     expect(screen.getByLabelText('Follow debug overlay')).toBeInTheDocument();
   });
 
-  it('remembers that it was hidden, because the panel remounts every song', async () => {
+  it('hides from its own header, and remembers, because it remounts every song', async () => {
+    // Without the memory, someone who dismissed it would meet it again on the
+    // next song of the set, and the one after that.
     const user = userEvent.setup();
+    window.localStorage.setItem('porchsongs.followDebugHud', 'shown');
     const { unmount } = renderControls({}, true, true);
+
     await user.click(screen.getByRole('button', { name: 'Hide Follow debug panel' }));
+    expect(screen.queryByLabelText('Follow debug overlay')).not.toBeInTheDocument();
     unmount();
 
     renderControls({}, true, true);
     expect(screen.queryByLabelText('Follow debug overlay')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Follow · debug' })).toBeInTheDocument();
-  });
-
-  it('shows by default, so a first-time capture session is not silently blind', () => {
-    renderControls({}, true, true);
-    expect(screen.getByLabelText('Follow debug overlay')).toBeInTheDocument();
   });
 });
