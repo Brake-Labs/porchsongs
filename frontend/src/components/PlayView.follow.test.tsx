@@ -66,6 +66,9 @@ beforeEach(() => {
   win.SpeechRecognition = MockRecognition;
   // jsdom has no layout, so the teleprompter's scroll call is a no-op here.
   Element.prototype.scrollTo = vi.fn();
+  // The diagnostics panel remembers whether it was opened. Without this, one
+  // test opening it leaves every test after it starting from a different state.
+  window.localStorage.clear();
 });
 
 afterEach(() => {
@@ -245,6 +248,11 @@ describe('PerformanceSheet saving a capture', () => {
 
   async function recordThenSave() {
     const user = userEvent.setup();
+    // The capture controls live inside the diagnostics panel, which starts
+    // closed and is switched from the chart actions menu on the play route.
+    // This surface renders the sheet on its own, so the preference is set
+    // directly rather than through a menu that is not here.
+    window.localStorage.setItem('porchsongs.followDebugHud', 'shown');
     render(<PerformanceSheet song={makeSong()} version="rewritten" />);
     await user.click(screen.getByRole('button', { name: 'Record' }));
     await user.click(screen.getByRole('button', { name: /Save logs/ }));
@@ -305,8 +313,15 @@ describe('PerformanceSheet capture controls gating', () => {
     expect(screen.queryByRole('button', { name: 'Record' })).toBeNull();
   });
 
-  it('shows them when the account has capture enabled', () => {
+  it('shows them when the account has capture enabled and the panel is open', () => {
+    // Enabling capture puts the panel within reach; it does not open it. Both
+    // have to be true before the controls exist.
     captureEnabledMock.mockReturnValue(true);
+    const { unmount } = render(<PerformanceSheet song={makeSong()} version="rewritten" />);
+    expect(screen.queryByRole('button', { name: 'Record' })).toBeNull();
+    unmount();
+
+    window.localStorage.setItem('porchsongs.followDebugHud', 'shown');
     render(<PerformanceSheet song={makeSong()} version="rewritten" />);
     expect(screen.getByRole('button', { name: 'Record' })).toBeInTheDocument();
   });

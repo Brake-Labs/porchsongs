@@ -14,6 +14,8 @@ import {
 import TunerDialog from '@/components/TunerDialog';
 import ChordPanel from '@/components/chords/ChordPanel';
 import useChordPanel from '@/hooks/useChordPanel';
+import useFollowDebugHud from '@/hooks/useFollowDebugHud';
+import { useFollowCaptureEnabled } from '@/extensions';
 import { PerformanceSheet, FontSizeStepper } from '@/components/PlayView';
 import DocumentSheet from '@/components/DocumentSheet';
 import type { ColumnPref, SongVersion } from '@/components/PlayView';
@@ -110,6 +112,13 @@ export default function PlayPage() {
   // Follows the version on screen, so switching to the original re-reads the
   // chords from it rather than showing the rewrite's.
   const chords = useChordPanel(activeContent);
+
+  // The Follow diagnostics panel is switched from the chart actions menu rather
+  // than from a button floating over the chart. It is an operator tool on a
+  // performance surface, so it belongs with the other things you reach for
+  // deliberately, not parked in the corner of every song.
+  const captureEnabled = useFollowCaptureEnabled();
+  const [hudOpen, toggleHud] = useFollowDebugHud();
 
   // Resolve the song by uuid. The library's old deep-link path only matched songs
   // already present in its in-memory list, so a cold link (a bookmark, a share, a
@@ -367,6 +376,14 @@ export default function PlayPage() {
               <DropdownMenuItem onClick={() => ctx?.onLoadSong?.(song)}>
                 Rewrite with AI
               </DropdownMenuItem>
+              {captureEnabled && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={toggleHud}>
+                    {hudOpen ? 'Hide Follow debug' : 'Show Follow debug'}
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </>
