@@ -8,10 +8,19 @@ import {
   resolveChordRoute,
   rootSlug,
 } from './chordUrl';
-import { CHORD_QUALITIES, ROOT_PITCH_CLASSES, chordName, findQuality } from './theory';
+import { CHORD_QUALITIES, ROOT_PITCH_CLASSES, chordName, findQuality, noteName } from './theory';
 import { INSTRUMENTS, findInstrument } from './instruments';
 
 describe('root slugs', () => {
+  it('always matches the spelling the page displays', () => {
+    // Derived from NOTE_NAMES rather than written out again, so a URL cannot
+    // claim a spelling the heading does not use.
+    for (const pc of ROOT_PITCH_CLASSES) {
+      const expected = noteName(pc).toLowerCase().replace('#', '-sharp').replace(/^(.)b$/, '$1-flat');
+      expect(rootSlug(pc)).toBe(expected);
+    }
+  });
+
   it('spells black notes the way players write them', () => {
     expect(rootSlug(10)).toBe('b-flat');
     expect(rootSlug(1)).toBe('c-sharp');
@@ -81,6 +90,7 @@ describe('chord slugs round-trip', () => {
     const parsed = parseChordSlug('c-sharp-7-sharp-9');
     expect(parsed).not.toBeNull();
     expect(chordName(parsed!)).toBe('C#7#9');
+    expect(chordSlug(parsed!)).toBe('c-sharp-7-sharp-9');
   });
 
   it('reads a flat spelling as the same chord as the sharp one', () => {

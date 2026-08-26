@@ -12,7 +12,6 @@ import {
   chordName,
   noteName,
   roleByPitchClass,
-  type Accidentals,
   type Chord,
 } from '@/lib/chords/theory';
 import { generateVoicings } from '@/lib/chords/voicing';
@@ -34,7 +33,6 @@ export interface ChordSelection {
   tuning: Tuning;
   chord: Chord;
   capo: number;
-  accidentals: Accidentals;
 }
 
 interface ChordExplorerProps {
@@ -100,7 +98,7 @@ export default function ChordExplorer({
   onToggleAllQualities,
   className,
 }: ChordExplorerProps) {
-  const { instrument, tuning, chord, capo, accidentals } = selection;
+  const { instrument, tuning, chord, capo } = selection;
   const audio = useChordAudio();
 
   // The capo is modelled as a retuning, so everything downstream (shapes, note
@@ -114,7 +112,7 @@ export default function ChordExplorer({
 
   const qualities = showAllQualities ? CHORD_QUALITIES : CHORD_QUALITIES.filter(q => q.common);
   const roles = useMemo(() => roleByPitchClass(chord), [chord]);
-  const name = chordName(chord, accidentals);
+  const name = chordName(chord);
 
   return (
     <div className={cn('flex flex-col gap-8', className)}>
@@ -157,16 +155,9 @@ export default function ChordExplorer({
               onClick={() => onChange({ chord: { ...chord, root: pc } })}
               className="min-w-11 font-mono"
             >
-              {noteName(pc, accidentals)}
+              {noteName(pc)}
             </PickerButton>
           ))}
-          <button
-            type="button"
-            onClick={() => onChange({ accidentals: accidentals === 'sharp' ? 'flat' : 'sharp' })}
-            className="px-3 py-1.5 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-panel transition-colors cursor-pointer"
-          >
-            {accidentals === 'sharp' ? 'Show flats' : 'Show sharps'}
-          </button>
         </Field>
 
         <Field label="Quality">
@@ -207,7 +198,7 @@ export default function ChordExplorer({
         <header className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
           <h2 className="font-display text-4xl leading-none">{name}</h2>
           <p className="text-muted-foreground">
-            {chordFullName(chord, accidentals)} on {instrument.name.toLowerCase()}
+            {chordFullName(chord)} on {instrument.name.toLowerCase()}
             {instrument.tunings.length > 1 && `, ${tuning.name.toLowerCase()} tuning`}
             {capo > 0 && `, capo ${capo}`}
           </p>
@@ -218,7 +209,7 @@ export default function ChordExplorer({
             const pc = (chord.root + tone.interval) % 12;
             return (
               <span key={`${tone.interval}-${tone.role}`} className="font-mono">
-                {noteName(pc, accidentals)}
+                {noteName(pc)}
                 <span className="ml-1 opacity-60 not-italic">
                   {ROLE_LABEL[roles.get(pc) ?? tone.role]}
                   {tone.optional && ' · optional'}

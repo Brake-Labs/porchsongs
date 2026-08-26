@@ -3,7 +3,7 @@ import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-
 import ChordExplorer, { type ChordSelection } from '@/components/chords/ChordExplorer';
 import { chordPath, resolveChordRoute } from '@/lib/chords/chordUrl';
 import { DEFAULT_INSTRUMENT } from '@/lib/chords/instruments';
-import { CHORD_QUALITIES, type Accidentals } from '@/lib/chords/theory';
+import { CHORD_QUALITIES } from '@/lib/chords/theory';
 
 /**
  * The chord dictionary as an app tab.
@@ -30,7 +30,6 @@ export default function ChordsPage({ basePath = '/app/chords', heading }: Chords
   const [search, setSearch] = useSearchParams();
   const navigate = useNavigate();
   const [showAllQualities, setShowAllQualities] = useState(false);
-  const [accidentals, setAccidentals] = useState<Accidentals>('sharp');
 
   const defaultPath = chordPath(basePath, DEFAULT_INSTRUMENT, DEFAULT_CHORD);
   const route = resolveChordRoute(params.instrument, params.chord, search.get('tuning') ?? undefined);
@@ -48,11 +47,9 @@ export default function ChordsPage({ basePath = '/app/chords', heading }: Chords
   }
 
   const capo = Math.min(HIGHEST_CAPO, Math.max(0, Math.trunc(Number(search.get('capo'))) || 0));
-  const selection: ChordSelection = { ...route, capo, accidentals };
+  const selection: ChordSelection = { ...route, capo };
 
   const handleChange = (next: Partial<ChordSelection>) => {
-    if (next.accidentals) setAccidentals(next.accidentals);
-
     const instrument = next.instrument ?? selection.instrument;
     const chord = next.chord ?? selection.chord;
     // Switching instrument resets the tuning: "baritone" means nothing on a banjo.

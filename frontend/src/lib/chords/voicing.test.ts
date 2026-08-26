@@ -111,11 +111,11 @@ describe('generated shapes are valid chords', () => {
     const empty = ALL.filter(c => c.voicings.length === 0).map(c => c.label);
     expect(empty).toEqual([
       'ukulele/standard F#maj9',
-      'ukulele/standard G#m9',
+      'ukulele/standard Abm9',
       'ukulele/low-g F#maj9',
-      'ukulele/low-g G#m9',
+      'ukulele/low-g Abm9',
       'ukulele/baritone C#maj9',
-      'ukulele/baritone D#m9',
+      'ukulele/baritone Ebm9',
       'mandolin/standard F7b9',
     ]);
   });

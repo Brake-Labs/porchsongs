@@ -39,7 +39,7 @@ describe('routing', () => {
 
   it('renders the chord named in the URL', () => {
     renderAt('/app/chords/ukulele/b-flat-m7');
-    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('A#m7');
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Bbm7');
     expect(at()).toBe('/app/chords/ukulele/b-flat-m7');
   });
 
@@ -119,14 +119,12 @@ describe('display', () => {
     expect(notes.textContent).toContain('optional');
   });
 
-  it('switches between sharp and flat spelling', async () => {
-    const user = userEvent.setup();
+  it('spells the chord the way its URL does', () => {
+    // The heading, the address, and the server-rendered title all come from one
+    // table, so a page cannot call itself Bbm7 in one place and A#m7 in another.
     renderAt('/app/chords/guitar/b-flat-major');
-    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('A#');
-    await user.click(screen.getByRole('button', { name: 'Show flats' }));
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Bb');
-    // Spelling is a display choice, not a different chord, so it stays out of
-    // the URL and the page keeps its single canonical address.
+    expect(screen.getByRole('button', { name: 'Bb' })).toHaveAttribute('aria-pressed', 'true');
     expect(at()).toBe('/app/chords/guitar/b-flat-major');
   });
 

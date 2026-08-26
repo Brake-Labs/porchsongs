@@ -12,25 +12,33 @@
 /** Semitones above C. */
 export type PitchClass = number;
 
-export const SHARP_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'] as const;
-export const FLAT_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'] as const;
+/**
+ * One spelling per pitch class, and not uniformly sharp.
+ *
+ * Every black note has two names for one sound, and choosing per note rather
+ * than per keyboard follows what players write: Bb and Eb, never A# and D#, but
+ * F# rather than Gb. This list is the single source of that decision. A chord's
+ * URL slug is derived from it (./chordUrl.ts) and the server renders meta from a
+ * mirror of it (porchsongs_premium/seo.py), so a page, its address, and its
+ * title always agree.
+ *
+ * There was briefly a sharp/flat toggle instead. It meant the page at
+ * /chords/ukulele/b-flat-m7 rendered "A#m7" as its heading while the
+ * server-rendered title said "Bbm7": one chord disagreeing with itself in three
+ * places. Both spellings still resolve, so a search for either lands here.
+ */
+export const NOTE_NAMES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'] as const;
 
 /**
  * Roots offered in the picker, in the order they appear.
  *
- * Twelve entries, not seventeen: a chord dictionary that lists C# and Db as
- * separate rows doubles the grid to show identical fingerings. The picker offers
- * one button per pitch class and a sharp/flat toggle changes how it is spelled,
- * which is the distinction players actually care about.
+ * Twelve entries, not seventeen: a dictionary that lists C# and Db as separate
+ * rows doubles the grid to show identical fingerings.
  */
 export const ROOT_PITCH_CLASSES: PitchClass[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 
-/** Accidental spelling preference for display. */
-export type Accidentals = 'sharp' | 'flat';
-
-export function noteName(pc: PitchClass, accidentals: Accidentals = 'sharp'): string {
-  const table = accidentals === 'flat' ? FLAT_NAMES : SHARP_NAMES;
-  return table[((pc % 12) + 12) % 12]!;
+export function noteName(pc: PitchClass): string {
+  return NOTE_NAMES[((pc % 12) + 12) % 12]!;
 }
 
 /** Parse a note name ("C", "F#", "Bb", "e") to a pitch class, or null. */
@@ -147,15 +155,13 @@ export interface Chord {
 }
 
 /** Display name, e.g. "Bbm7". */
-export function chordName(chord: Chord, accidentals: Accidentals = 'sharp'): string {
-  return noteName(chord.root, accidentals) + chord.quality.suffix;
+export function chordName(chord: Chord): string {
+  return noteName(chord.root) + chord.quality.suffix;
 }
 
 /** Spoken-ish name for screen readers and meta descriptions, e.g. "B flat minor 7th". */
-export function chordFullName(chord: Chord, accidentals: Accidentals = 'sharp'): string {
-  const note = noteName(chord.root, accidentals)
-    .replace('#', ' sharp')
-    .replace('b', ' flat');
+export function chordFullName(chord: Chord): string {
+  const note = noteName(chord.root).replace('#', ' sharp').replace('b', ' flat');
   return `${note} ${chord.quality.label}`;
 }
 

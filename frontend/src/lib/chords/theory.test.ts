@@ -11,9 +11,14 @@ import {
 } from './theory';
 
 describe('note names', () => {
-  it('spells the same pitch two ways on request', () => {
-    expect(noteName(10, 'sharp')).toBe('A#');
-    expect(noteName(10, 'flat')).toBe('Bb');
+  it('gives each pitch class the one spelling players write', () => {
+    // Not uniformly sharp: Bb and Eb, but F#. One name per sound keeps a
+    // chord's page, its URL, and its server-rendered title in agreement.
+    expect(noteName(10)).toBe('Bb');
+    expect(noteName(3)).toBe('Eb');
+    expect(noteName(8)).toBe('Ab');
+    expect(noteName(1)).toBe('C#');
+    expect(noteName(6)).toBe('F#');
     expect(noteName(0)).toBe('C');
   });
 
@@ -49,9 +54,14 @@ describe('parseNote', () => {
 
   it('round-trips every name it generates', () => {
     for (const pc of ROOT_PITCH_CLASSES) {
-      expect(parseNote(noteName(pc, 'sharp'))).toBe(pc);
-      expect(parseNote(noteName(pc, 'flat'))).toBe(pc);
+      expect(parseNote(noteName(pc))).toBe(pc);
     }
+  });
+
+  it('still reads the spelling we do not display', () => {
+    // Someone searching for "A#m7" should land on the Bbm7 page, not a 404.
+    expect(parseNote('A#')).toBe(10);
+    expect(parseNote('Db')).toBe(1);
   });
 });
 
@@ -110,14 +120,15 @@ describe('chord qualities', () => {
 
 describe('chord names', () => {
   it('writes the root followed by the suffix', () => {
-    expect(chordName({ root: 10, quality: findQuality('m7')! })).toBe('A#m7');
-    expect(chordName({ root: 10, quality: findQuality('m7')! }, 'flat')).toBe('Bbm7');
+    expect(chordName({ root: 10, quality: findQuality('m7')! })).toBe('Bbm7');
     expect(chordName({ root: 7, quality: findQuality('')! })).toBe('G');
+    expect(chordName({ root: 1, quality: findQuality('maj7')! })).toBe('C#maj7');
   });
 
   it('spells a name out for screen readers and meta descriptions', () => {
-    expect(chordFullName({ root: 10, quality: findQuality('m7')! }, 'flat')).toBe('B flat minor 7th');
+    expect(chordFullName({ root: 10, quality: findQuality('m7')! })).toBe('B flat minor 7th');
     expect(chordFullName({ root: 6, quality: findQuality('')! })).toBe('F sharp major');
+    expect(chordFullName({ root: 0, quality: findQuality('')! })).toBe('C major');
   });
 });
 

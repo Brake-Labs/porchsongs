@@ -12,20 +12,22 @@
  * crawlers see one URL per chord rather than two.
  */
 
-import { CHORD_QUALITIES, type Chord, type PitchClass } from './theory';
+import { CHORD_QUALITIES, NOTE_NAMES, type Chord, type PitchClass } from './theory';
 import { INSTRUMENTS, findInstrument, findTuning, type Instrument, type Tuning } from './instruments';
 
 /**
  * The spelling each pitch class gets in a URL.
  *
- * Follows how players write them rather than being uniformly sharp: nobody
- * searches for A#, they search for Bb, and the black notes between D and G go
- * the other way.
+ * Derived from the display names rather than written out again, so a URL can
+ * never claim a spelling the page does not use: /chords/ukulele/b-flat-m7 shows
+ * Bbm7 because both come from the same entry in NOTE_NAMES.
  */
-const ROOT_SLUGS = [
-  'c', 'c-sharp', 'd', 'e-flat', 'e', 'f',
-  'f-sharp', 'g', 'a-flat', 'a', 'b-flat', 'b',
-] as const;
+const ROOT_SLUGS: string[] = NOTE_NAMES.map(name => {
+  const letter = name[0]!.toLowerCase();
+  if (name.endsWith('#')) return `${letter}-sharp`;
+  if (name.length > 1 && name.endsWith('b')) return `${letter}-flat`;
+  return letter;
+});
 
 /** Accepted alternative spellings, mapped to the same pitch class. */
 const ROOT_ALIASES: Record<string, PitchClass> = {
@@ -39,7 +41,7 @@ export function rootSlug(pc: PitchClass): string {
 
 export function parseRootSlug(slug: string): PitchClass | null {
   const lower = slug.toLowerCase();
-  const index = ROOT_SLUGS.indexOf(lower as (typeof ROOT_SLUGS)[number]);
+  const index = ROOT_SLUGS.indexOf(lower);
   if (index >= 0) return index;
   return ROOT_ALIASES[lower] ?? null;
 }
