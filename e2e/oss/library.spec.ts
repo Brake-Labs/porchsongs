@@ -235,6 +235,46 @@ test.describe('OSS Library', () => {
     await expect(page.getByText('Folder Test Pop').first()).toBeVisible();
   });
 
+  test('a filtered view survives a reload and can be walked back out of', async ({ page, baseURL }) => {
+    // The unit tests drive a MemoryRouter, which cannot show that the real
+    // address bar carries a filter through a full page load, or that the
+    // browser's own Back button unwinds it. That is the whole point of putting
+    // the filters in the URL, so it is checked against a real browser here.
+    const profileId = await getDefaultProfileId(baseURL!);
+    await createSongViaApi(baseURL!, {
+      ...makeSongCreatePayload(profileId),
+      title: 'Url Test Hymn',
+      folder: 'UrlFolder',
+    });
+    await createSongViaApi(baseURL!, {
+      ...makeSecondSongPayload(profileId),
+      title: 'Url Test Pop',
+    });
+
+    await page.goto('/');
+    await waitForAppReady(page);
+    await navigateToTab(page, 'Library');
+    await page.getByPlaceholder(/search/i).fill('Url Test');
+    await expect(page.getByText('Url Test Hymn').first()).toBeVisible({ timeout: 5_000 });
+
+    await page.getByRole('button', { name: 'UrlFolder' }).click();
+    await expect(page).toHaveURL(/[?&]folder=UrlFolder/);
+    await expect(page.getByText('Url Test Pop')).not.toBeVisible();
+
+    // Reload: the folder and the query come back from the address, not from
+    // anything the previous page left in memory.
+    await page.reload();
+    await waitForAppReady(page);
+    await expect(page.getByText('Url Test Hymn').first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('Url Test Pop')).not.toBeVisible();
+    await expect(page.getByPlaceholder(/search/i)).toHaveValue('Url Test');
+
+    // Back leaves the folder behind rather than leaving the library.
+    await page.goBack();
+    await expect(page).not.toHaveURL(/folder=/);
+    await expect(page.getByText('Url Test Pop').first()).toBeVisible({ timeout: 5_000 });
+  });
+
   test('PDF download triggers a file download', async ({ page, baseURL }) => {
     const profileId = await getDefaultProfileId(baseURL!);
     await createSongViaApi(baseURL!, makeSongCreatePayload(profileId));

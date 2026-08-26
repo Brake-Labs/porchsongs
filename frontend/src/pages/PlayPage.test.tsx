@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Routes, Route, Outlet } from 'react-router-dom';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter, Routes, Route, Outlet, useLocation } from 'react-router-dom';
 import api from '@/api';
 import PlayPage from '@/pages/PlayPage';
 import { stepFontSize, nearestFontStep, FONT_STEPS } from '@/components/PlayView';
@@ -54,14 +55,20 @@ function makeSong(overrides: Partial<Song> = {}): Song {
   } as unknown as Song;
 }
 
-function renderAt(uuid: string, ctx: Record<string, unknown> = {}) {
+/** Reports the library URL the back button landed on, query string included. */
+function LibraryProbe() {
+  const location = useLocation();
+  return <div data-testid="library-url">{location.pathname + location.search}</div>;
+}
+
+function renderAt(uuid: string, ctx: Record<string, unknown> = {}, state?: unknown) {
   return render(
-    <MemoryRouter initialEntries={[`/app/play/${uuid}`]}>
+    <MemoryRouter initialEntries={[{ pathname: `/app/play/${uuid}`, state }]}>
       <Routes>
         <Route element={<Outlet context={{ llmSettings: { model: '' }, ...ctx }} />}>
           <Route path="/app/play/:uuid" element={<PlayPage />} />
         </Route>
-        <Route path="/app/library" element={<div>library list</div>} />
+        <Route path="/app/library" element={<LibraryProbe />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -85,6 +92,46 @@ describe('PlayPage', () => {
     expect(mockGetSong).toHaveBeenCalledWith('abc-123');
     expect(screen.getByText('Wildwood Flower')).toBeInTheDocument();
     expect(screen.getByText('The Carter Family')).toBeInTheDocument();
+  });
+
+  it('goes back to the library view the chart was opened from', async () => {
+    // The library keeps its filters in the query string, and hands the whole
+    // address over as `from`. Without it, playing a chart out of an artist or a
+    // folder and pressing back drops you into an unfiltered list.
+    mockGetSong.mockResolvedValue(makeSong());
+    const user = userEvent.setup();
+    renderAt('abc-123', {}, { from: '/app/library?view=artists&artist=neil+young' });
+
+    await waitFor(() => expect(screen.getByTestId('sheet')).toBeInTheDocument());
+    await user.click(screen.getByLabelText('Back to library'));
+
+    expect(screen.getByTestId('library-url').textContent).toBe(
+      '/app/library?view=artists&artist=neil+young',
+    );
+  });
+
+  it('ignores a back destination that is not the library', async () => {
+    // Navigation state is not something this route controls, so an arbitrary
+    // string in it must not become a redirect.
+    mockGetSong.mockResolvedValue(makeSong());
+    const user = userEvent.setup();
+    renderAt('abc-123', {}, { from: 'https://example.com/phish' });
+
+    await waitFor(() => expect(screen.getByTestId('sheet')).toBeInTheDocument());
+    await user.click(screen.getByLabelText('Back to library'));
+
+    expect(screen.getByTestId('library-url').textContent).toBe('/app/library');
+  });
+
+  it('falls back to the library when a deep link arrives with no back destination', async () => {
+    mockGetSong.mockResolvedValue(makeSong());
+    const user = userEvent.setup();
+    renderAt('abc-123');
+
+    await waitFor(() => expect(screen.getByTestId('sheet')).toBeInTheDocument());
+    await user.click(screen.getByLabelText('Back to library'));
+
+    expect(screen.getByTestId('library-url').textContent).toBe('/app/library');
   });
 
   it('shows a loading state that still offers a way back', () => {
