@@ -528,13 +528,13 @@ export default function LibraryTab() {
   // if switching to artists also moved this, pressing Back onto the plain
   // /app/library the session started from would land in artist mode and read as
   // Back having done nothing.
-  const rememberedMode = useRef<BrowseMode>(
+  const [rememberedMode] = useState<BrowseMode>(() =>
     localStorage.getItem(STORAGE_KEYS.LIBRARY_BROWSE_MODE) === 'artists' ? 'artists' : 'songs',
   );
 
   const searchQuery = searchParams.get('q') ?? '';
   const activeFolder = searchParams.get('folder');
-  const browseMode = oneOf(searchParams.get('view'), BROWSE_MODE_VALUES, rememberedMode.current);
+  const browseMode = oneOf(searchParams.get('view'), BROWSE_MODE_VALUES, rememberedMode);
   // Which artist has been drilled into, as a normalised `artistKeyOf` key. Null
   // means the picker is showing. Narrowed to artist mode so the value always
   // means what its name says: `filteredSongs` ignores it in song mode anyway,
@@ -1036,7 +1036,10 @@ export default function LibraryTab() {
       await api.renameFolder(oldName, newName);
       setSongs(prev => prev.map(s => s.folder === oldName ? { ...s, folder: newName } : s));
       setLocalFolders(prev => prev.map(f => f === oldName ? newName : f));
-      if (activeFolder === oldName) setActiveFolder(newName);
+      // Replace rather than push. The folder moved under the view; the user did
+      // not go anywhere. A pushed entry leaves Back pointing at a name that no
+      // longer exists, and the list under it is empty with no pill to clear.
+      if (activeFolder === oldName) applyView({ folder: newName });
     } catch (err) {
       toast.error('Failed to rename folder: ' + (err as Error).message);
     }
@@ -1051,7 +1054,8 @@ export default function LibraryTab() {
       await api.deleteFolder(folder);
       setSongs(prev => prev.map(s => s.folder === folder ? { ...s, folder: null } : s));
       setLocalFolders(prev => prev.filter(f => f !== folder));
-      if (activeFolder === folder) setActiveFolder(null);
+      // Replace, for the same reason as the rename above.
+      if (activeFolder === folder) applyView({ folder: null });
     } catch (err) {
       toast.error('Failed to delete folder: ' + (err as Error).message);
     }

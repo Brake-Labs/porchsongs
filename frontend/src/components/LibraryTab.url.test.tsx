@@ -269,12 +269,54 @@ describe('LibraryTab filters in the URL', () => {
   });
 
   it('falls back to the defaults for values it does not recognise', async () => {
+    // The remembered axis is what an unreadable `view` has to fall back to, and
+    // it is deliberately the opposite of what the component would show if the
+    // garbage value were simply passed through. Without that, every assertion
+    // here also passes with no validation at all: an unmatched `<select value>`
+    // is rendered by React as its first option, and every other read of these
+    // values is an equality test with a default branch behind it.
+    localStorage.setItem('test_library_browse_mode', 'artists');
     await renderLibrary('/app/library?view=nope&sort=bogus&dir=sideways&artistSort=whatever');
 
+    expect(screen.getByTestId('artist-grid')).toBeInTheDocument();
+    // And nothing is rewritten: the address is left as it was found.
+    expect(params()).toEqual({
+      view: 'nope',
+      sort: 'bogus',
+      dir: 'sideways',
+      artistSort: 'whatever',
+    });
+
+    await userEvent.setup().click(screen.getByTestId('artist-card-neil young'));
     // The song list, sorted the default way, rather than a blank screen.
     expect(screen.getByText('Old Man')).toBeInTheDocument();
     expect(screen.getByLabelText('Sort songs by')).toHaveValue('date');
     expect(screen.getByLabelText('Sort descending')).toBeInTheDocument();
+  });
+
+  it('renames the folder in place rather than stacking the old name behind Back', async () => {
+    // Reconciling the filter after a rename is not navigation. Pushing would
+    // leave Back on a folder that no longer exists, showing an empty list with
+    // no pill to clear it.
+    const user = userEvent.setup();
+    vi.mocked(api.renameFolder).mockResolvedValue(undefined as never);
+    await renderLibrary();
+
+    // One real entry to come back to, so a pushed rename would be visible here.
+    await user.click(screen.getByTestId('folder-pill-Gigs'));
+    expect(params()).toEqual({ folder: 'Gigs' });
+
+    await user.pointer({ keys: '[MouseRight]', target: screen.getByTestId('folder-pill-Gigs') });
+    await user.click(await screen.findByText('Rename'));
+    const input = await screen.findByRole('textbox');
+    await user.clear(input);
+    await user.type(input, 'Shows');
+    await user.click(screen.getByRole('button', { name: 'Rename' }));
+
+    await waitFor(() => expect(params()).toEqual({ folder: 'Shows' }));
+
+    await user.click(screen.getByTestId('go-back'));
+    expect(params()).toEqual({});
   });
 
   it('clears the filters it is leaving behind in one step when the axis changes', async () => {
