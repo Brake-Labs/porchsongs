@@ -33,6 +33,7 @@ const STORAGE_KEYS = {
   THEME: 'porchsongs_theme',
   HAS_REWRITTEN: 'porchsongs_has_rewritten',
   LIBRARY_LAYOUT: 'porchsongs_library_layout',
+  LIBRARY_BROWSE_MODE: 'porchsongs_library_browse_mode',
   PERFORMANCE_LAYOUT: 'porchsongs_performance_layout',
   PERFORMANCE_VERSION: 'porchsongs_performance_version',
   // Which surface the user was last on ('play' | 'workshop' | 'library').
