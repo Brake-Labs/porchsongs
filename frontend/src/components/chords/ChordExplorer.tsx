@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useId, useMemo } from 'react';
 import {
   INSTRUMENTS,
   withCapo,
@@ -82,10 +82,23 @@ function PickerButton({
   );
 }
 
+/**
+ * One labelled row of picker buttons.
+ *
+ * A real group with its name attached, not a heading sitting above some
+ * buttons. Several of these rows contain the same text: "7" is a chord quality
+ * and also a capo position, "5" and "6" and "9" likewise. Without the
+ * association a screen reader reads a run of bare numbers with no idea which
+ * control they belong to, and the visual label is the only thing disambiguating
+ * them.
+ */
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  const labelId = useId();
   return (
-    <div className="flex flex-col gap-2">
-      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
+    <div className="flex flex-col gap-2" role="group" aria-labelledby={labelId}>
+      <span id={labelId} className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
       <div className="flex flex-wrap gap-1.5">{children}</div>
     </div>
   );

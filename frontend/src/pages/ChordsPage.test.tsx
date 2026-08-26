@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { render } from '@testing-library/react';
@@ -126,6 +126,25 @@ describe('display', () => {
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Bb');
     expect(screen.getByRole('button', { name: 'Bb' })).toHaveAttribute('aria-pressed', 'true');
     expect(at()).toBe('/app/chords/guitar/b-flat-major');
+  });
+
+  it('groups the pickers so identical labels are told apart', async () => {
+    // "7" is a chord quality and also a capo position; so are 5, 6, and 9.
+    // Without a named group both a screen reader and a click land on whichever
+    // comes first in the DOM.
+    const user = userEvent.setup();
+    renderAt('/app/chords/guitar/c-major');
+
+    const quality = screen.getByRole('group', { name: 'Quality' });
+    const capo = screen.getByRole('group', { name: 'Capo' });
+    expect(within(quality).getByRole('button', { name: '7' })).toBeInTheDocument();
+    expect(within(capo).getByRole('button', { name: '7' })).toBeInTheDocument();
+
+    await user.click(within(quality).getByRole('button', { name: '7' }));
+    expect(at()).toBe('/app/chords/guitar/c-7');
+
+    await user.click(within(capo).getByRole('button', { name: '7' }));
+    expect(at()).toBe('/app/chords/guitar/c-7?capo=7');
   });
 
   it('reveals the long tail of qualities on request', async () => {
