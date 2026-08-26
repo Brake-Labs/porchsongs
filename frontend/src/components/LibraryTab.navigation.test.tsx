@@ -9,6 +9,7 @@ const MOCK_SONG = vi.hoisted<Song>(() => ({
   uuid: 'test-uuid-123',
   user_id: 1,
   profile_id: 1,
+  kind: 'chart',
   title: 'Amazing Grace',
   artist: 'John Newton',
   source_url: null,

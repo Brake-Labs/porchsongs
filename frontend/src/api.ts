@@ -113,6 +113,30 @@ export function isProviderError(err: unknown): boolean {
   return typeof errorType === 'string' && errorType.startsWith('provider_');
 }
 
+/**
+ * Raw fetch with the bearer token, retried once through a token refresh.
+ *
+ * The generated client handles this for JSON routes, but multipart uploads and
+ * binary downloads bypass it, and each one that did was carrying its own copy of
+ * the 401-refresh dance.
+ */
+async function _authedFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const withAuth = (): RequestInit => ({
+    ...init,
+    headers: { ...(init.headers ?? {}), ..._getAuthHeaders() },
+  });
+  let res = await fetch(url, withAuth());
+  if (res.status === 401) {
+    if (await tryRefresh()) {
+      res = await fetch(url, withAuth());
+    } else {
+      window.dispatchEvent(new CustomEvent('porchsongs-logout'));
+      throw new Error('Authentication required. Please log in.');
+    }
+  }
+  return res;
+}
+
 function _downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -515,6 +539,48 @@ const api = {
         throw new Error('Authentication required. Please log in.');
       }
     }
+    if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+    _downloadBlob(await res.blob(), filename);
+  },
+
+  /** Upload a tab PDF, creating a document-kind song. */
+  uploadDocument: async (
+    profileId: number,
+    file: File,
+    meta: { title?: string; artist?: string; folder?: string } = {},
+  ): Promise<Song> => {
+    const form = new FormData();
+    form.append('profile_id', String(profileId));
+    form.append('file', file);
+    for (const [key, value] of Object.entries(meta)) {
+      if (value) form.append(key, value);
+    }
+    // No Content-Type header: the browser has to set it, because only it knows the
+    // multipart boundary it just generated.
+    const res = await _authedFetch('/api/songs/documents', { method: 'POST', body: form });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => null);
+      throw new Error(detail?.detail ?? `Upload failed: ${res.status}`);
+    }
+    return (await res.json()) as Song;
+  },
+
+  /**
+   * Fetch a stored document's bytes.
+   *
+   * Returned as an ArrayBuffer rather than a URL because the route needs a bearer
+   * token, and pdf.js fetching a URL itself would send none. Handing it the bytes
+   * also means the same buffer can be cached for offline play.
+   */
+  fetchSongFile: async (songUuid: string): Promise<ArrayBuffer> => {
+    const res = await _authedFetch(`/api/songs/${songUuid}/file`);
+    if (!res.ok) throw new Error(`Could not load this file: ${res.status}`);
+    return await res.arrayBuffer();
+  },
+
+  /** Download a stored document under its original filename. */
+  downloadSongFile: async (songUuid: string, filename: string): Promise<void> => {
+    const res = await _authedFetch(`/api/songs/${songUuid}/file`);
     if (!res.ok) throw new Error(`Download failed: ${res.status}`);
     _downloadBlob(await res.blob(), filename);
   },

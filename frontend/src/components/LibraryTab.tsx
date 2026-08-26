@@ -128,6 +128,11 @@ interface SongMenuProps {
 
 function SongMenu({ song, onDelete, onRename, onEdit, folders, onMoveToFolder, onMoveToNewFolder, onSuggestFolder }: SongMenuProps) {
   const otherFolders = folders.filter(f => f !== song.folder);
+  // Filing and renaming a stored tab is ordinary housekeeping. Rewriting one and
+  // asking an LLM where it belongs are not: the backend refuses both with a 409,
+  // because there is no chart text to send, so offering them here would only
+  // produce an error a tap later.
+  const isDocument = song.kind === 'document';
 
   return (
     <DropdownMenu>
@@ -141,9 +146,11 @@ function SongMenu({ song, onDelete, onRename, onEdit, folders, onMoveToFolder, o
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => onEdit(song)}>
-          Rewrite
-        </DropdownMenuItem>
+        {!isDocument && (
+          <DropdownMenuItem onClick={() => onEdit(song)}>
+            Rewrite
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem onClick={() => onRename(song)}>
           Rename
         </DropdownMenuItem>
@@ -163,9 +170,11 @@ function SongMenu({ song, onDelete, onRename, onEdit, folders, onMoveToFolder, o
             chart is free and silent, and asking where one belongs is a separate,
             paid thing you opt into per chart. The dialog names the price before
             it spends anything. */}
-        <DropdownMenuItem onClick={() => onSuggestFolder(song)}>
-          Suggest a folder with AI&hellip;
-        </DropdownMenuItem>
+        {!isDocument && (
+          <DropdownMenuItem onClick={() => onSuggestFolder(song)}>
+            Suggest a folder with AI&hellip;
+          </DropdownMenuItem>
+        )}
         {song.folder && (
           <DropdownMenuItem onClick={() => onMoveToFolder(song, '')}>
             Remove from folder
@@ -380,7 +389,10 @@ function SongCard({
 }: SongCardProps) {
   const date = new Date(song.created_at).toLocaleDateString();
   const artist = song.artist ? ` by ${song.artist}` : '';
-  const preview = lyricsPreview(song.rewritten_content);
+  const isDocument = song.kind === 'document';
+  // A document has no lyrics to preview, so the slot shows what it is instead.
+  // Otherwise a stored tab reads as a chart that failed to import.
+  const preview = isDocument ? '' : lyricsPreview(song.rewritten_content);
 
   return (
     <Card
@@ -419,6 +431,16 @@ function SongCard({
             <span>{song.title || 'Untitled'}</span>
             {artist}
           </h3>
+          {isDocument && (
+            <p className="text-xs text-muted-foreground truncate mt-0.5">
+              <span className="inline-flex items-center rounded border border-border px-1 py-px mr-1.5 text-[10px] uppercase tracking-wide">
+                PDF
+              </span>
+              {song.file?.page_count
+                ? `${song.file.page_count} page${song.file.page_count === 1 ? '' : 's'}`
+                : 'Stored tab'}
+            </p>
+          )}
           {preview && (
             <p className="text-xs text-muted-foreground truncate mt-0.5">{preview}</p>
           )}
@@ -429,7 +451,7 @@ function SongCard({
             className="text-xs text-muted-foreground font-[family-name:var(--font-data)] tabular-nums"
           >
             {date}
-            {song.current_version > 1 ? ` \u00B7 v${song.current_version}` : ''}
+            {!isDocument && song.current_version > 1 ? ` \u00B7 v${song.current_version}` : ''}
             {song.folder ? ` \u00B7 ${song.folder}` : ''}
           </span>
         </div>
@@ -472,6 +494,9 @@ export default function LibraryTab() {
   const [draggingSongUuid, setDraggingSongUuid] = useState<string | null>(null);
   const [localFolders, setLocalFolders] = useState<string[]>([]);
   const [selectedUuids, setSelectedUuids] = useState<Set<string>>(new Set());
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const selectMode = selectedUuids.size > 0;
   const [sortKey, setSortKey] = useState<SortKey>('date');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -763,19 +788,48 @@ export default function LibraryTab() {
   useEffect(() => {
     if (initialSongRef != null && loaded) {
       const song = songs.find(s => s.uuid === initialSongRef);
-      if (song) {
+      if (song?.kind === 'document') {
+        // The inline view below is the chart performance surface and reads text a
+        // document does not have. The play route knows both kinds, so a deep link
+        // to a stored tab belongs there.
+        navigate(`/app/play/${song.uuid}`, { replace: true });
+      } else if (song) {
         setViewingSong(song);
       }
     } else if (initialSongRef == null) {
       // URL changed to /app/library (no song id), return to list view
       setViewingSong(null);
     }
-  }, [initialSongRef, loaded, songs]);
+  }, [initialSongRef, loaded, songs, navigate]);
 
   const pushSongUrl = useCallback((songUuid: string | null) => {
     const target = songUuid ? `/app/library/${songUuid}` : '/app/library';
     navigate(target, { replace: true });
   }, [navigate]);
+
+  const handleUploadFiles = useCallback(async (files: FileList | null) => {
+    const profileId = ctx.profile?.id;
+    if (!files?.length || !profileId) return;
+    setUploadError(null);
+    setUploading(true);
+    // Sequential, not Promise.all. Somebody adding a folder of tabs is uploading
+    // megabytes per file, and firing twenty of those at once on a phone connection
+    // is how they all time out together.
+    const added: Song[] = [];
+    const failed: string[] = [];
+    for (const file of Array.from(files)) {
+      try {
+        added.push(await api.uploadDocument(profileId, file));
+      } catch (err) {
+        failed.push(`${file.name}: ${(err as Error)?.message ?? 'upload failed'}`);
+      }
+    }
+    if (added.length) setSongs(prev => [...added, ...prev]);
+    // Partial success is the common case with a multi-file drop, so the ones that
+    // worked are kept and only the failures are named.
+    if (failed.length) setUploadError(failed.join('; '));
+    setUploading(false);
+  }, [ctx.profile?.id]);
 
   const handlePlay = useCallback((song: Song) => {
     navigate(`/app/play/${song.uuid}`, { state: { title: song.title, artist: song.artist } });
@@ -1234,13 +1288,38 @@ export default function LibraryTab() {
   if (songs.length === 0) {
     return (
       <div className="text-center py-16 px-8">
+      {/* One input for both entry points. accept is a hint the picker uses; the
+          backend decides for real by reading the file header. */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        multiple
+        className="hidden"
+        data-testid="tab-upload-input"
+        onChange={e => {
+          void handleUploadFiles(e.target.files);
+          // Cleared so picking the same file twice in a row still fires a change.
+          e.target.value = '';
+        }}
+      />
         <h3 className="font-display text-lg font-semibold text-foreground mb-2">Your library is empty</h3>
         <p className="text-muted-foreground mb-4">
-          Import a chord chart to get started. Paste it, drop in a file, or add a link.
+          Import a chord chart to get started, or store a tab PDF you already have.
         </p>
-        <Button variant="default" onClick={() => navigate('/app/rewrite')}>
-          Import a chart
-        </Button>
+        <div className="flex items-center justify-center gap-2">
+          <Button variant="default" onClick={() => navigate('/app/rewrite')}>
+            Import a chart
+          </Button>
+          <Button
+            variant="secondary"
+            disabled={uploading || !ctx.profile}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {uploading ? 'Adding...' : 'Add a tab PDF'}
+          </Button>
+        </div>
+        {uploadError && <p className="text-sm text-danger mt-3">{uploadError}</p>}
       </div>
     );
   }
@@ -1254,6 +1333,26 @@ export default function LibraryTab() {
           approaches and an explanation once it is passed. The library owns the
           count, so it is passed in rather than refetched. */}
       <SongCapNotice count={songs.length} />
+      {/* One input for both entry points. accept is a hint the picker uses; the
+          backend decides for real by reading the file header. */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        multiple
+        className="hidden"
+        data-testid="tab-upload-input"
+        onChange={e => {
+          void handleUploadFiles(e.target.files);
+          // Cleared so picking the same file twice in a row still fires a change.
+          e.target.value = '';
+        }}
+      />
+      {uploadError && (
+        <p className="text-sm text-danger" role="alert">
+          {uploadError}
+        </p>
+      )}
       <div className="flex flex-col gap-2">
         <div className="flex gap-2">
           <Input
@@ -1300,6 +1399,20 @@ export default function LibraryTab() {
           >
             {activeSortDir === 'asc' ? '\u2191' : '\u2193'}
           </Button>
+          {/* Sits with the library controls rather than on the import path. A
+              stored tab is not parsed, rewritten, or priced, so routing it through
+              the import screen would put it behind a flow built for chart text. */}
+          {!showingArtistPicker && (
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={uploading || !ctx.profile}
+              onClick={() => fileInputRef.current?.click()}
+              title="Store a tab PDF in your library"
+            >
+              {uploading ? 'Adding\u2026' : '+ Tab'}
+            </Button>
+          )}
           {/* Hidden below the breakpoint rather than shown and made inert. At phone
               width the grid it switches to is still one column, so the control
               could only move charts off the right edge behind a sideways swipe. A

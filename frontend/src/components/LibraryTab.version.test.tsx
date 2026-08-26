@@ -10,6 +10,7 @@ const EDITED_SONG = vi.hoisted<Song>(() => ({
   uuid: 'edited-uuid',
   user_id: 1,
   profile_id: 1,
+  kind: 'chart',
   title: 'Wagon Wheel',
   artist: 'OCMS',
   source_url: null,

@@ -51,6 +51,27 @@ export default defineConfig({
         ],
         // Charts are mirrored in IndexedDB, not here; the API is never cached.
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+        // pdf.js is deliberately NOT precached. It is ~2.4MB across the library
+        // and its worker, and it is only ever needed by someone who stores tab
+        // PDFs. Precaching it would charge that to every visitor on first load,
+        // including everyone who only keeps chord charts, which is the cost the
+        // dynamic import in lib/pdfViewer exists to avoid. The runtime rule below
+        // caches it the first time a tab is actually opened, so offline play still
+        // works from the second time onward.
+        globIgnores: ['**/pdf*.{js,mjs}'],
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }: { url: URL }) => /\/assets\/pdf[.-]/.test(url.pathname),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'porchsongs-pdfjs',
+              // Content-hashed filenames, so an entry is immutable and CacheFirst
+              // is safe. The cap is here to stop old builds accumulating forever.
+              expiration: { maxEntries: 8 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
       },
       manifest: false, // public/manifest.json is maintained by hand.
       devOptions: { enabled: false },
