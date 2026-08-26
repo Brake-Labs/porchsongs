@@ -363,6 +363,8 @@ function ArtistCard({ group, onSelect }: ArtistCardProps) {
 }
 
 interface SongCardProps {
+  /** True when this song's file is kept on the device for offline play. */
+  keptOffline?: boolean;
   song: Song;
   selectMode: boolean;
   isSelected: boolean;
@@ -382,7 +384,7 @@ interface SongCardProps {
 }
 
 function SongCard({
-  song, selectMode, isSelected, isDragging, stretch,
+  song, selectMode, isSelected, isDragging, stretch, keptOffline,
   onView, onToggleSelect, onDragStart, onDragEnd,
   onDelete, onRename, onEdit,
   folders, onMoveToFolder, onMoveToNewFolder, onSuggestFolder,
@@ -439,6 +441,13 @@ function SongCard({
               {song.file?.page_count
                 ? `${song.file.page_count} page${song.file.page_count === 1 ? '' : 's'}`
                 : 'Stored tab'}
+              {/* Visible before you leave the house, which is the only time it is
+                  useful to know. */}
+              {keptOffline && (
+                <span className="ml-1.5 text-[10px] uppercase tracking-wide">
+                  &middot; Offline
+                </span>
+              )}
             </p>
           )}
           {preview && (
@@ -472,6 +481,14 @@ function SongCard({
   );
 }
 
+/** Byte count for a storage line. Decimal units, which is what phones report. */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1000) return `${bytes} B`;
+  const mb = bytes / 1_000_000;
+  if (mb < 1) return `${Math.round(bytes / 1000)} KB`;
+  return mb < 100 ? `${mb.toFixed(1)} MB` : `${Math.round(mb)} MB`;
+}
+
 export function lyricsPreview(content: string): string {
   const lines = content.split('\n').filter(l => l.trim() && !/^\[.*\]$/.test(l.trim()));
   const preview = lines.slice(0, 2).join(' \u2022 ');
@@ -497,6 +514,8 @@ export default function LibraryTab() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [keptOffline, setKeptOffline] = useState<Set<string>>(new Set());
+  const [keptBytes, setKeptBytes] = useState(0);
   const selectMode = selectedUuids.size > 0;
   const [sortKey, setSortKey] = useState<SortKey>('date');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -806,6 +825,25 @@ export default function LibraryTab() {
     const target = songUuid ? `/app/library/${songUuid}` : '/app/library';
     navigate(target, { replace: true });
   }, [navigate]);
+
+  const refreshKept = useCallback(async () => {
+    try {
+      const [kept, bytes] = await Promise.all([api.keptSongFiles(), api.keptSongFilesSize()]);
+      setKeptOffline(kept);
+      setKeptBytes(bytes);
+    } catch {
+      /* Offline storage is optional; the library works without it. */
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshKept();
+  }, [refreshKept]);
+
+  const forgetAllKept = useCallback(async () => {
+    await Promise.all([...keptOffline].map((uuid) => api.forgetSongFileOffline(uuid)));
+    await refreshKept();
+  }, [keptOffline, refreshKept]);
 
   const handleUploadFiles = useCallback(async (files: FileList | null) => {
     const profileId = ctx.profile?.id;
@@ -1353,6 +1391,23 @@ export default function LibraryTab() {
           {uploadError}
         </p>
       )}
+      {/* Only when something is kept. Storage you are using is worth seeing where
+          you manage the things using it, and invisible megabytes on a phone are
+          how a music app becomes the one you delete. */}
+      {keptOffline.size > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {keptOffline.size} tab{keptOffline.size === 1 ? '' : 's'} kept on this device
+          {keptBytes > 0 && ` \u00B7 ${formatBytes(keptBytes)}`}
+          {' \u00B7 '}
+          <button
+            type="button"
+            onClick={() => void forgetAllKept()}
+            className="underline hover:text-foreground cursor-pointer"
+          >
+            Remove all
+          </button>
+        </p>
+      )}
       <div className="flex flex-col gap-2">
         <div className="flex gap-2">
           <Input
@@ -1616,6 +1671,7 @@ export default function LibraryTab() {
               key={song.uuid}
               song={song}
               stretch
+              keptOffline={keptOffline.has(song.uuid)}
               selectMode={selectMode}
               isSelected={selectedUuids.has(song.uuid)}
               isDragging={draggingSongUuid === song.uuid}
@@ -1649,6 +1705,7 @@ export default function LibraryTab() {
               <SongCard
                 key={song.uuid}
                 song={song}
+                keptOffline={keptOffline.has(song.uuid)}
                 selectMode={selectMode}
                 isSelected={selectedUuids.has(song.uuid)}
                 isDragging={draggingSongUuid === song.uuid}

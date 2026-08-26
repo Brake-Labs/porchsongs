@@ -14,10 +14,13 @@ import type { Profile, Song } from '@/types';
  */
 
 const DB_NAME = 'porchsongs-offline';
-const DB_VERSION = 1;
+// 2 added FILES. The upgrade only ever creates missing stores, so an existing
+// mirror keeps its charts rather than being rebuilt from the network.
+const DB_VERSION = 2;
 
 const SONGS = 'songs';
 const META = 'meta';
+const FILES = 'files';
 
 /** Keys in the meta store. */
 const OWNER_KEY = 'ownerId';
@@ -35,6 +38,9 @@ function db(): Promise<IDBPDatabase> {
         }
         if (!database.objectStoreNames.contains(META)) {
           database.createObjectStore(META);
+        }
+        if (!database.objectStoreNames.contains(FILES)) {
+          database.createObjectStore(FILES, { keyPath: 'uuid' });
         }
       },
     });
@@ -71,8 +77,13 @@ export async function setOwner(userId: number): Promise<void> {
 export async function clear(): Promise<void> {
   if (!isSupported()) return;
   const database = await db();
-  const tx = database.transaction([SONGS, META], 'readwrite');
-  await Promise.all([tx.objectStore(SONGS).clear(), tx.objectStore(META).clear(), tx.done]);
+  const tx = database.transaction([SONGS, META, FILES], 'readwrite');
+  await Promise.all([
+    tx.objectStore(SONGS).clear(),
+    tx.objectStore(META).clear(),
+    tx.objectStore(FILES).clear(),
+    tx.done,
+  ]);
 }
 
 /**
@@ -94,8 +105,9 @@ export async function putSongs(userId: number, songs: Song[]): Promise<void> {
     (await database.getAll(SONGS)).map((s: Song) => [s.uuid, s]),
   );
 
-  const tx = database.transaction([SONGS, META], 'readwrite');
+  const tx = database.transaction([SONGS, META, FILES], 'readwrite');
   const store = tx.objectStore(SONGS);
+  const files = tx.objectStore(FILES);
   const incoming = new Set<string>();
 
   for (const song of songs) {
@@ -106,9 +118,13 @@ export async function putSongs(userId: number, songs: Song[]): Promise<void> {
     }
   }
   // Drop anything deleted elsewhere, so the mirror cannot resurrect a chart the user
-  // removed on another device.
+  // removed on another device. A kept tab goes with its song: a stored PDF whose
+  // library row is gone is megabytes nobody can see, reach, or delete.
   for (const uuid of existing.keys()) {
-    if (!incoming.has(uuid)) store.delete(uuid);
+    if (!incoming.has(uuid)) {
+      store.delete(uuid);
+      files.delete(uuid);
+    }
   }
   tx.objectStore(META).put(Date.now(), SYNCED_AT_KEY);
   await tx.done;
@@ -153,6 +169,89 @@ export async function getSyncedAt(): Promise<number | null> {
   if (!isSupported()) return null;
   const value = await (await db()).get(META, SYNCED_AT_KEY);
   return typeof value === 'number' ? value : null;
+}
+
+/**
+ * A stored tab kept on this device.
+ *
+ * Charts are mirrored eagerly, because the whole library is a few MB of text.
+ * Documents are not: a tab collection is hundreds of megabytes, so keeping one
+ * is an explicit per-song choice and the presence of a row here IS that choice.
+ * There is no separate flag to drift out of step with the bytes.
+ */
+export interface OfflineFile {
+  uuid: string;
+  /**
+   * ArrayBuffer, not Blob.
+   *
+   * Both are structured-cloneable on paper, but Blob-in-IndexedDB has a long
+   * history of going wrong on iOS Safari, which is the installed PWA on a music
+   * stand this feature exists for. An ArrayBuffer is also what pdf.js wants, so
+   * the hot path does no conversion at all.
+   */
+  bytes: ArrayBuffer;
+  contentType: string;
+  /** Digest of the bytes, matched against the song's file.sha256 to spot staleness. */
+  sha256: string;
+  /** Carried rather than derived, so totalling device usage reads no buffers. */
+  size: number;
+  savedAt: number;
+}
+
+/** Keep a document's bytes on this device. */
+export async function putFile(
+  userId: number,
+  uuid: string,
+  bytes: ArrayBuffer,
+  sha256: string,
+  contentType = 'application/pdf',
+): Promise<void> {
+  if (!isSupported()) return;
+  await setOwner(userId);
+  const record: OfflineFile = {
+    uuid,
+    bytes,
+    contentType,
+    sha256,
+    size: bytes.byteLength,
+    savedAt: Date.now(),
+  };
+  await (await db()).put(FILES, record);
+}
+
+/** A kept document, or null when absent or owned by somebody else. */
+export async function getFile(userId: number, uuid: string): Promise<OfflineFile | null> {
+  if (!isSupported()) return null;
+  if ((await owner()) !== userId) return null;
+  return ((await (await db()).get(FILES, uuid)) as OfflineFile | undefined) ?? null;
+}
+
+/** Stop keeping a document. The song stays in the library. */
+export async function deleteFile(userId: number, uuid: string): Promise<void> {
+  if (!isSupported()) return;
+  if ((await owner()) !== userId) return;
+  await (await db()).delete(FILES, uuid);
+}
+
+/**
+ * Which documents are kept, without reading any of the blobs.
+ *
+ * getAllKeys rather than getAll: this answers "is the toggle on" for a list of
+ * songs, and loading several hundred megabytes of PDF to render a row of
+ * checkmarks would be a bug with no visible cause.
+ */
+export async function keptFileUuids(userId: number): Promise<Set<string>> {
+  if (!isSupported()) return new Set();
+  if ((await owner()) !== userId) return new Set();
+  return new Set((await (await db()).getAllKeys(FILES)) as string[]);
+}
+
+/** Total bytes kept, so the app can say what it is using on this device. */
+export async function keptFilesSize(userId: number): Promise<number> {
+  if (!isSupported()) return 0;
+  if ((await owner()) !== userId) return 0;
+  const rows = (await (await db()).getAll(FILES)) as OfflineFile[];
+  return rows.reduce((total, row) => total + (row.size ?? 0), 0);
 }
 
 /**

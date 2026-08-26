@@ -21,6 +21,9 @@ vi.mock('@/api', () => ({
     downloadSongPdf: vi.fn().mockResolvedValue(undefined),
     fetchSongFile: vi.fn(),
     downloadSongFile: vi.fn().mockResolvedValue(undefined),
+    keptSongFiles: vi.fn().mockResolvedValue(new Set()),
+    keepSongFileOffline: vi.fn().mockResolvedValue(undefined),
+    forgetSongFileOffline: vi.fn().mockResolvedValue(undefined),
   },
   STORAGE_KEYS: {
     CURRENT_SONG_ID: 'test_current_song_id',
@@ -81,11 +84,15 @@ function renderAt(uuid: string, ctx: Record<string, unknown> = {}) {
 const mockGetSong = api.getSong as ReturnType<typeof vi.fn>;
 const mockFetchFile = api.fetchSongFile as ReturnType<typeof vi.fn>;
 const mockDownloadFile = api.downloadSongFile as ReturnType<typeof vi.fn>;
+const mockKeptFiles = api.keptSongFiles as ReturnType<typeof vi.fn>;
+const mockKeep = api.keepSongFileOffline as ReturnType<typeof vi.fn>;
+const mockForget = api.forgetSongFileOffline as ReturnType<typeof vi.fn>;
 
 describe('PlayPage with a stored tab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    mockKeptFiles.mockResolvedValue(new Set());
   });
 
   it('renders the document sheet, not the empty-chart state', async () => {
@@ -93,7 +100,9 @@ describe('PlayPage with a stored tab', () => {
     mockFetchFile.mockResolvedValue(new ArrayBuffer(16));
     renderAt('doc-123');
 
-    expect(await screen.findByTestId('document-sheet')).toHaveTextContent('bytes:16');
+    // findByTestId would resolve on the sheet's "no bytes yet" state, before the
+    // fetch settles. Wait for the content, not the element.
+    expect(await screen.findByText('bytes:16')).toBeInTheDocument();
     expect(screen.queryByText('This chart is empty')).not.toBeInTheDocument();
   });
 
@@ -103,7 +112,7 @@ describe('PlayPage with a stored tab', () => {
     renderAt('doc-123');
 
     await screen.findByTestId('document-sheet');
-    expect(mockFetchFile).toHaveBeenCalledWith('doc-123');
+    expect(mockFetchFile).toHaveBeenCalledWith('doc-123', expect.any(String));
     expect(mockFetchFile).toHaveBeenCalledTimes(1);
   });
 
@@ -176,5 +185,67 @@ describe('PlayPage with a stored tab', () => {
 
     await waitFor(() => expect(screen.queryByText(/Loading chart/)).not.toBeInTheDocument());
     expect(mockFetchFile).not.toHaveBeenCalled();
+  });
+});
+
+describe('keeping a tab on the device', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    mockKeptFiles.mockResolvedValue(new Set());
+    mockGetSong.mockResolvedValue(makeDocument());
+    mockFetchFile.mockResolvedValue(new ArrayBuffer(16));
+  });
+
+  it('passes the content digest so a kept copy can answer without the network', async () => {
+    renderAt('doc-123');
+    await screen.findByTestId('document-sheet');
+    expect(mockFetchFile).toHaveBeenCalledWith('doc-123', 'a'.repeat(64));
+  });
+
+  it('offers to keep a tab that is not kept yet', async () => {
+    renderAt('doc-123');
+    await screen.findByTestId('document-sheet');
+
+    await userEvent.click(screen.getByLabelText('Tab actions'));
+    await userEvent.click(await screen.findByText('Keep offline'));
+
+    await waitFor(() => expect(mockKeep).toHaveBeenCalledWith('doc-123', 'a'.repeat(64)));
+  });
+
+  it('offers to stop keeping one that already is', async () => {
+    mockKeptFiles.mockResolvedValue(new Set(['doc-123']));
+    renderAt('doc-123');
+    await screen.findByTestId('document-sheet');
+
+    await userEvent.click(screen.getByLabelText('Tab actions'));
+    await userEvent.click(await screen.findByText('Stop keeping offline'));
+
+    await waitFor(() => expect(mockForget).toHaveBeenCalledWith('doc-123'));
+  });
+
+  it('flips the label after keeping, without a reload', async () => {
+    renderAt('doc-123');
+    await screen.findByTestId('document-sheet');
+
+    await userEvent.click(screen.getByLabelText('Tab actions'));
+    await userEvent.click(await screen.findByText('Keep offline'));
+    await waitFor(() => expect(mockKeep).toHaveBeenCalled());
+
+    await userEvent.click(screen.getByLabelText('Tab actions'));
+    expect(await screen.findByText('Stop keeping offline')).toBeInTheDocument();
+  });
+
+  it('says so when keeping fails instead of silently not keeping', async () => {
+    // "Keep this for tonight" is a promise, and a silent failure is discovered on
+    // stage with no connection.
+    mockKeep.mockRejectedValue(new Error('QuotaExceededError'));
+    renderAt('doc-123');
+    await screen.findByTestId('document-sheet');
+
+    await userEvent.click(screen.getByLabelText('Tab actions'));
+    await userEvent.click(await screen.findByText('Keep offline'));
+
+    expect(await screen.findByText('QuotaExceededError')).toBeInTheDocument();
   });
 });

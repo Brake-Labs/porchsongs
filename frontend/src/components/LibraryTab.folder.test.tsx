@@ -27,6 +27,8 @@ vi.mock('@/api', () => ({
     deleteFolder: vi.fn(),
     downloadSongPdf: vi.fn(),
     suggestFolder: vi.fn(),
+    // The library asks which tabs are kept on the device to render its markers.
+    keptSongFiles: vi.fn().mockResolvedValue(new Set()),
   },
   STORAGE_KEYS: {
     DRAFT_INPUT: 'test_draft_input',

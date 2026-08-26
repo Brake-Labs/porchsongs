@@ -76,6 +76,8 @@ export default function PlayPage() {
   const [fontSize, setFontSize] = useState<number | null>(null);
   const [fileData, setFileData] = useState<ArrayBuffer | null>(null);
   const [fileError, setFileError] = useState('');
+  const [keptOffline, setKeptOffline] = useState(false);
+  const [keepBusy, setKeepBusy] = useState(false);
 
   const wakeLock = useWakeLock();
 
@@ -120,18 +122,45 @@ export default function PlayPage() {
     }
     let cancelled = false;
     setFileError('');
+    // The digest lets a kept copy answer without touching the network at all.
     api
-      .fetchSongFile(song.uuid)
+      .fetchSongFile(song.uuid, song.file?.sha256)
       .then((buf) => {
         if (!cancelled) setFileData(buf);
       })
       .catch((err: unknown) => {
         if (!cancelled) setFileError((err as Error)?.message ?? 'Could not load this file.');
       });
+    api
+      .keptSongFiles()
+      .then((kept) => {
+        if (!cancelled) setKeptOffline(kept.has(song.uuid));
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
   }, [song]);
+
+  const toggleKeptOffline = useCallback(async () => {
+    if (!song?.file) return;
+    setKeepBusy(true);
+    try {
+      if (keptOffline) {
+        await api.forgetSongFileOffline(song.uuid);
+        setKeptOffline(false);
+      } else {
+        await api.keepSongFileOffline(song.uuid, song.file.sha256);
+        setKeptOffline(true);
+      }
+    } catch (err) {
+      // Surfaced on the sheet rather than swallowed: "keep this for tonight" is a
+      // promise, and silently failing it is discovered on stage.
+      setFileError((err as Error)?.message ?? 'Could not change offline storage.');
+    } finally {
+      setKeepBusy(false);
+    }
+  }, [song, keptOffline]);
 
   const persistFontSize = useCallback(
     (next: number | null) => {
@@ -219,6 +248,17 @@ export default function PlayPage() {
                   onClick={() => api.downloadSongFile(song.uuid, downloadName).catch(() => {})}
                 >
                   Download original
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {/* Per song, never automatic: a tab collection is hundreds of
+                    megabytes and mirroring all of it on every library visit would
+                    be a bug. This is the "I need this one tonight" switch. */}
+                <DropdownMenuItem disabled={keepBusy} onClick={() => void toggleKeptOffline()}>
+                  {keepBusy
+                    ? 'Working\u2026'
+                    : keptOffline
+                      ? 'Stop keeping offline'
+                      : 'Keep offline'}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

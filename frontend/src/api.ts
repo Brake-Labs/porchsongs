@@ -502,6 +502,11 @@ const api = {
       params: { path: { song_ref: ref } },
     });
     if (error) _throwApiError(error, 'Failed to delete song');
+    // Drop a kept copy now rather than waiting for the next library sync to notice
+    // the row is gone. Deleting a tab and watching the device keep the megabytes is
+    // the version of this that gets reported as a bug.
+    const userId = currentOwnerId();
+    if (userId != null) offlineStore.deleteFile(userId, ref).catch(() => {});
   },
   getSongRevisions: async (ref: string) => {
     const { data, error } = await client.GET('/api/songs/{song_ref}/revisions', {
@@ -569,13 +574,88 @@ const api = {
    * Fetch a stored document's bytes.
    *
    * Returned as an ArrayBuffer rather than a URL because the route needs a bearer
-   * token, and pdf.js fetching a URL itself would send none. Handing it the bytes
-   * also means the same buffer can be cached for offline play.
+   * token, and pdf.js fetching a URL itself would send none.
+   *
+   * Kept copies are consulted first when `sha256` is supplied. The digest comes
+   * from the song row, so a match proves the local bytes are the current ones and
+   * the request can be skipped entirely: opening a tab you have kept costs no
+   * network at all, which is the point on a stage. A mismatch, or no local copy,
+   * falls through to the network, and a dead network falls back to whatever is
+   * kept even if the digest disagrees, because a possibly stale tab beats no tab
+   * when you are about to play it.
    */
-  fetchSongFile: async (songUuid: string): Promise<ArrayBuffer> => {
+  fetchSongFile: async (songUuid: string, sha256?: string | null): Promise<ArrayBuffer> => {
+    const userId = currentOwnerId();
+    const cached = userId != null ? await offlineStore.getFile(userId, songUuid) : null;
+    if (cached && sha256 && cached.sha256 === sha256) return cached.bytes;
+    try {
+      const res = await _authedFetch(`/api/songs/${songUuid}/file`);
+      if (!res.ok) throw new Error(`Could not load this file: ${res.status}`);
+      const bytes = await res.arrayBuffer();
+      // Refresh a kept copy that had gone stale. Only ever refreshes one that
+      // already exists: fetching a tab is not the same as choosing to keep it.
+      if (cached && userId != null && sha256) {
+        offlineStore
+          .putFile(userId, songUuid, bytes, sha256, res.headers.get('content-type') ?? undefined)
+          .catch(() => {});
+      }
+      return bytes;
+    } catch (err) {
+      if (isNetworkFailure(err) && cached) return cached.bytes;
+      throw err;
+    }
+  },
+
+  /**
+   * Keep a document on this device, downloading it if it is not already here.
+   *
+   * Explicitly per song, never automatic. The chart mirror is eager because the
+   * whole library is a few megabytes of text; a tab collection is hundreds of
+   * megabytes, and syncing that on every library visit would be a bug rather than
+   * a feature.
+   */
+  keepSongFileOffline: async (songUuid: string, sha256: string): Promise<void> => {
+    const userId = currentOwnerId();
+    if (userId == null) throw new Error('Offline storage is unavailable.');
+    // Ask the browser not to evict this origin. Without it IndexedDB is
+    // best-effort and can be cleared under storage pressure, which for this
+    // feature means the tab you kept for tonight is gone tonight. Advisory and
+    // may be declined, so nothing depends on the answer.
+    try {
+      await navigator.storage?.persist?.();
+    } catch {
+      /* unsupported, or refused. Keeping still works, just evictably. */
+    }
     const res = await _authedFetch(`/api/songs/${songUuid}/file`);
     if (!res.ok) throw new Error(`Could not load this file: ${res.status}`);
-    return await res.arrayBuffer();
+    await offlineStore.putFile(
+      userId,
+      songUuid,
+      await res.arrayBuffer(),
+      sha256,
+      res.headers.get('content-type') ?? undefined,
+    );
+  },
+
+  /** Stop keeping a document. The song stays in the library. */
+  forgetSongFileOffline: async (songUuid: string): Promise<void> => {
+    const userId = currentOwnerId();
+    if (userId == null) return;
+    await offlineStore.deleteFile(userId, songUuid);
+  },
+
+  /** Which documents are kept on this device. */
+  keptSongFiles: async (): Promise<Set<string>> => {
+    const userId = currentOwnerId();
+    if (userId == null) return new Set();
+    return await offlineStore.keptFileUuids(userId);
+  },
+
+  /** Total bytes of kept documents on this device. */
+  keptSongFilesSize: async (): Promise<number> => {
+    const userId = currentOwnerId();
+    if (userId == null) return 0;
+    return await offlineStore.keptFilesSize(userId);
   },
 
   /** Download a stored document under its original filename. */

@@ -73,6 +73,9 @@ vi.mock('@/api', () => ({
     getSong: vi.fn(),
     getSongRevisions: vi.fn().mockResolvedValue([]),
     uploadDocument: vi.fn(),
+    keptSongFiles: vi.fn().mockResolvedValue(new Set()),
+    keptSongFilesSize: vi.fn().mockResolvedValue(0),
+    forgetSongFileOffline: vi.fn().mockResolvedValue(undefined),
   },
   STORAGE_KEYS: {
     CURRENT_SONG_ID: 'test_song_id',
@@ -105,10 +108,15 @@ function renderLibrary(entry = '/app/library') {
 
 const mockListSongs = api.listSongs as ReturnType<typeof vi.fn>;
 const mockUpload = api.uploadDocument as ReturnType<typeof vi.fn>;
+const mockKeptFiles = api.keptSongFiles as ReturnType<typeof vi.fn>;
+const mockKeptSize = api.keptSongFilesSize as ReturnType<typeof vi.fn>;
+const mockForget = api.forgetSongFileOffline as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
+  mockKeptFiles.mockResolvedValue(new Set());
+  mockKeptSize.mockResolvedValue(0);
 });
 
 describe('documents in the library list', () => {
@@ -197,5 +205,59 @@ describe('adding a tab', () => {
     renderLibrary();
     expect(await screen.findByText('Your library is empty')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Add a tab PDF/ })).toBeInTheDocument();
+  });
+});
+
+describe('offline markers in the library', () => {
+  it('marks a tab that is kept on this device', async () => {
+    // Visible before you leave the house, which is the only time it is useful.
+    mockListSongs.mockResolvedValue([DOCUMENT]);
+    mockKeptFiles.mockResolvedValue(new Set(['doc-uuid']));
+    renderLibrary();
+    expect(await screen.findByText(/Offline/)).toBeInTheDocument();
+  });
+
+  it('leaves a tab that is not kept unmarked', async () => {
+    mockListSongs.mockResolvedValue([DOCUMENT]);
+    renderLibrary();
+    await screen.findByText('Blackberry Blossom');
+    expect(screen.queryByText(/Offline/)).not.toBeInTheDocument();
+  });
+
+  it('reports what is kept on the device, and offers to reclaim it', async () => {
+    // Invisible megabytes on a phone are how a music app becomes the one you
+    // delete, so the number lives where the tabs are managed.
+    mockListSongs.mockResolvedValue([DOCUMENT]);
+    mockKeptFiles.mockResolvedValue(new Set(['doc-uuid']));
+    mockKeptSize.mockResolvedValue(12_400_000);
+    renderLibrary();
+
+    expect(await screen.findByText(/1 tab kept on this device/)).toBeInTheDocument();
+    expect(screen.getByText(/12\.4 MB/)).toBeInTheDocument();
+
+    mockKeptFiles.mockResolvedValue(new Set());
+    mockKeptSize.mockResolvedValue(0);
+    await userEvent.click(screen.getByRole('button', { name: 'Remove all' }));
+
+    await waitFor(() => expect(mockForget).toHaveBeenCalledWith('doc-uuid'));
+    await waitFor(() =>
+      expect(screen.queryByText(/kept on this device/)).not.toBeInTheDocument(),
+    );
+  });
+
+  it('says nothing about storage when nothing is kept', async () => {
+    mockListSongs.mockResolvedValue([DOCUMENT]);
+    renderLibrary();
+    await screen.findByText('Blackberry Blossom');
+    expect(screen.queryByText(/kept on this device/)).not.toBeInTheDocument();
+  });
+
+  it('never reads a blob to render the markers', async () => {
+    // keptSongFiles returns keys only. Loading several hundred megabytes of PDF to
+    // draw a row of labels would be a bug with no visible cause.
+    mockListSongs.mockResolvedValue([DOCUMENT]);
+    renderLibrary();
+    await screen.findByText('Blackberry Blossom');
+    expect(mockKeptFiles).toHaveBeenCalledTimes(1);
   });
 });
