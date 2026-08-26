@@ -118,11 +118,30 @@ class SongCreate(BaseModel):
     folder: str | None = Field(default=None, max_length=100)
 
 
+class SongFileOut(BaseModel):
+    """Metadata for a stored document. Never carries the bytes.
+
+    The bytes are served by GET /songs/{ref}/file, which is a separate request so
+    that a library listing stays a listing. `page_count` and `size_bytes` are here
+    because the library shows them on the row, and deriving either one on read
+    would mean loading the whole PDF to render a number.
+    """
+
+    filename: str
+    content_type: str
+    size_bytes: int
+    page_count: int | None
+    sha256: str
+
+    model_config = {"from_attributes": True}
+
+
 class SongOut(BaseModel):
     id: int
     uuid: str
     user_id: int
     profile_id: int
+    kind: str
     title: str | None
     artist: str | None
     source_url: str | None
@@ -137,6 +156,9 @@ class SongOut(BaseModel):
     current_version: int
     created_at: datetime
     updated_at: datetime
+    # Present only for kind="document". Populated from an explicitly eager-loaded
+    # relationship; see _song_query in routers/songs.py.
+    file: SongFileOut | None = None
 
     model_config = {"from_attributes": True}
 

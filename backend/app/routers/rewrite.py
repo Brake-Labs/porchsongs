@@ -46,6 +46,7 @@ from ..schemas import (
     UrlScrapeResponse,
 )
 from ..services import llm_service, scrape_service
+from .songs import reject_documents
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -585,6 +586,7 @@ async def chat(
 ) -> ChatResponse:
     _require_gateway()
     song = get_user_song(db, current_user, req.song_id)
+    reject_documents(song, "sent to the model")
     messages, history_len = _load_chat_messages(db, song.id, req.messages)
     profile = db.query(Profile).filter(Profile.id == song.profile_id).first()
 
@@ -663,6 +665,7 @@ async def chat_stream(
 ) -> StreamingResponse:
     _require_gateway()
     song = get_user_song(db, current_user, req.song_id)
+    reject_documents(song, "sent to the model")
     messages, history_len = _load_chat_messages(db, song.id, req.messages)
     profile = db.query(Profile).filter(Profile.id == song.profile_id).first()
 
@@ -847,6 +850,7 @@ async def suggest_folder(
     """
     _require_gateway()
     song = get_user_song(db, current_user, req.song_id)
+    reject_documents(song, "sent to the model")
 
     folder_rows = (
         db.query(Song.folder)

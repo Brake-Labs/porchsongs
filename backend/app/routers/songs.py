@@ -1,10 +1,12 @@
+import hashlib
+import io
 import json
 import re
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, undefer
 
 from ..auth.dependencies import get_current_user
 from ..auth.scoping import get_user_profile, get_user_song, get_user_song_by_uuid
@@ -12,6 +14,7 @@ from ..database import get_db
 from ..models import (
     ChatMessage,
     Song,
+    SongFile,
     SongRevision,
     User,
 )
@@ -29,6 +32,45 @@ from ..schemas import (
 from ..services.pdf_service import generate_song_pdf
 
 router = APIRouter(tags=["songs"])
+
+# A tab PDF is a page of line art per page, so a real one is single-digit
+# megabytes. The cap exists because psycopg2 materialises a bytea whole in memory
+# on both write and read: a request for a 200MB row is a request for 200MB of
+# process memory, on a container sized for serving text.
+MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
+
+# Deliberately just PDF. Every other plausible format (images of a page, Guitar
+# Pro files) either needs a different viewer or a different story about zoom, and
+# accepting bytes we cannot render is how a library fills up with items that open
+# to an error.
+DOCUMENT_CONTENT_TYPE = "application/pdf"
+
+
+def _document_page_count(data: bytes) -> int | None:
+    """Page count for the library row, read once at upload.
+
+    Returns None rather than raising: a PDF that pypdf will not enumerate can
+    still be a PDF the browser renders, and refusing the upload over a missing
+    number would be trading the file for the label on it.
+    """
+    try:
+        from pypdf import PdfReader
+
+        return len(PdfReader(io.BytesIO(data)).pages)
+    except Exception:
+        return None
+
+
+def reject_documents(song: Song, action: str) -> None:
+    """Guard the text-only routes.
+
+    A document has no chart text to revise, summarise, or discuss, so these are
+    404-shaped rather than 400-shaped situations: the resource genuinely is not
+    there. 409 says the song exists and this is not a thing it does, which is the
+    accurate answer and the one the frontend can show.
+    """
+    if song.kind == "document":
+        raise HTTPException(status_code=409, detail=f"A stored document cannot be {action}.")
 
 
 def _resolve_song(db: Session, user: User, song_ref: str) -> Song:
@@ -103,6 +145,135 @@ async def delete_folder(
     return OkResponse(ok=True)
 
 
+@router.post("/songs/documents", response_model=SongOut, status_code=201)
+async def upload_document(
+    profile_id: int = Form(...),
+    title: str | None = Form(None),
+    artist: str | None = Form(None),
+    folder: str | None = Form(None),
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Song:
+    """Store a tab PDF as a document-kind song.
+
+    Multipart rather than the base64 JSON that /parse/file takes. That endpoint
+    exists to pull text out of a file and discard it; this one exists to keep the
+    file, and base64 would inflate a 20MB tab to 27MB on the wire to no purpose.
+    """
+    get_user_profile(db, current_user, profile_id)
+
+    # Read against the cap rather than reading and then measuring. Starlette spools
+    # a large upload to disk, so an unguarded read() would not blow up the process,
+    # but it would happily accept a 2GB file and only complain once it was all
+    # written down.
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_DOCUMENT_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large. Maximum size is {MAX_DOCUMENT_BYTES // (1024 * 1024)} MB.",
+            )
+        chunks.append(chunk)
+    data = b"".join(chunks)
+
+    if not data:
+        raise HTTPException(status_code=422, detail="File is empty.")
+
+    # The declared content type is whatever the client chose to send, and browsers
+    # disagree about PDFs often enough that trusting it means rejecting real files.
+    # The header is what actually decides.
+    if not data.startswith(b"%PDF-"):
+        raise HTTPException(status_code=422, detail="Unsupported file type. PDF only.")
+
+    filename = (file.filename or "document.pdf").strip()[:255]
+    resolved_title = (title or "").strip() or re.sub(r"\.pdf$", "", filename, flags=re.IGNORECASE)
+
+    song = Song(
+        user_id=current_user.id,
+        profile_id=profile_id,
+        kind="document",
+        title=resolved_title[:500],
+        artist=(artist or "").strip()[:500] or None,
+        folder=(folder or "").strip()[:100] or None,
+        # A document has no chart text. Empty rather than null keeps the columns
+        # non-nullable for the charts, where blank content really would be a bug.
+        original_content="",
+        rewritten_content="",
+        status="ready",
+        current_version=1,
+    )
+    db.add(song)
+    db.flush()
+
+    db.add(
+        SongFile(
+            song_id=song.id,
+            content=data,
+            filename=filename,
+            content_type=DOCUMENT_CONTENT_TYPE,
+            size_bytes=len(data),
+            page_count=_document_page_count(data),
+            sha256=hashlib.sha256(data).hexdigest(),
+        )
+    )
+    db.commit()
+    db.refresh(song)
+    return song
+
+
+@router.get("/songs/{song_ref}/file")
+async def download_song_file(
+    song_ref: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Serve a stored document's bytes.
+
+    The only route that undefers SongFile.content, which is the point of deferring
+    it: reaching the PDF requires asking for this URL.
+    """
+    song = _resolve_song(db, current_user, song_ref)
+    if song.kind != "document":
+        raise HTTPException(status_code=404, detail="This song has no stored file.")
+
+    record = (
+        db.query(SongFile).options(undefer(SongFile.content)).filter(SongFile.song_id == song.id)
+    ).first()
+    if record is None:
+        raise HTTPException(status_code=404, detail="This song has no stored file.")
+
+    # Content-addressed, so a revalidation after reopening a chart on a phone costs
+    # a 304 and no body. Worth the header: this is the request that happens every
+    # time you open a tab, over whatever connection the venue has.
+    etag = f'"{record.sha256}"'
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+
+    safe_filename = re.sub(r'[\x00-\x1f"\\;]', "", record.filename)
+    encoded_filename = quote(record.filename, safe=" -_.!~*'()")
+
+    return Response(
+        content=record.content,
+        media_type=record.content_type,
+        headers={
+            # inline, not attachment: the point is to read it on a music stand, not
+            # to land it in a Downloads folder.
+            "Content-Disposition": (
+                f"inline; filename=\"{safe_filename}\"; filename*=UTF-8''{encoded_filename}"
+            ),
+            "ETag": etag,
+            "Cache-Control": "private, max-age=0, must-revalidate",
+        },
+    )
+
+
 @router.get("/songs/{song_ref}", response_model=SongOut)
 async def get_song(
     song_ref: str,
@@ -119,6 +290,10 @@ async def download_song_pdf(
     db: Session = Depends(get_db),
 ) -> Response:
     song = _resolve_song(db, current_user, song_ref)
+    # A document is already a PDF; the one it stored is at /file. Rendering its
+    # empty chart text into a blank page instead would be the wrong answer served
+    # confidently.
+    reject_documents(song, "exported as a chart PDF")
     pdf_bytes = generate_song_pdf(song.title or "Untitled", song.artist, song.rewritten_content)
 
     title = song.title or "Untitled"
@@ -176,6 +351,14 @@ async def update_song(
     db: Session = Depends(get_db),
 ) -> Song:
     song = _resolve_song(db, current_user, song_ref)
+    # Renaming and filing a document is ordinary library housekeeping, so those
+    # fields stay open. Only the text is refused, and only when text was actually
+    # sent: a frontend that PUTs the whole song back to change a folder should not
+    # be told no because the payload carried two empty strings.
+    if song.kind == "document" and (
+        data.original_content is not None or data.rewritten_content is not None
+    ):
+        reject_documents(song, "edited as text")
     if data.title is not None:
         song.title = data.title
     if data.artist is not None:
@@ -277,6 +460,7 @@ async def save_messages(
     db: Session = Depends(get_db),
 ) -> list[ChatMessage]:
     song = _resolve_song(db, current_user, song_ref)
+    reject_documents(song, "discussed in chat")
     rows = []
     for msg in messages:
         row = ChatMessage(

@@ -5,6 +5,9 @@ description = "Personal song lyric rewriter — make every song yours"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi==0.115.6",
+    # Multipart form parsing, for the document upload route. FastAPI raises at
+    # import time without it, so it is a hard dependency rather than an extra.
+    "python-multipart>=0.0.20",
     "uvicorn[standard]==0.34.0",
     "sqlalchemy==2.0.36",
     "pydantic>=2.11.2",
