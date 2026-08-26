@@ -7,6 +7,7 @@ import UpdateBanner from '@/components/UpdateBanner';
 import RewriteTab from '@/components/RewriteTab';
 import LibraryTab from '@/components/LibraryTab';
 import PlayPage from '@/pages/PlayPage';
+import ChordsPage from '@/pages/ChordsPage';
 import SettingsPage from '@/components/SettingsPage';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -56,6 +57,11 @@ export default function App() {
         <Route path="rewrite" element={<ErrorBoundary fallbackLabel="Rewrite"><RewriteTab /></ErrorBoundary>} />
         <Route path="library" element={<ErrorBoundary fallbackLabel="Library"><LibraryTab /></ErrorBoundary>} />
         <Route path="library/:id" element={<ErrorBoundary fallbackLabel="Library"><LibraryTab /></ErrorBoundary>} />
+        {/* Chord dictionary. The chord is in the path so a shape can be linked and
+            bookmarked; premium serves the same page publicly under /chords. */}
+        <Route path="chords" element={<ErrorBoundary fallbackLabel="Chords"><ChordsPage /></ErrorBoundary>} />
+        <Route path="chords/:instrument" element={<ErrorBoundary fallbackLabel="Chords"><ChordsPage /></ErrorBoundary>} />
+        <Route path="chords/:instrument/:chord" element={<ErrorBoundary fallbackLabel="Chords"><ChordsPage /></ErrorBoundary>} />
         {/* Playing a chart is a destination, not a mode inside the library.
             AppShell renders this path without header, tabs, or footer. */}
         <Route path="play/:uuid" element={<ErrorBoundary fallbackLabel="Play"><PlayPage /></ErrorBoundary>} />
