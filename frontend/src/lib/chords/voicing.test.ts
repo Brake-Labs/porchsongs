@@ -25,6 +25,10 @@ function voicings(instrument: string, tuning: string, name: string, limit = 8): 
  * than a sample, because the failures that matter are the ones that only show up
  * for one odd combination: a banjo drone fretted below its anchor, a barre laid
  * across an open string.
+ *
+ * Generated once and shared. Every test below reads this rather than rebuilding
+ * it: two of them used to regenerate the whole space themselves, which passed
+ * locally and timed out against vitest's 5s default on CI's slower runner.
  */
 interface ChordCase {
   label: string;
@@ -32,6 +36,7 @@ interface ChordCase {
   instrument: string;
   tuning: string;
   common: boolean;
+  chord: Chord;
 }
 
 function everyChord(): ChordCase[] {
@@ -46,6 +51,7 @@ function everyChord(): ChordCase[] {
             instrument: inst.slug,
             tuning: tuning.slug,
             common: quality.common,
+            chord: { root, quality },
           });
         }
       }
@@ -59,19 +65,11 @@ const ALL = everyChord();
 describe('generated shapes are valid chords', () => {
   it('never sounds a note outside the chord', () => {
     const bad: string[] = [];
-    for (const inst of INSTRUMENTS) {
-      for (const tuning of inst.tunings) {
-        for (const root of ROOT_PITCH_CLASSES) {
-          for (const quality of CHORD_QUALITIES) {
-            const allowed = new Set(quality.tones.map(t => (root + t.interval) % 12));
-            for (const v of generateVoicings(inst, tuning, { root, quality })) {
-              for (const note of v.notes) {
-                if (!allowed.has(note % 12)) {
-                  bad.push(`${inst.slug}/${tuning.slug} ${root}${quality.suffix}: ${voicingToString(v)}`);
-                }
-              }
-            }
-          }
+    for (const { label, voicings: vs, chord } of ALL) {
+      const allowed = new Set(chord.quality.tones.map(t => (chord.root + t.interval) % 12));
+      for (const v of vs) {
+        for (const note of v.notes) {
+          if (!allowed.has(note % 12)) bad.push(`${label}: ${voicingToString(v)}`);
         }
       }
     }
@@ -80,19 +78,13 @@ describe('generated shapes are valid chords', () => {
 
   it('always contains every tone the chord requires', () => {
     const bad: string[] = [];
-    for (const inst of INSTRUMENTS) {
-      for (const tuning of inst.tunings) {
-        for (const root of ROOT_PITCH_CLASSES) {
-          for (const quality of CHORD_QUALITIES) {
-            const required = quality.tones.filter(t => !t.optional).map(t => (root + t.interval) % 12);
-            for (const v of generateVoicings(inst, tuning, { root, quality })) {
-              const present = new Set(v.notes.map(n => n % 12));
-              if (!required.every(pc => present.has(pc))) {
-                bad.push(`${inst.slug}/${tuning.slug} ${root}${quality.suffix}: ${voicingToString(v)}`);
-              }
-            }
-          }
-        }
+    for (const { label, voicings: vs, chord } of ALL) {
+      const required = chord.quality.tones
+        .filter(t => !t.optional)
+        .map(t => (chord.root + t.interval) % 12);
+      for (const v of vs) {
+        const present = new Set(v.notes.map(n => n % 12));
+        if (!required.every(pc => present.has(pc))) bad.push(`${label}: ${voicingToString(v)}`);
       }
     }
     expect(bad.slice(0, 10)).toEqual([]);
