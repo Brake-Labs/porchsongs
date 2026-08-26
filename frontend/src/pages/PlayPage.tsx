@@ -40,6 +40,13 @@ import type { Song } from '@/types';
 interface PlayNavState {
   title?: string | null;
   artist?: string | null;
+  /**
+   * Where the back button goes, when the library sent us here. It carries the
+   * library's filter query so playing a chart out of an artist or a folder and
+   * coming back does not land in an unfiltered list. Absent on a deep link,
+   * which is why there is still a fallback.
+   */
+  from?: string | null;
 }
 
 export default function PlayPage() {
@@ -173,7 +180,14 @@ export default function PlayPage() {
     [song],
   );
 
-  const goBack = useCallback(() => navigate('/app/library'), [navigate]);
+  // Only a library path is honoured. Navigation state is not something this
+  // route controls, and following an arbitrary string from it would turn the
+  // back button into a redirect to wherever the state happened to point.
+  const backTo =
+    typeof navState?.from === 'string' && navState.from.startsWith('/app/library')
+      ? navState.from
+      : '/app/library';
+  const goBack = useCallback(() => navigate(backTo), [navigate, backTo]);
 
   if (status === 'loading') {
     return (

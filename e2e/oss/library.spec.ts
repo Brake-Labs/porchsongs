@@ -235,6 +235,73 @@ test.describe('OSS Library', () => {
     await expect(page.getByText('Folder Test Pop').first()).toBeVisible();
   });
 
+  test('a filtered view survives a reload and can be walked back out of', async ({ page, baseURL }) => {
+    // The unit tests drive a MemoryRouter, which cannot show that the real
+    // address bar carries a filter through a full page load, or that the
+    // browser's own Back button unwinds it. That is the whole point of putting
+    // the filters in the URL, so it is checked against a real browser here.
+    const profileId = await getDefaultProfileId(baseURL!);
+    await createSongViaApi(baseURL!, {
+      ...makeSongCreatePayload(profileId),
+      title: 'Url Test Hymn',
+      folder: 'UrlFolder',
+    });
+    await createSongViaApi(baseURL!, {
+      ...makeSecondSongPayload(profileId),
+      title: 'Url Test Pop',
+    });
+
+    await page.goto('/');
+    await waitForAppReady(page);
+    await navigateToTab(page, 'Library');
+    await page.getByPlaceholder(/search/i).fill('Url Test');
+    await expect(page.getByText('Url Test Hymn').first()).toBeVisible({ timeout: 5_000 });
+
+    await page.getByRole('button', { name: 'UrlFolder' }).click();
+    await expect(page).toHaveURL(/[?&]folder=UrlFolder/);
+    await expect(page.getByText('Url Test Pop')).not.toBeVisible();
+
+    // Reload: the folder and the query come back from the address, not from
+    // anything the previous page left in memory.
+    await page.reload();
+    await waitForAppReady(page);
+    await expect(page.getByText('Url Test Hymn').first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('Url Test Pop')).not.toBeVisible();
+    await expect(page.getByPlaceholder(/search/i)).toHaveValue('Url Test');
+
+    // Back leaves the folder behind rather than leaving the library.
+    await page.goBack();
+    await expect(page).not.toHaveURL(/folder=/);
+    await expect(page.getByText('Url Test Pop').first()).toBeVisible({ timeout: 5_000 });
+  });
+
+  test('the search box keeps every character typed at machine speed', async ({ page, baseURL }) => {
+    // The box drives its value off the URL, so each keystroke goes through a
+    // router location update. React Router wraps those in startTransition by
+    // default, which makes them interruptible: a key arriving mid transition
+    // re-rendered the input with the stale value and React's controlled-input
+    // restore discarded it. Typing 26 characters with no gap kept 2. The fix is
+    // `unstable_useTransitions={false}` in main.tsx, and this is the only layer
+    // that can see it. `userEvent.type` flushes each key through act(), and
+    // `fill()` is a single input event, so neither unit tests nor the rest of
+    // this suite would notice a regression here.
+    const profileId = await getDefaultProfileId(baseURL!);
+    await createSongViaApi(baseURL!, { ...makeSongCreatePayload(profileId), title: 'Typing Test Hymn' });
+
+    await page.goto('/');
+    await waitForAppReady(page);
+    await navigateToTab(page, 'Library');
+
+    const search = page.getByPlaceholder(/search/i);
+    await search.click();
+    const typed = 'abcdefghijklmnopqrstuvwxyz';
+    await page.keyboard.type(typed, { delay: 0 });
+
+    await expect(search).toHaveValue(typed);
+    // And the address kept up with it, rather than lagging a character behind.
+    await expect(page).toHaveURL(new RegExp('[?&]q=' + typed));
+  });
+
   test('PDF download triggers a file download', async ({ page, baseURL }) => {
     const profileId = await getDefaultProfileId(baseURL!);
     await createSongViaApi(baseURL!, makeSongCreatePayload(profileId));

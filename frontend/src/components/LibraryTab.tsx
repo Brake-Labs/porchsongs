@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback, type DragEvent, type MouseEvent } from 'react';
-import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, useSearchParams, useOutletContext } from 'react-router-dom';
 import { toast } from 'sonner';
 import api, { STORAGE_KEYS } from '@/api';
 import { Button } from '@/components/ui/button';
@@ -208,6 +208,47 @@ const BROWSE_MODES: ReadonlyArray<{ mode: BrowseMode; label: string }> = [
   { mode: 'artists', label: 'Artists' },
 ];
 
+/**
+ * The library's filters live in the query string.
+ *
+ * They used to be component state, which meant the view on screen had no
+ * address: a reload, a link sent to someone else, or the browser's Back button
+ * all landed in an unfiltered list. Everything that decides *which* charts are
+ * shown, and in what order, is a parameter instead, and the component reads
+ * those rather than keeping its own copy, so there is one source of truth and
+ * the URL cannot fall out of step with what is rendered.
+ *
+ * Only non-default values are written, so an untouched library is still plain
+ * /app/library. Anything unrecognised falls back to the default rather than
+ * being trusted: these values arrive from whatever was pasted into the address
+ * bar.
+ */
+type ViewParam = 'view' | 'artist' | 'folder' | 'q' | 'sort' | 'dir' | 'artistSort' | 'artistDir';
+
+const BROWSE_MODE_VALUES: readonly BrowseMode[] = ['songs', 'artists'];
+const SORT_KEYS: readonly SortKey[] = ['date', 'modified', 'title', 'artist'];
+const ARTIST_SORT_KEYS: readonly ArtistSortKey[] = ['name', 'count'];
+const SORT_DIRS: readonly SortDir[] = ['asc', 'desc'];
+
+const DEFAULT_SORT_KEY: SortKey = 'date';
+const DEFAULT_SORT_DIR: SortDir = 'desc';
+const DEFAULT_ARTIST_SORT_KEY: ArtistSortKey = 'name';
+
+/**
+ * "Name" wants A first; "Charts" wants the artist with the most charts first.
+ * Both are what the label means when it is picked, so the direction follows the
+ * key rather than making the user fix it by hand every time. Applying it here,
+ * as the default the `artistDir` parameter falls back to, means a hand-written
+ * ?artistSort=count opens the way the control would have left it.
+ */
+function defaultArtistSortDir(key: ArtistSortKey): SortDir {
+  return key === 'count' ? 'desc' : 'asc';
+}
+
+function oneOf<T extends string>(value: string | null, allowed: readonly T[], fallback: T): T {
+  return allowed.includes(value as T) ? (value as T) : fallback;
+}
+
 export interface ArtistGroup {
   /** Normalised grouping key, and what `selectedArtist` holds. */
   key: string;
@@ -352,7 +393,7 @@ function ArtistCard({ group, onSelect }: ArtistCardProps) {
       {/* Wraps rather than truncates. This is a picker, and a name the user
           cannot read is a name they cannot pick: "Old Crow Medicine Show" is
           wider than a card at phone width. */}
-      <h3 className="font-display text-sm sm:text-base font-semibold text-foreground leading-snug break-words">
+      <h3 className="text-sm sm:text-base text-foreground leading-snug break-words">
         {group.name}
       </h3>
       <p className="text-xs text-muted-foreground tabular-nums mt-0.5">
@@ -500,13 +541,12 @@ export default function LibraryTab() {
   const onLoadSong = ctx.onLoadSong;
   const { id: idParam } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const initialSongRef = idParam ?? null;
   const [songs, setSongs] = useState<Song[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [viewingSong, setViewingSong] = useState<Song | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeFolder, setActiveFolder] = useState<string | null>(null);
   const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
   const [draggingSongUuid, setDraggingSongUuid] = useState<string | null>(null);
   const [localFolders, setLocalFolders] = useState<string[]>([]);
@@ -517,21 +557,100 @@ export default function LibraryTab() {
   const [keptOffline, setKeptOffline] = useState<Set<string>>(new Set());
   const [keptBytes, setKeptBytes] = useState(0);
   const selectMode = selectedUuids.size > 0;
-  const [sortKey, setSortKey] = useState<SortKey>('date');
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
-  const [browseMode, setBrowseMode] = useState<BrowseMode>(() =>
+
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // The browse mode is both a URL parameter and a per-browser preference, and
+  // the two answer different questions. The parameter says what this particular
+  // link shows; the stored preference says where to open the library when the
+  // link does not say. So a link naming the mode wins, and opening someone
+  // else's link leaves your own default alone.
+  //
+  // Read once and then held for the life of the surface, even though the toggle
+  // writes a new preference for next time. A URL with no `view` has to keep
+  // meaning the same thing for as long as it is sitting in the history stack:
+  // if switching to artists also moved this, pressing Back onto the plain
+  // /app/library the session started from would land in artist mode and read as
+  // Back having done nothing.
+  const [rememberedMode] = useState<BrowseMode>(() =>
     localStorage.getItem(STORAGE_KEYS.LIBRARY_BROWSE_MODE) === 'artists' ? 'artists' : 'songs',
   );
+
+  const searchQuery = searchParams.get('q') ?? '';
+  const activeFolder = searchParams.get('folder');
+  const browseMode = oneOf(searchParams.get('view'), BROWSE_MODE_VALUES, rememberedMode);
   // Which artist has been drilled into, as a normalised `artistKeyOf` key. Null
-  // in artist mode means the picker is showing. Deliberately not in the URL: the
-  // folder filter is not either, and the two need to behave the same way.
-  const [selectedArtist, setSelectedArtist] = useState<string | null>(null);
-  const [artistSortKey, setArtistSortKey] = useState<ArtistSortKey>('name');
+  // means the picker is showing. Narrowed to artist mode so the value always
+  // means what its name says: `filteredSongs` ignores it in song mode anyway,
+  // and this keeps a stale `artist` in a hand-edited URL from reaching the
+  // reconciliation effect below and being cleared out of a view that never
+  // showed it.
+  const selectedArtist = browseMode === 'artists' ? searchParams.get('artist') : null;
+  const sortKey = oneOf(searchParams.get('sort'), SORT_KEYS, DEFAULT_SORT_KEY);
+  const sortDir = oneOf(searchParams.get('dir'), SORT_DIRS, DEFAULT_SORT_DIR);
+  const artistSortKey = oneOf(searchParams.get('artistSort'), ARTIST_SORT_KEYS, DEFAULT_ARTIST_SORT_KEY);
   // Separate from `sortDir` rather than shared with it. The song list defaults to
   // descending because its default key is Created, and newest-first is what that
   // should mean. Pointing an A-to-Z list of artists the same way would open the
   // picker at Z.
-  const [artistSortDir, setArtistSortDir] = useState<SortDir>('asc');
+  const artistSortDir = oneOf(
+    searchParams.get('artistDir'),
+    SORT_DIRS,
+    defaultArtistSortDir(artistSortKey),
+  );
+
+  // Every filter change is one call to `applyView`. React Router resolves a
+  // functional update against the parameters from the render the setter was
+  // created in, not against anything an earlier call in the same handler has
+  // already written, so two calls would silently keep only the second one's
+  // changes. `pending` carries a write forward within a handler; the effect puts
+  // it back in step after a Back or Forward, which never goes through here.
+  const pending = useRef(searchParams);
+  useEffect(() => {
+    pending.current = searchParams;
+  }, [searchParams]);
+
+  /**
+   * Writes filter parameters, dropping any that are null or empty.
+   *
+   * `push` is for the changes that read as going somewhere: switching axis,
+   * opening an artist, picking a folder. Typing in the search box and changing
+   * the sort stay on replace, because a history entry per keystroke would leave
+   * Back unable to get out of the library.
+   */
+  const applyView = useCallback(
+    (changes: Partial<Record<ViewParam, string | null>>, options?: { push?: boolean }) => {
+      const next = new URLSearchParams(pending.current);
+      for (const [key, value] of Object.entries(changes)) {
+        if (value) next.set(key, value);
+        else next.delete(key);
+      }
+      pending.current = next;
+      setSearchParams(next, { replace: !options?.push });
+    },
+    [setSearchParams],
+  );
+
+  const setSearchQuery = useCallback((value: string) => {
+    applyView({ q: value });
+  }, [applyView]);
+
+  const setActiveFolder = useCallback((folder: string | null) => {
+    applyView({ folder }, { push: true });
+  }, [applyView]);
+
+  const setSortKey = useCallback((key: SortKey) => {
+    applyView({ sort: key === DEFAULT_SORT_KEY ? null : key });
+  }, [applyView]);
+
+  const setSortDir = useCallback((dir: SortDir) => {
+    applyView({ dir: dir === DEFAULT_SORT_DIR ? null : dir });
+  }, [applyView]);
+
+  const setArtistSortDir = useCallback((dir: SortDir) => {
+    applyView({ artistDir: dir === defaultArtistSortDir(artistSortKey) ? null : dir });
+  }, [applyView, artistSortKey]);
+
   const [page, setPage] = useState(0);
   const [dialogState, setDialogState] = useState<DialogState>({ kind: 'none' });
   const [scrollDir, setScrollDir] = useState<'vertical' | 'horizontal'>(() => {
@@ -763,9 +882,14 @@ export default function LibraryTab() {
   // retitle the artist from the song menu, and `selectedArtist` would keep
   // filtering the list down to nothing with a breadcrumb naming an artist that
   // no longer exists. Fall back to the picker instead.
+  //
+  // Gated on `loaded`, which matters now that the artist can arrive in the URL:
+  // before the fetch lands there are no songs, so every artist looks deleted and
+  // a shared link would clear itself before it could ever be shown.
   useEffect(() => {
-    if (selectedArtist && !artistLookup.has(selectedArtist)) setSelectedArtist(null);
-  }, [selectedArtist, artistLookup]);
+    if (!loaded) return;
+    if (selectedArtist && !artistLookup.has(selectedArtist)) applyView({ artist: null });
+  }, [loaded, selectedArtist, artistLookup, applyView]);
 
   const sortedSongs = useMemo(() => {
     const sorted = [...filteredSongs].sort((a, b) => {
@@ -822,9 +946,11 @@ export default function LibraryTab() {
   }, [initialSongRef, loaded, songs, navigate]);
 
   const pushSongUrl = useCallback((songUuid: string | null) => {
-    const target = songUuid ? `/app/library/${songUuid}` : '/app/library';
-    navigate(target, { replace: true });
-  }, [navigate]);
+    const pathname = songUuid ? `/app/library/${songUuid}` : '/app/library';
+    // The filter parameters ride along. Opening a chart and closing it again has
+    // to land back in the view it was opened from, not in an unfiltered library.
+    navigate({ pathname, search: location.search }, { replace: true });
+  }, [navigate, location.search]);
 
   const refreshKept = useCallback(async () => {
     try {
@@ -870,8 +996,17 @@ export default function LibraryTab() {
   }, [ctx.profile?.id]);
 
   const handlePlay = useCallback((song: Song) => {
-    navigate(`/app/play/${song.uuid}`, { state: { title: song.title, artist: song.artist } });
-  }, [navigate]);
+    navigate(`/app/play/${song.uuid}`, {
+      // `from` is the same courtesy for the play route, which is full-screen and
+      // has its own back button. Without it, playing a chart out of an artist or
+      // a folder and coming back drops the filter.
+      state: {
+        title: song.title,
+        artist: song.artist,
+        from: `/app/library${location.search}`,
+      },
+    });
+  }, [navigate, location.search]);
 
 
   const handleBack = () => {
@@ -993,7 +1128,10 @@ export default function LibraryTab() {
       await api.renameFolder(oldName, newName);
       setSongs(prev => prev.map(s => s.folder === oldName ? { ...s, folder: newName } : s));
       setLocalFolders(prev => prev.map(f => f === oldName ? newName : f));
-      if (activeFolder === oldName) setActiveFolder(newName);
+      // Replace rather than push. The folder moved under the view; the user did
+      // not go anywhere. A pushed entry leaves Back pointing at a name that no
+      // longer exists, and the list under it is empty with no pill to clear.
+      if (activeFolder === oldName) applyView({ folder: newName });
     } catch (err) {
       toast.error('Failed to rename folder: ' + (err as Error).message);
     }
@@ -1008,7 +1146,8 @@ export default function LibraryTab() {
       await api.deleteFolder(folder);
       setSongs(prev => prev.map(s => s.folder === folder ? { ...s, folder: null } : s));
       setLocalFolders(prev => prev.filter(f => f !== folder));
-      if (activeFolder === folder) setActiveFolder(null);
+      // Replace, for the same reason as the rename above.
+      if (activeFolder === folder) applyView({ folder: null });
     } catch (err) {
       toast.error('Failed to delete folder: ' + (err as Error).message);
     }
@@ -1030,41 +1169,39 @@ export default function LibraryTab() {
     // stay clickable so the pair reads as one control, and without this a tap on
     // the current mode threw away the folder filter and the search query with it.
     if (mode === browseMode) return;
-    setBrowseMode(mode);
     localStorage.setItem(STORAGE_KEYS.LIBRARY_BROWSE_MODE, mode);
+    setSelectedUuids(new Set());
     // Both filters are cleared on every switch, not just the one being left.
     // Carrying a folder into artist mode would silently narrow the artist list
     // with nothing on screen saying so, and carrying an artist back into song
-    // mode would do the same to the songs.
-    setSelectedArtist(null);
-    setActiveFolder(null);
-    // The search box is shared but the two modes search different things: a
-    // query that found songs almost never matches an artist name, so keeping it
-    // would drop the user into an empty picker the moment they switched.
-    setSearchQuery('');
-    setSelectedUuids(new Set());
-  }, [browseMode]);
+    // mode would do the same to the songs. The search box is shared but the two
+    // modes search different things: a query that found songs almost never
+    // matches an artist name, so keeping it would drop the user into an empty
+    // picker the moment they switched.
+    //
+    // `view` is written out even for the default mode. An absent parameter means
+    // "whatever this browser last chose", so leaving it off would make the URL
+    // say something weaker than what is on screen.
+    applyView({ view: mode, artist: null, folder: null, q: null }, { push: true });
+  }, [browseMode, applyView]);
 
-  // "Name" wants A first; "Charts" wants the artist with the most charts first.
-  // Both are what the label means when it is picked, so the direction follows the
-  // key rather than making the user fix it by hand every time.
+  // Clearing `artistDir` rather than setting it hands the direction back to
+  // `defaultArtistSortDir`, so picking a key still points the list the way that
+  // key means.
   const handleArtistSortKeyChange = useCallback((key: ArtistSortKey) => {
-    setArtistSortKey(key);
-    setArtistSortDir(key === 'count' ? 'desc' : 'asc');
-  }, []);
+    applyView({ artistSort: key === DEFAULT_ARTIST_SORT_KEY ? null : key, artistDir: null });
+  }, [applyView]);
 
   const handleSelectArtist = useCallback((key: string) => {
-    setSelectedArtist(key);
     // The query that found the artist would go on to filter their charts, which
     // is not what picking an artist asks for.
-    setSearchQuery('');
-  }, []);
+    applyView({ artist: key, q: null }, { push: true });
+  }, [applyView]);
 
   const handleClearArtist = useCallback(() => {
-    setSelectedArtist(null);
-    setSearchQuery('');
     setSelectedUuids(new Set());
-  }, []);
+    applyView({ artist: null, q: null }, { push: true });
+  }, [applyView]);
 
   const toggleSelect = (songUuid: string) => {
     setSelectedUuids(prev => {
@@ -1446,8 +1583,9 @@ export default function LibraryTab() {
             variant="secondary"
             size="sm"
             onClick={() => {
-              const setter = showingArtistPicker ? setArtistSortDir : setSortDir;
-              setter(d => d === 'asc' ? 'desc' : 'asc');
+              const next = activeSortDir === 'asc' ? 'desc' : 'asc';
+              if (showingArtistPicker) setArtistSortDir(next);
+              else setSortDir(next);
             }}
             title={activeSortDir === 'asc' ? 'Ascending' : 'Descending'}
             aria-label={activeSortDir === 'asc' ? 'Sort ascending' : 'Sort descending'}
