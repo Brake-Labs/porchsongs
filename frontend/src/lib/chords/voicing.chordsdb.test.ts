@@ -68,12 +68,21 @@ interface Agreement {
   anyMatch: number;
   /** Chords where chords-db's first shape is among ours, compared by fretted pattern. */
   theirFirstFound: number;
+  /**
+   * Chords where the shape we show *first* is one chords-db publishes.
+   *
+   * The strict one, and the one that matters most: the page offers several
+   * shapes easiest-first, so most people read the first and stop. The two
+   * measures above are satisfied by a good shape being somewhere in eight, which
+   * is a much easier bar and looks away from the only shape most people see.
+   */
+  topMatch: number;
 }
 
 function measure(db: typeof guitarDb, instrumentSlug: string, tuningSlug: string): Agreement {
   const instrument = findInstrument(instrumentSlug)!;
   const tuning = findTuning(instrument, tuningSlug)!;
-  const result: Agreement = { checked: 0, anyMatch: 0, theirFirstFound: 0 };
+  const result: Agreement = { checked: 0, anyMatch: 0, theirFirstFound: 0, topMatch: 0 };
 
   for (const root of ROOT_PITCH_CLASSES) {
     for (const quality of CHORD_QUALITIES) {
@@ -93,23 +102,33 @@ function measure(db: typeof guitarDb, instrumentSlug: string, tuningSlug: string
       result.checked++;
       if (ours.some(o => theirs.includes(o))) result.anyMatch++;
       if (ours.map(shapeOf).includes(shapeOf(theirs[0]!))) result.theirFirstFound++;
+      if (theirs.includes(ours[0]!)) result.topMatch++;
     }
   }
   return result;
 }
 
 describe('agreement with a published chord database', () => {
-  // Measured when written: guitar 79% / 74%, ukulele 92% / 92%. The floors sit
-  // below that so ordinary scoring tweaks do not fail the build, while a change
-  // that makes the generator start producing odd shapes does.
+  // Measured when written: guitar 79% / 74% / 44%, ukulele 92% / 92% / 78%. The
+  // floors sit below that so ordinary scoring tweaks do not fail the build,
+  // while a change that makes the generator produce odd shapes does.
+  //
+  // The top-shape figure is much lower than the other two, and most of that gap
+  // is the four reasons in this file's header rather than bad shapes: chords-db
+  // lists about four positions per chord and orders them up the neck, while we
+  // rank open positions first and add open chord tones it leaves out. A guitar
+  // has far more than four valid voicings for most chords. It is still the
+  // number worth watching, because it is the only one of the three that
+  // constrains the shape a reader actually sees, so it gets its own floor.
   it.each([
-    { label: 'guitar', db: guitarDb, instrument: 'guitar', tuning: 'standard', anyMatch: 0.7, theirFirst: 0.65 },
-    { label: 'ukulele', db: ukuleleDb, instrument: 'ukulele', tuning: 'standard', anyMatch: 0.85, theirFirst: 0.85 },
-  ])('$label shapes mostly appear in the published set', ({ db, instrument, tuning, anyMatch, theirFirst }) => {
+    { label: 'guitar', db: guitarDb, instrument: 'guitar', tuning: 'standard', anyMatch: 0.7, theirFirst: 0.65, top: 0.4 },
+    { label: 'ukulele', db: ukuleleDb, instrument: 'ukulele', tuning: 'standard', anyMatch: 0.85, theirFirst: 0.85, top: 0.72 },
+  ])('$label shapes mostly appear in the published set', ({ db, instrument, tuning, anyMatch, theirFirst, top }) => {
     const r = measure(db as typeof guitarDb, instrument, tuning);
     expect(r.checked).toBeGreaterThan(100);
     expect(r.anyMatch / r.checked).toBeGreaterThanOrEqual(anyMatch);
     expect(r.theirFirstFound / r.checked).toBeGreaterThanOrEqual(theirFirst);
+    expect(r.topMatch / r.checked, 'top-ranked shape agreement').toBeGreaterThanOrEqual(top);
   });
 
   it('agrees on the open chords a beginner learns first', () => {

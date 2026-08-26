@@ -118,27 +118,98 @@ interface Fingering {
   barre: Barre | null;
   /** Number of fingers the shape needs. More than four means unplayable. */
   count: number;
+  /**
+   * False when no hand can make this shape, whatever the finger count.
+   *
+   * Distinct from `count > 4`. A shape can need only four fingers and still be
+   * impossible, because fingers cannot reach around each other.
+   */
+  playable: boolean;
+}
+
+
+/**
+ * Frets where two notes must be taken by one flat finger rather than two.
+ *
+ * Two fingertips can sit on the same fret several strings apart, which is how
+ * anyone plays G (320003, middle and ring at the 3rd fret across all six
+ * strings). What they cannot do is reach *around* a finger that is further up
+ * the neck between them: to fret the 1st fret of the high E while the ring and
+ * pinky hold the 3rd fret of the G and B strings, the finger would have to
+ * approach from behind the others. Only a flat index finger covers that, and
+ * only across a gap wider than a hand can arch over, which is why a narrow gap
+ * is exempt (guitar D, xx0232, arches over the B string).
+ *
+ * How narrow depends on the instrument, and counting strings is a stand-in for
+ * measuring the neck. Four courses of a mandolin span roughly an inch, so a hand
+ * covers the whole fretboard and the reach barely applies; six guitar strings
+ * span more than twice that. Ignoring the difference rejected mandolin D7
+ * (2032), which anyone can play.
+ */
+function barreRequiredAt(frets: Fret[]): number[] {
+  const arch = frets.length <= 4 ? 3 : 2;
+  const byFret = new Map<number, number[]>();
+  frets.forEach((fret, i) => {
+    if (fret === null || fret === 0) return;
+    byFret.set(fret, [...(byFret.get(fret) ?? []), i]);
+  });
+
+  const required: number[] = [];
+  for (const [fret, strings] of byFret) {
+    if (strings.length < 2) continue;
+    const lo = Math.min(...strings);
+    const hi = Math.max(...strings);
+    if (hi - lo <= arch) continue;
+    for (let i = lo + 1; i < hi; i++) {
+      const between = frets[i];
+      if (between !== null && between !== undefined && between > fret) {
+        required.push(fret);
+        break;
+      }
+    }
+  }
+  return required;
+}
+
+/** Whether a flat finger can lie across this fret without hitting an open or silent string. */
+function barreFits(frets: Fret[], fret: number): boolean {
+  const strings = frets.map((f, i) => (f === fret ? i : -1)).filter(i => i >= 0);
+  if (strings.length < 2) return false;
+  const lo = Math.min(...strings);
+  const hi = Math.max(...strings);
+  for (let i = lo; i <= hi; i++) {
+    // A flat finger frets every string it spans, so nothing inside the barre can
+    // be open and nothing inside it can be silent either. An open string would
+    // be pushed onto the barre fret; a muted one would be sounded there, which is
+    // how guitar F5 came out as 133x11 with a barre drawn straight through the
+    // cross on the D string, sounding a G# the chord does not contain.
+    if (frets[i] === 0 || frets[i] === null) return false;
+  }
+  return true;
 }
 
 /**
- * Assign left-hand fingers, reaching for a barre only when one is needed.
+ * Work out how a hand would hold this shape, or report that none can.
  *
- * Two rules here do most of the work of keeping generated shapes honest, and
- * both were added after the generator produced shapes that no hand can make:
+ * Three rules do most of the work of keeping generated shapes honest, and all
+ * three were added after the generator produced shapes no hand can make:
  *
- * A barre cannot cross an open string. The index finger lying flat at fret 1
- * presses every string it spans, so guitar "103211" (an F with the A string
- * ringing open inside the barre) is not a fingering, it is a diagram. Without
- * this rule it outranked the real F barre chord, because it appears to use
- * fewer fingers.
+ * A barre cannot cross an open or muted string. The index finger lying flat
+ * frets every string it spans, so guitar "103211" (an F with the A string
+ * ringing open inside the barre) is not a fingering, it is a drawing, and
+ * "133x11" sounds the G# it claims to be silencing.
  *
- * A barre is used when the shape needs one, or when three or more strings share
- * the lowest fret. Barring is always *possible* wherever that fret repeats, and
- * treating every such shape as a barre made easy open chords look easier still:
- * D (xx0232) came out as a barre chord, which is not how anyone plays it. But
- * requiring a fifth finger before reaching for one was too strict in the other
- * direction: ukulele Bbm7 (1111) came out as four separate fingers on one fret,
- * which is precisely the shape a barre exists for.
+ * When a barre is *required* and cannot be placed, the shape is impossible and
+ * is dropped. This is the rule the first two were missing: declining the barre
+ * used to fall through to separate fingers and emit the shape anyway.
+ *
+ * A barre is otherwise a choice, taken when the shape cannot be fingered without
+ * one or when three strings share the lowest fret. Barring is always *possible*
+ * wherever that fret repeats, and treating every such shape as a barre made easy
+ * open chords look easier still: D (xx0232) came out as a barre chord, which is
+ * not how anyone plays it. Requiring a fifth finger before reaching for one was
+ * too strict the other way: ukulele Bbm7 (1111) came out as four separate
+ * fingers on one fret, which is precisely what a barre is for.
  */
 export function assignFingers(frets: Fret[]): Fingering {
   const fretted = frets
@@ -146,37 +217,58 @@ export function assignFingers(frets: Fret[]): Fingering {
     .filter((x): x is { f: number; i: number } => x.f !== null && x.f > 0);
 
   const fingers: (number | null)[] = frets.map(() => null);
-  if (fretted.length === 0) return { fingers, barre: null, count: 0 };
+  if (fretted.length === 0) return { fingers, barre: null, count: 0, playable: true };
 
   const minFret = Math.min(...fretted.map(x => x.f));
   const atMin = fretted.filter(x => x.f === minFret);
   const above = fretted.filter(x => x.f > minFret).sort((a, b) => a.f - b.f || a.i - b.i);
+
+  const unplayable: Fingering = { fingers, barre: null, count: fretted.length, playable: false };
 
   const assignPlain = (): Fingering => {
     let next = 1;
     for (const x of [...atMin, ...above].sort((a, b) => a.f - b.f || a.i - b.i)) {
       fingers[x.i] = Math.min(next++, 4);
     }
-    return { fingers, barre: null, count: fretted.length };
+    return { fingers, barre: null, count: fretted.length, playable: true };
   };
 
+  const withBarre = (): Fingering => {
+    const from = Math.min(...atMin.map(x => x.i));
+    const to = Math.max(...atMin.map(x => x.i));
+    for (const x of atMin) fingers[x.i] = 1;
+    let next = 2;
+    for (const x of above) fingers[x.i] = Math.min(next++, 4);
+    return {
+      fingers,
+      barre: { fret: minFret, fromString: from, toString: to, finger: 1 },
+      count: 1 + above.length,
+      playable: true,
+    };
+  };
+
+  // A shape can demand a barre in a place no barre can go, and when it does the
+  // answer is that the shape is impossible, not that it gets separate fingers
+  // anyway. Declining the barre and falling through to assignPlain is what let
+  // guitar Bb out as x10331: index on the A string and middle on the high E, four
+  // strings apart at the 1st fret, with the ring and pinky at the 3rd fret in
+  // between. Only the index finger barres, and only at the lowest fret it holds.
+  const required = barreRequiredAt(frets);
+  if (required.length > 0) {
+    if (required.length > 1) return unplayable;
+    if (required[0] !== minFret) return unplayable;
+    if (!barreFits(frets, minFret)) return unplayable;
+    return withBarre();
+  }
+
+  // Otherwise a barre is a choice. Take it when the shape cannot be fingered
+  // without one, or when three strings share the lowest fret, which is what a
+  // barre is for. Guitar D (xx0232) has two and stays a three-finger chord.
   const needsBarre = fretted.length > 4;
   const worthBarring = atMin.length >= 3;
   if (atMin.length < 2 || (!needsBarre && !worthBarring)) return assignPlain();
-
-  const from = Math.min(...atMin.map(x => x.i));
-  const to = Math.max(...atMin.map(x => x.i));
-  for (let i = from; i <= to; i++) {
-    // Muted strings under the barre are fine (the finger deadens them). An open
-    // string is not: the barre would fret it.
-    if (frets[i] === 0) return assignPlain();
-  }
-
-  const barre: Barre = { fret: minFret, fromString: from, toString: to, finger: 1 };
-  for (const x of atMin) fingers[x.i] = 1;
-  let next = 2;
-  for (const x of above) fingers[x.i] = Math.min(next++, 4);
-  return { fingers, barre, count: 1 + above.length };
+  if (!barreFits(frets, minFret)) return assignPlain();
+  return withBarre();
 }
 
 export interface VoicingOptions {
@@ -323,7 +415,7 @@ export function generateVoicings(
       seen.add(key);
 
       const fingering = assignFingers(frets);
-      if (fingering.count > 4) return;
+      if (!fingering.playable || fingering.count > 4) return;
 
       const pcs = new Set(sounding.map(n => n % 12));
       const optionalMissing = optional.filter(pc => !pcs.has(pc)).length;

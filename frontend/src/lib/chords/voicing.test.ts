@@ -150,6 +150,23 @@ describe('generated shapes are playable', () => {
     expect(bad.slice(0, 10)).toEqual([]);
   });
 
+  it('never lays a barre across a muted string', () => {
+    // The barring finger frets everything it covers, so a string drawn with a
+    // cross inside the barre is not silent at all: it sounds at the barre fret.
+    // Guitar F5 came out as 133x11 with the barre drawn through the cross on the
+    // D string, sounding a G# that is not in the chord.
+    const bad: string[] = [];
+    for (const { label, voicings: vs } of ALL) {
+      for (const v of vs) {
+        if (!v.barre) continue;
+        for (let i = v.barre.fromString; i <= v.barre.toString; i++) {
+          if (v.frets[i] === null) bad.push(`${label}: ${voicingToString(v)} barre@${v.barre.fret}`);
+        }
+      }
+    }
+    expect(bad.slice(0, 10)).toEqual([]);
+  });
+
   it('never asks the hand to span more frets than the neck allows', () => {
     const bad: string[] = [];
     for (const { label, voicings: vs, instrument } of ALL) {
@@ -217,9 +234,32 @@ describe('assignFingers', () => {
     expect(f.count).toBe(4);
   });
 
-  it('refuses a barre that would cover an open string', () => {
-    // 103211: an F shape with the A string open inside the barre.
-    expect(assignFingers([1, 0, 3, 2, 1, 1]).barre).toBeNull();
+  it('rejects a shape whose barre cannot be placed, rather than fingering it anyway', () => {
+    // 103211 is an F shape with the A string ringing open inside the barre. The
+    // barre is impossible, and so is the shape: declining the barre and handing
+    // out separate fingers instead is what let guitar Bb lead with x10331.
+    const openInside = assignFingers([1, 0, 3, 2, 1, 1]);
+    expect(openInside.barre).toBeNull();
+    expect(openInside.playable).toBe(false);
+
+    // Same for a muted string under the barre. Guitar F5 came out as 133x11,
+    // with the barre drawn through the cross on the D string, sounding a G#.
+    expect(assignFingers([1, 3, 3, null, 1, 1]).playable).toBe(false);
+
+    // And the Bb shape itself: two fingers on the first fret four strings apart
+    // with the third fret held in between.
+    expect(assignFingers([null, 1, 0, 3, 3, 1]).playable).toBe(false);
+  });
+
+  it('lets a hand arch over one string, and scales that to the neck', () => {
+    // Guitar D (xx0232) reaches over the B string at the third fret with two
+    // fingers at the second, which is exactly how it is taught.
+    expect(assignFingers([null, null, 0, 2, 3, 2]).playable).toBe(true);
+    // Four mandolin courses span about an inch, so the same reach one string
+    // wider is nothing there. Rejecting it lost mandolin D7 (2032).
+    expect(assignFingers([2, 0, 3, 2]).playable).toBe(true);
+    // Six guitar strings are more than twice that width, so it is not nothing here.
+    expect(assignFingers([2, 0, 3, 2, null, null]).playable).toBe(false);
   });
 
   it('barres three strings on one fret rather than using three fingers', () => {
@@ -248,6 +288,14 @@ const CANONICAL: Record<string, Record<string, string>> = {
     Am: 'x02210', Em: '022000', Dm: 'xx0231', F: '133211',
     G7: '320001', E7: '020100', A7: 'x02020', D7: 'xx0212', B7: 'x21202',
     Cmaj7: 'x32000', Am7: 'x02010', Em7: '020000', Dsus4: 'xx0233', Asus2: 'x02200',
+    // The movable barre shapes. These are here because every one of them used
+    // to come back as something no hand can make: Bb led with x10331, which
+    // asks for the index on the A string and the middle on the high E, four
+    // strings apart at the first fret, with the ring and pinky at the third in
+    // between. The open chords above never exercised that, because a shape
+    // whose lowest fret is played by one finger cannot hit the case at all.
+    Bb: 'x13331', Bm: 'x24432', B: 'x24442', Bbm: 'x13321',
+    Fm: '133111', 'F#': '244322', 'F#m': '244222', Ab: '431114',
   },
   'ukulele/standard': {
     C: '0003', G: '0232', F: '2010', Am: '2000', D: '2220',
