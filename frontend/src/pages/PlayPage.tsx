@@ -467,8 +467,11 @@ export default function PlayPage() {
  * so makes a real full screen without a portal or a focus trap. It stays mounted,
  * so its effects keep running against a box that now measures 0x0; the layout
  * solver ignores a zero-size container for that reason.
+ *
+ * The docked width is the panel's own business, since it is draggable, so only
+ * the flex behaviour is set here.
  */
-const PANEL_CLASS = 'flex-1 min-w-0 lg:flex-none lg:w-[22rem] xl:w-[24rem]';
+const PANEL_CLASS = 'flex-1 min-w-0 lg:flex-none';
 
 /** Shared by both play surfaces: a chart has chords to look up, and so does a tab. */
 function ChordsButton({ open, onClick }: { open: boolean; onClick: () => void }) {

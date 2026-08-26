@@ -50,6 +50,13 @@ interface ChordExplorerProps {
    * one thing the panel exists to show.
    */
   compact?: boolean;
+  /**
+   * Render the instrument row here. The panel on the play route sets this
+   * false and renders `InstrumentField` above its own "In this song" row
+   * instead: which instrument you are holding decides what every shape below
+   * means, so it belongs at the top rather than under a list of chords.
+   */
+  showInstrument?: boolean;
   className?: string;
 }
 
@@ -113,12 +120,43 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+/**
+ * The instrument row on its own, so a caller can put it somewhere other than
+ * the top of the picker block. Exported rather than duplicated: the buttons and
+ * the reset-the-tuning rule have to stay the same wherever it is rendered.
+ */
+export function InstrumentField({
+  instrument,
+  onChange,
+}: {
+  instrument: Instrument;
+  onChange: (next: Partial<ChordSelection>) => void;
+}) {
+  return (
+    <Field label="Instrument">
+      {INSTRUMENTS.map(option => (
+        <PickerButton
+          key={option.slug}
+          active={option.slug === instrument.slug}
+          // Switching instrument resets the tuning and the capo: "baritone"
+          // means nothing on a banjo, and a capo is on the neck you just put
+          // down.
+          onClick={() => onChange({ instrument: option, tuning: option.tunings[0]!, capo: 0 })}
+        >
+          {option.name}
+        </PickerButton>
+      ))}
+    </Field>
+  );
+}
+
 export default function ChordExplorer({
   selection,
   onChange,
   showAllQualities,
   onToggleAllQualities,
   compact = false,
+  showInstrument = true,
   className,
 }: ChordExplorerProps) {
   const { instrument, tuning, chord, capo } = selection;
@@ -144,19 +182,7 @@ export default function ChordExplorer({
           compact ? 'p-3 gap-4' : 'p-4 sm:p-6 gap-6',
         )}
       >
-        <Field label="Instrument">
-          {INSTRUMENTS.map(option => (
-            <PickerButton
-              key={option.slug}
-              active={option.slug === instrument.slug}
-              onClick={() =>
-                onChange({ instrument: option, tuning: option.tunings[0]!, capo: 0 })
-              }
-            >
-              {option.name}
-            </PickerButton>
-          ))}
-        </Field>
+        {showInstrument && <InstrumentField instrument={instrument} onChange={onChange} />}
 
         {instrument.tunings.length > 1 && (
           <Field label="Tuning">

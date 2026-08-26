@@ -42,6 +42,11 @@ const STORAGE_KEYS = {
   // that one really does change per song, and the panel seeds it from the chart.
   CHORD_INSTRUMENT: 'porchsongs_chord_instrument',
   CHORD_TUNING: 'porchsongs_chord_tuning',
+  // How wide the chord panel is dragged to, in px. Its own key rather than the
+  // rewrite view's SPLIT_PERCENT: that one is a percentage split between two
+  // panes, and a sidebar full of diagrams wants a width that does not change
+  // when the window does.
+  CHORD_PANEL_WIDTH: 'porchsongs_chord_panel_width',
   // Which surface the user was last on ('play' | 'workshop' | 'library').
   // CURRENT_SONG_ID records WHICH song but not WHERE, so a PWA relaunch used to
   // drop someone who force-quit mid-performance into the rewrite editor. Every

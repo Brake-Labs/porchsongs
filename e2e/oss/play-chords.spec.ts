@@ -53,6 +53,35 @@ test.describe('Chord panel beside a chart', () => {
     await expect(page.getByRole('complementary')).toBeHidden();
     await expect(words).toBeVisible();
   });
+
+  test('is dragged wider from its left edge, and stays there', async ({ page, baseURL }) => {
+    // The unit tests drive the keyboard path, because jsdom has no pointer and
+    // no layout. This is the one that actually drags.
+    await openChart(page, baseURL!);
+    await page.getByRole('button', { name: 'Chords', exact: true }).click();
+
+    const panel = page.getByRole('complementary');
+    await expect(panel).toBeVisible();
+    const before = (await panel.boundingBox())!.width;
+
+    const handle = page.getByRole('separator', { name: 'Resize chord panel' });
+    const box = (await handle.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    // Leftwards widens it: the panel is on the right.
+    await page.mouse.move(box.x + box.width / 2 - 150, box.y + box.height / 2, { steps: 10 });
+    await page.mouse.up();
+
+    const after = (await panel.boundingBox())!.width;
+    expect(after).toBeGreaterThan(before + 100);
+
+    // And it is still that wide on the next chart, not just until the panel
+    // closes.
+    await page.reload();
+    await page.getByRole('button', { name: 'Chords', exact: true }).click();
+    await expect(panel).toBeVisible();
+    expect(Math.round((await panel.boundingBox())!.width)).toBe(Math.round(after));
+  });
 });
 
 test.describe('Chord panel on a phone', () => {
