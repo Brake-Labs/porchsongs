@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
-import { openPdf, closePdf, renderPage } from '@/lib/pdfViewer';
+import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
+import { openPdf, closePdf, renderPage, cancelRender } from '@/lib/pdfViewer';
 import { cn } from '@/lib/utils';
 import Spinner from '@/components/ui/spinner';
 
@@ -31,6 +31,10 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
   // Renders are async and a fast tap can start a second before the first
   // finishes. Only the newest may paint, or pages arrive out of order.
   const renderToken = useRef(0);
+  // pdf.js refuses to run two renders against one canvas, so the previous one is
+  // cancelled and awaited rather than merely ignored. A discarded-but-running
+  // render still owns the canvas.
+  const renderTask = useRef<RenderTask | null>(null);
 
   const [pageCount, setPageCount] = useState(0);
   const [page, setPage] = useState(1);
@@ -74,19 +78,43 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
     if (!pdf || !canvas || !container) return;
 
     const token = ++renderToken.current;
-    // Fit to the container, then apply zoom. Subtracting the padding keeps a
-    // fitted page from triggering a horizontal scrollbar that then narrows the
-    // container, which oscillates.
-    const width = Math.max(120, container.clientWidth - 16) * zoom;
+    const pending = renderTask.current;
+    renderTask.current = null;
+    await cancelRender(pending);
+    if (token !== renderToken.current) return;
+
+    // Subtracting the padding keeps a fitted page from triggering a scrollbar
+    // that then narrows the container, which oscillates.
+    const box = {
+      width: Math.max(120, container.clientWidth - 16),
+      height: Math.max(120, container.clientHeight - 16),
+    };
     try {
-      await renderPage(pdf, page, canvas, width);
-      if (token !== renderToken.current) return;
+      const task = await renderPage(pdf, page, canvas, box, zoom);
+      if (token !== renderToken.current) {
+        await cancelRender(task);
+        return;
+      }
+      renderTask.current = task;
+      await task.promise;
+      if (token === renderToken.current) renderTask.current = null;
     } catch (err) {
       if (token !== renderToken.current) return;
       setError((err as Error)?.message ?? 'Could not render this page.');
       setStatus('error');
     }
   }, [page, zoom]);
+
+  // Stop any render still running when the sheet goes away, so it does not
+  // settle against a canvas React has already detached.
+  useEffect(
+    () => () => {
+      renderToken.current++;
+      void cancelRender(renderTask.current);
+      renderTask.current = null;
+    },
+    [],
+  );
 
   useEffect(() => {
     if (status === 'ready') void draw();
@@ -200,7 +228,7 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
             type="button"
             onClick={() => setZoom(1)}
             className="min-h-[2.75rem] px-2 inline-flex items-center justify-center rounded-md border border-border text-xs text-muted-foreground hover:bg-panel hover:text-foreground cursor-pointer whitespace-nowrap"
-            aria-label={`Zoom: ${Math.round(zoom * 100)} percent. Reset to fit width`}
+            aria-label={`Zoom: ${Math.round(zoom * 100)} percent. Reset to fit the page`}
           >
             {Math.round(zoom * 100)}%
           </button>
