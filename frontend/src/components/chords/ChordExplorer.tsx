@@ -41,6 +41,15 @@ interface ChordExplorerProps {
   /** Show the full quality list rather than only the common ones. */
   showAllQualities: boolean;
   onToggleAllQualities: () => void;
+  /**
+   * Tighten the spacing and shrink the diagrams for a narrow column.
+   *
+   * The page version has a whole screen and is laid out for one. The same
+   * component has to fit a 360px panel beside a chart, where the 4xl chord name
+   * and the gaps between sections push the shapes below the fold, which is the
+   * one thing the panel exists to show.
+   */
+  compact?: boolean;
   className?: string;
 }
 
@@ -109,6 +118,7 @@ export default function ChordExplorer({
   onChange,
   showAllQualities,
   onToggleAllQualities,
+  compact = false,
   className,
 }: ChordExplorerProps) {
   const { instrument, tuning, chord, capo } = selection;
@@ -127,9 +137,13 @@ export default function ChordExplorer({
   const roles = useMemo(() => roleByPitchClass(chord), [chord]);
   const name = chordName(chord);
 
-  return (
-    <div className={cn('flex flex-col gap-8', className)}>
-      <section className="rounded-xl border border-border bg-card p-4 sm:p-6 flex flex-col gap-6">
+  const pickers = (
+      <section
+        className={cn(
+          'rounded-xl border border-border bg-card flex flex-col',
+          compact ? 'p-3 gap-4' : 'p-4 sm:p-6 gap-6',
+        )}
+      >
         <Field label="Instrument">
           {INSTRUMENTS.map(option => (
             <PickerButton
@@ -206,10 +220,12 @@ export default function ChordExplorer({
           ))}
         </Field>
       </section>
+  );
 
-      <section className="flex flex-col gap-4">
+  const shapes = (
+      <section className={cn('flex flex-col', compact ? 'gap-3' : 'gap-4')}>
         <header className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-          <h2 className="font-display text-4xl leading-none">{name}</h2>
+          <h2 className={cn('font-display leading-none', compact ? 'text-2xl' : 'text-4xl')}>{name}</h2>
           <p className="text-muted-foreground">
             {chordFullName(chord)} on {instrument.name.toLowerCase()}
             {instrument.tunings.length > 1 && `, ${tuning.name.toLowerCase()} tuning`}
@@ -246,7 +262,14 @@ export default function ChordExplorer({
             Try a nearby chord, or a different instrument.
           </p>
         ) : (
-          <ul className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(160px,1fr))] list-none p-0 m-0">
+          <ul
+            className={cn(
+              'grid gap-4 list-none p-0 m-0',
+              compact
+                ? 'grid-cols-[repeat(auto-fill,minmax(132px,1fr))]'
+                : 'grid-cols-[repeat(auto-fill,minmax(160px,1fr))]',
+            )}
+          >
             {voicings.map((voicing, index) => (
               <li
                 key={voicing.frets.join('-')}
@@ -257,7 +280,7 @@ export default function ChordExplorer({
                   instrument={instrument}
                   tuning={soundingTuning}
                   capo={capo}
-                  size={150}
+                  size={compact ? 120 : 150}
                   label={`${name}, shape ${index + 1} of ${voicings.length}`}
                 />
                 <div className="flex items-center gap-2 w-full justify-between">
@@ -280,6 +303,28 @@ export default function ChordExplorer({
           </ul>
         )}
       </section>
+  );
+
+  return (
+    <div className={cn('flex flex-col', compact ? 'gap-5' : 'gap-8', className)}>
+      {/* Shapes first in a panel, pickers first on a page.
+          On a page there is room for both at once and reading top to bottom as
+          "choose, then see" is the right order. In a narrow column the pickers
+          alone are taller than the viewport, so leading with them puts the
+          diagrams below the fold, and the diagrams are the entire reason the
+          panel is open. The chord is usually already chosen there anyway, by
+          tapping it in the row of the ones this song uses. */}
+      {compact ? (
+        <>
+          {shapes}
+          {pickers}
+        </>
+      ) : (
+        <>
+          {pickers}
+          {shapes}
+        </>
+      )}
     </div>
   );
 }

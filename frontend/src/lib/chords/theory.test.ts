@@ -6,6 +6,7 @@ import {
   chordPitchClasses,
   findQuality,
   noteName,
+  parseChordName,
   parseNote,
   roleByPitchClass,
 } from './theory';
@@ -154,5 +155,78 @@ describe('chord tones', () => {
     const roles = roleByPitchClass({ root: 0, quality: findQuality('dim7')! });
     expect(roles.get(9)).toBe('seventh');
     expect(roles.size).toBe(4);
+  });
+});
+
+describe('parseChordName', () => {
+  const spell = (name: string) => {
+    const chord = parseChordName(name);
+    return chord ? chordName(chord) : null;
+  };
+
+  it('reads the plain shapes a chart is mostly made of', () => {
+    expect(spell('G')).toBe('G');
+    expect(spell('Am')).toBe('Am');
+    expect(spell('D7')).toBe('D7');
+    expect(spell('Cmaj7')).toBe('Cmaj7');
+    expect(spell('F#m7')).toBe('F#m7');
+    expect(spell('Esus4')).toBe('Esus4');
+  });
+
+  it('spells the root the way the dictionary does, whichever way it was written', () => {
+    // One chord, one address: a chart writing A# gets the Bb page, because that
+    // is the only page for that sound.
+    expect(spell('A#m7')).toBe('Bbm7');
+    expect(spell('Bbm7')).toBe('Bbm7');
+    expect(spell('Gb')).toBe('F#');
+  });
+
+  it('tells M from m', () => {
+    // findQuality lowercases before it looks up, so an alias has to catch this
+    // spelling first or "CM" comes back as C minor.
+    expect(spell('CM')).toBe('C');
+    expect(spell('Cm')).toBe('Cm');
+    expect(spell('CM7')).toBe('Cmaj7');
+    expect(spell('Cm7')).toBe('Cm7');
+  });
+
+  it('accepts the other spellings players write', () => {
+    expect(spell('Cmin')).toBe('Cm');
+    expect(spell('C-')).toBe('Cm');
+    expect(spell('Cmaj')).toBe('C');
+    expect(spell('C+')).toBe('Caug');
+    expect(spell('Csus')).toBe('Csus4');
+    expect(spell('C\u00b0')).toBe('Cdim');
+  });
+
+  it('drops the bass note of a slash chord but keeps the 9 of a 6/9', () => {
+    // The dictionary has no way to draw a specified bass, so D/F# is shown as
+    // D. The exception is the one quality whose own suffix contains a slash.
+    expect(spell('D/F#')).toBe('D');
+    expect(spell('G/B')).toBe('G');
+    expect(spell('C6/9')).toBe('C6/9');
+  });
+
+  it('returns null for text that is not a chord', () => {
+    // This is what makes it safe to point at every bracketed token in a chart.
+    expect(parseChordName('Verse 1')).toBeNull();
+    expect(parseChordName('Chorus')).toBeNull();
+    expect(parseChordName('Instrumental')).toBeNull();
+    expect(parseChordName('')).toBeNull();
+    expect(parseChordName('Gzzz')).toBeNull();
+    // A capital B is a chord; the lowercase words around it are not.
+    expect(spell('B')).toBe('B');
+    expect(parseChordName('a')).toBeNull();
+    expect(parseChordName('and')).toBeNull();
+  });
+
+  it('is not fooled by a suffix that names something on Object.prototype', () => {
+    // The alias table is looked up with a slice of a chart, and a chart is
+    // arbitrary text. An object literal answers "toString" with a function,
+    // which findQuality would then call .toLowerCase() on, throwing during the
+    // render of the play route rather than returning null.
+    for (const word of ['toString', 'valueOf', 'constructor', 'hasOwnProperty', '__proto__']) {
+      expect(parseChordName(`G${word}`)).toBeNull();
+    }
   });
 });
