@@ -384,7 +384,7 @@ function ArtistCard({ group, onSelect }: ArtistCardProps) {
       {/* Wraps rather than truncates. This is a picker, and a name the user
           cannot read is a name they cannot pick: "Old Crow Medicine Show" is
           wider than a card at phone width. */}
-      <h3 className="font-display text-sm sm:text-base font-semibold text-foreground leading-snug break-words">
+      <h3 className="text-sm sm:text-base text-foreground leading-snug break-words">
         {group.name}
       </h3>
       <p className="text-xs text-muted-foreground tabular-nums mt-0.5">
