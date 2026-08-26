@@ -23,7 +23,15 @@ registerServiceWorker();
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <BrowserRouter>
+      {/* Location updates are not wrapped in startTransition. React Router's
+          default wraps them, which makes them interruptible, and the library's
+          search box drives its value off the URL: a keystroke arriving mid
+          transition re-rendered the input with the stale value and React's
+          controlled-input restore threw the character away. Measured in
+          Chromium, typing 26 characters with no gap kept 2 of them; anything
+          under a 15ms gap lost some. That is faster than a person types but
+          well inside key auto-repeat and mobile IME bursts. */}
+      <BrowserRouter unstable_useTransitions={false}>
         <AuthProvider>
           {/* Inside AuthProvider so premium providers can read auth state. */}
           {getPremiumProviders({ children: <App /> })}

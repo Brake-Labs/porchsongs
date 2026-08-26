@@ -275,6 +275,33 @@ test.describe('OSS Library', () => {
     await expect(page.getByText('Url Test Pop').first()).toBeVisible({ timeout: 5_000 });
   });
 
+  test('the search box keeps every character typed at machine speed', async ({ page, baseURL }) => {
+    // The box drives its value off the URL, so each keystroke goes through a
+    // router location update. React Router wraps those in startTransition by
+    // default, which makes them interruptible: a key arriving mid transition
+    // re-rendered the input with the stale value and React's controlled-input
+    // restore discarded it. Typing 26 characters with no gap kept 2. The fix is
+    // `unstable_useTransitions={false}` in main.tsx, and this is the only layer
+    // that can see it. `userEvent.type` flushes each key through act(), and
+    // `fill()` is a single input event, so neither unit tests nor the rest of
+    // this suite would notice a regression here.
+    const profileId = await getDefaultProfileId(baseURL!);
+    await createSongViaApi(baseURL!, { ...makeSongCreatePayload(profileId), title: 'Typing Test Hymn' });
+
+    await page.goto('/');
+    await waitForAppReady(page);
+    await navigateToTab(page, 'Library');
+
+    const search = page.getByPlaceholder(/search/i);
+    await search.click();
+    const typed = 'abcdefghijklmnopqrstuvwxyz';
+    await page.keyboard.type(typed, { delay: 0 });
+
+    await expect(search).toHaveValue(typed);
+    // And the address kept up with it, rather than lagging a character behind.
+    await expect(page).toHaveURL(new RegExp('[?&]q=' + typed));
+  });
+
   test('PDF download triggers a file download', async ({ page, baseURL }) => {
     const profileId = await getDefaultProfileId(baseURL!);
     await createSongViaApi(baseURL!, makeSongCreatePayload(profileId));
