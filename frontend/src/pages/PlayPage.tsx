@@ -489,11 +489,20 @@ function PlayChrome({ onBack, title, artist, actions, controls, children }: Play
         >
           &larr;
         </button>
-        <div className="flex-1 min-w-0">
+        {/* A flex row, not a block. `truncate` sets overflow on the element it
+            is on, and an inline span does not have an overflow, so the title
+            never actually truncated: it ran on under the buttons. Making the
+            spans flex items gives them one. The artist steps aside below `sm`,
+            where there is room for the title or for it, not for both. */}
+        <div className="flex-1 min-w-0 flex items-baseline gap-2">
           <span className="font-display text-lg font-bold text-foreground truncate">
             {title || 'Untitled'}
           </span>
-          {artist && <span className="text-sm text-muted-foreground ml-2">{artist}</span>}
+          {artist && (
+            <span className="hidden sm:inline text-sm text-muted-foreground truncate">
+              {artist}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">{actions}</div>
       </div>
