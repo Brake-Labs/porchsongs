@@ -34,6 +34,7 @@ vi.mock('@/api', () => ({
     WAKE_LOCK: 'test_wake_lock',
     CHORD_INSTRUMENT: 'test_chord_instrument',
     CHORD_TUNING: 'test_chord_tuning',
+    CHORD_PANEL_WIDTH: 'test_chord_panel_width',
   },
 }));
 
@@ -268,6 +269,58 @@ describe('PlayPage chord panel', () => {
       expect(within(songChordRow()!).getByRole('button', { name: 'Bb' })).toBeInTheDocument(),
     );
     expect(within(songChordRow()!).queryByRole('button', { name: 'G' })).not.toBeInTheDocument();
+  });
+
+  it('puts the instrument above the chords, since it decides what they mean', async () => {
+    // A G shape on a ukulele is not a G shape on a guitar. Picking the wrong
+    // instrument makes every diagram below wrong, including the ones reached
+    // from the row of this song's chords, so it is the first thing in the panel.
+    const user = userEvent.setup();
+    renderPlay();
+    await waitFor(() => expect(screen.getByTestId('sheet')).toBeInTheDocument());
+    await openPanel(user);
+
+    const instrument = within(panel()).getByRole('group', { name: 'Instrument' });
+    const songRow = screen.getByRole('heading', { name: 'In this song' });
+    // Node.DOCUMENT_POSITION_FOLLOWING: the song row comes after the picker.
+    expect(instrument.compareDocumentPosition(songRow) & 4).toBeTruthy();
+  });
+
+  it('is dragged wider from its left edge, and remembers', async () => {
+    const user = userEvent.setup();
+    renderPlay();
+    await waitFor(() => expect(screen.getByTestId('sheet')).toBeInTheDocument());
+    await openPanel(user);
+
+    const handle = screen.getByRole('separator', { name: 'Resize chord panel' });
+    const before = Number(handle.getAttribute('aria-valuenow'));
+
+    // The keyboard path, which is the same setter the pointer drag uses and the
+    // one jsdom can actually drive. Left widens, because the panel is on the
+    // right.
+    handle.focus();
+    await user.keyboard('{ArrowLeft}');
+    const after = Number(handle.getAttribute('aria-valuenow'));
+
+    expect(after).toBeGreaterThan(before);
+    expect(localStorage.getItem('test_chord_panel_width')).toBe(String(after));
+    expect(panel().style.getPropertyValue('--chord-panel-width')).toBe(`${after}px`);
+  });
+
+  it('will not be dragged so wide that the chart has nowhere to go', async () => {
+    const user = userEvent.setup();
+    renderPlay();
+    await waitFor(() => expect(screen.getByTestId('sheet')).toBeInTheDocument());
+    await openPanel(user);
+
+    const handle = screen.getByRole('separator', { name: 'Resize chord panel' });
+    handle.focus();
+    for (let i = 0; i < 80; i++) await user.keyboard('{ArrowLeft}');
+
+    const width = Number(handle.getAttribute('aria-valuenow'));
+    expect(width).toBeLessThanOrEqual(Number(handle.getAttribute('aria-valuemax')));
+    // jsdom reports a 1024px window, so the chart's floor is the binding limit.
+    expect(width).toBeLessThanOrEqual(window.innerWidth - 360);
   });
 
   it('offers the dictionary on a tab, which has no chords to read', async () => {

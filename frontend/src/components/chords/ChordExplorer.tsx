@@ -50,6 +50,13 @@ interface ChordExplorerProps {
    * one thing the panel exists to show.
    */
   compact?: boolean;
+  /**
+   * Render the instrument row here. The panel on the play route sets this
+   * false and renders `InstrumentField` above its own "In this song" row
+   * instead: which instrument you are holding decides what every shape below
+   * means, so it belongs at the top rather than under a list of chords.
+   */
+  showInstrument?: boolean;
   className?: string;
 }
 
@@ -77,7 +84,12 @@ function PickerButton({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        'px-3 py-1.5 rounded-md text-sm font-semibold border transition-colors cursor-pointer',
+        // Medium, not semibold, and never monospace. Chord names are short
+        // strings of letters, digits and accidentals, and a heavy mono face
+        // makes "maj7" and "sus2" and "Eb" harder to tell apart at pill size,
+        // not easier. Nothing here is in a column, so there is nothing for a
+        // fixed advance width to line up.
+        'px-3 py-1.5 rounded-md text-sm font-medium border transition-colors cursor-pointer',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 ring-offset-background',
         active
           ? 'bg-primary text-white border-primary'
@@ -113,12 +125,43 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+/**
+ * The instrument row on its own, so a caller can put it somewhere other than
+ * the top of the picker block. Exported rather than duplicated: the buttons and
+ * the reset-the-tuning rule have to stay the same wherever it is rendered.
+ */
+export function InstrumentField({
+  instrument,
+  onChange,
+}: {
+  instrument: Instrument;
+  onChange: (next: Partial<ChordSelection>) => void;
+}) {
+  return (
+    <Field label="Instrument">
+      {INSTRUMENTS.map(option => (
+        <PickerButton
+          key={option.slug}
+          active={option.slug === instrument.slug}
+          // Switching instrument resets the tuning and the capo: "baritone"
+          // means nothing on a banjo, and a capo is on the neck you just put
+          // down.
+          onClick={() => onChange({ instrument: option, tuning: option.tunings[0]!, capo: 0 })}
+        >
+          {option.name}
+        </PickerButton>
+      ))}
+    </Field>
+  );
+}
+
 export default function ChordExplorer({
   selection,
   onChange,
   showAllQualities,
   onToggleAllQualities,
   compact = false,
+  showInstrument = true,
   className,
 }: ChordExplorerProps) {
   const { instrument, tuning, chord, capo } = selection;
@@ -144,19 +187,7 @@ export default function ChordExplorer({
           compact ? 'p-3 gap-4' : 'p-4 sm:p-6 gap-6',
         )}
       >
-        <Field label="Instrument">
-          {INSTRUMENTS.map(option => (
-            <PickerButton
-              key={option.slug}
-              active={option.slug === instrument.slug}
-              onClick={() =>
-                onChange({ instrument: option, tuning: option.tunings[0]!, capo: 0 })
-              }
-            >
-              {option.name}
-            </PickerButton>
-          ))}
-        </Field>
+        {showInstrument && <InstrumentField instrument={instrument} onChange={onChange} />}
 
         {instrument.tunings.length > 1 && (
           <Field label="Tuning">
@@ -168,7 +199,12 @@ export default function ChordExplorer({
                 title={option.description}
               >
                 {option.name}
-                <span className="ml-2 font-mono text-xs opacity-70">{option.description}</span>
+                {/* The one place monospace earns its keep: a tuning is read as
+                    six letters in a fixed order, and they line up between rows
+                    when every letter is the same width. */}
+                <span className="ml-2 font-mono text-xs font-normal opacity-70">
+                  {option.description}
+                </span>
               </PickerButton>
             ))}
           </Field>
@@ -180,7 +216,7 @@ export default function ChordExplorer({
               key={pc}
               active={pc === chord.root}
               onClick={() => onChange({ chord: { ...chord, root: pc } })}
-              className="min-w-11 font-mono"
+              className="min-w-11"
             >
               {noteName(pc)}
             </PickerButton>
@@ -195,7 +231,7 @@ export default function ChordExplorer({
               onClick={() => onChange({ chord: { ...chord, quality: option } })}
               title={option.label}
             >
-              <span className="font-mono">{option.suffix || 'maj'}</span>
+              <span>{option.suffix || 'maj'}</span>
             </PickerButton>
           ))}
           <button
@@ -213,7 +249,7 @@ export default function ChordExplorer({
               key={fret}
               active={fret === capo}
               onClick={() => onChange({ capo: fret })}
-              className="min-w-10 font-mono"
+              className="min-w-10"
             >
               {fret === 0 ? 'None' : fret}
             </PickerButton>
