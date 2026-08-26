@@ -84,7 +84,12 @@ function PickerButton({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        'px-3 py-1.5 rounded-md text-sm font-semibold border transition-colors cursor-pointer',
+        // Medium, not semibold, and never monospace. Chord names are short
+        // strings of letters, digits and accidentals, and a heavy mono face
+        // makes "maj7" and "sus2" and "Eb" harder to tell apart at pill size,
+        // not easier. Nothing here is in a column, so there is nothing for a
+        // fixed advance width to line up.
+        'px-3 py-1.5 rounded-md text-sm font-medium border transition-colors cursor-pointer',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 ring-offset-background',
         active
           ? 'bg-primary text-white border-primary'
@@ -194,7 +199,12 @@ export default function ChordExplorer({
                 title={option.description}
               >
                 {option.name}
-                <span className="ml-2 font-mono text-xs opacity-70">{option.description}</span>
+                {/* The one place monospace earns its keep: a tuning is read as
+                    six letters in a fixed order, and they line up between rows
+                    when every letter is the same width. */}
+                <span className="ml-2 font-mono text-xs font-normal opacity-70">
+                  {option.description}
+                </span>
               </PickerButton>
             ))}
           </Field>
@@ -206,7 +216,7 @@ export default function ChordExplorer({
               key={pc}
               active={pc === chord.root}
               onClick={() => onChange({ chord: { ...chord, root: pc } })}
-              className="min-w-11 font-mono"
+              className="min-w-11"
             >
               {noteName(pc)}
             </PickerButton>
@@ -221,7 +231,7 @@ export default function ChordExplorer({
               onClick={() => onChange({ chord: { ...chord, quality: option } })}
               title={option.label}
             >
-              <span className="font-mono">{option.suffix || 'maj'}</span>
+              <span>{option.suffix || 'maj'}</span>
             </PickerButton>
           ))}
           <button
@@ -239,7 +249,7 @@ export default function ChordExplorer({
               key={fret}
               active={fret === capo}
               onClick={() => onChange({ capo: fret })}
-              className="min-w-10 font-mono"
+              className="min-w-10"
             >
               {fret === 0 ? 'None' : fret}
             </PickerButton>
