@@ -7,10 +7,11 @@ vi.mock('@/contexts/AuthContext', () => ({
 }));
 
 describe('Tabs', () => {
-  it('renders all three tab labels (import tab is "Import")', () => {
+  it('renders every tab label', () => {
     renderWithRouter(<Tabs />, { route: '/app/rewrite' });
     expect(screen.getByText('Import')).toBeInTheDocument();
     expect(screen.getByText('Library')).toBeInTheDocument();
+    expect(screen.getByText('Chords')).toBeInTheDocument();
     expect(screen.getByText('Settings')).toBeInTheDocument();
   });
 
@@ -19,6 +20,13 @@ describe('Tabs', () => {
     const libraryTab = screen.getByText('Library');
     expect(libraryTab).toHaveAttribute('data-state', 'active');
     expect(screen.getByText('Import')).toHaveAttribute('data-state', 'inactive');
+  });
+
+  it('marks Chords active anywhere under the chord dictionary', () => {
+    // Chord pages carry the instrument and chord in the path
+    // (/app/chords/guitar/g-major), so the tab has to match on prefix.
+    renderWithRouter(<Tabs />, { route: '/app/chords/guitar/g-major' });
+    expect(screen.getByText('Chords')).toHaveAttribute('data-state', 'active');
   });
 
   it('defaults to the Library tab for unknown paths', () => {
@@ -65,11 +73,11 @@ describe('activeKeyFromPath', () => {
 });
 
 describe('buildTabItems', () => {
-  it('returns three base tabs for non-admin users', () => {
+  it('returns the base tabs for non-admin users', () => {
     const tabs = buildTabItems(false, false);
     // Library first: the common case on opening the app is finding a song to
     // play, not adding a new one.
-    expect(tabs.map(t => t.key)).toEqual(['library', 'rewrite', 'settings']);
+    expect(tabs.map(t => t.key)).toEqual(['library', 'rewrite', 'chords', 'settings']);
   });
 
   it('does not include admin tab in OSS mode even if isAdmin is true', () => {

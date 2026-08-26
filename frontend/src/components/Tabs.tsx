@@ -16,19 +16,21 @@ export function buildTabItems(isPremium: boolean, isAdmin: boolean): TabItem[] {
     // common case on opening it is "find my song", not "add a new one".
     { key: 'library', path: '/app/library', label: 'Library' },
     { key: 'rewrite', path: '/app/rewrite', label: 'Import' },
+    { key: 'chords', path: '/app/chords', label: 'Chords' },
     { key: 'settings', path: `/app/settings/${getDefaultSettingsTab(isPremium)}`, label: 'Settings' },
   ];
   const extra: TopLevelTab[] = getExtraTopLevelTabs(isPremium, isAdmin);
   return [...tabs, ...extra];
 }
 
-const MATCH_PREFIXES = ['/app/rewrite', '/app/library', '/app/settings', '/app/admin'] as const;
+const MATCH_PREFIXES = ['/app/rewrite', '/app/library', '/app/settings', '/app/admin', '/app/chords'] as const;
 
 export function activeKeyFromPath(pathname: string): string {
   if (pathname.startsWith(MATCH_PREFIXES[0])) return 'rewrite';
   if (pathname.startsWith(MATCH_PREFIXES[1])) return 'library';
   if (pathname.startsWith(MATCH_PREFIXES[2])) return 'settings';
   if (pathname.startsWith(MATCH_PREFIXES[3])) return 'admin';
+  if (pathname.startsWith(MATCH_PREFIXES[4])) return 'chords';
   // Library is the home surface, so an unmatched path (notably /app/play/:uuid,
   // which renders chromeless and shows no tab bar) highlights Library rather than
   // the import screen.
