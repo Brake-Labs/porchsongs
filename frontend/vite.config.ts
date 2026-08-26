@@ -44,6 +44,10 @@ export default defineConfig({
           // would give repeat visitors the generic title instead.
           /^\/(pricing|about|terms|privacy)$/,
           /^\/how-to(\/|$)/,
+          // Same for the chord dictionary, which is hundreds of pages that differ
+          // only in their meta. Served from the precached shell they would all
+          // claim to be the same page.
+          /^\/chords(\/|$)/,
         ],
         // Charts are mirrored in IndexedDB, not here; the API is never cached.
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
