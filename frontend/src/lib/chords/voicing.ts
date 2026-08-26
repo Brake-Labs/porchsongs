@@ -132,10 +132,13 @@ interface Fingering {
  * this rule it outranked the real F barre chord, because it appears to use
  * fewer fingers.
  *
- * A barre is only used when the shape cannot be fingered without one. Barring
- * is always *possible* wherever the lowest fret repeats, and counting it as one
- * finger made easy open chords look easier still: D (xx0232) came out as a barre
- * chord, which is not how anyone plays or teaches it.
+ * A barre is used when the shape needs one, or when three or more strings share
+ * the lowest fret. Barring is always *possible* wherever that fret repeats, and
+ * treating every such shape as a barre made easy open chords look easier still:
+ * D (xx0232) came out as a barre chord, which is not how anyone plays it. But
+ * requiring a fifth finger before reaching for one was too strict in the other
+ * direction: ukulele Bbm7 (1111) came out as four separate fingers on one fret,
+ * which is precisely the shape a barre exists for.
  */
 export function assignFingers(frets: Fret[]): Fingering {
   const fretted = frets
@@ -157,7 +160,9 @@ export function assignFingers(frets: Fret[]): Fingering {
     return { fingers, barre: null, count: fretted.length };
   };
 
-  if (fretted.length <= 4 || atMin.length < 2) return assignPlain();
+  const needsBarre = fretted.length > 4;
+  const worthBarring = atMin.length >= 3;
+  if (atMin.length < 2 || (!needsBarre && !worthBarring)) return assignPlain();
 
   const from = Math.min(...atMin.map(x => x.i));
   const to = Math.max(...atMin.map(x => x.i));

@@ -53,10 +53,32 @@ describe('ChordDiagram', () => {
     expect(image).toHaveAccessibleName(/string 5 fret 3/);
   });
 
-  it('prefers an explicit label when given one', () => {
+  it('keeps describing the shape when given a label', () => {
+    // The label says which diagram this is; without the shape after it a screen
+    // reader user learns there are six pictures and nothing about any of them.
     const c = shapeFor('guitar', 'standard', 0, '');
     render(<ChordDiagram voicing={c} instrument={guitar} tuning={guitarStandard} label="C major, shape 1" />);
-    expect(screen.getByRole('img')).toHaveAccessibleName('C major, shape 1');
+    const name = screen.getByRole('img').getAttribute('aria-labelledby')!;
+    const text = document.getElementById(name)!.textContent!;
+    expect(text.startsWith('C major, shape 1.')).toBe(true);
+    expect(text).toContain('string 5 fret 3');
+  });
+
+  it('says where fret numbers are counted from when a capo is fitted', () => {
+    const c = shapeFor('guitar', 'standard', 0, '');
+    render(<ChordDiagram voicing={c} instrument={guitar} tuning={guitarStandard} capo={3} />);
+    expect(screen.getByRole('img')).toHaveAccessibleName(/capo 3, frets counted from the capo/);
+  });
+
+  it('draws the capo in place of the nut rather than a label that will not fit', () => {
+    const c = shapeFor('guitar', 'standard', 0, '');
+    const { container } = render(
+      <ChordDiagram voicing={c} instrument={guitar} tuning={guitarStandard} capo={3} />,
+    );
+    const nut = container.querySelector('line[stroke-width="5"]')!;
+    expect(nut.getAttribute('class')).toContain('stroke-primary');
+    // The old text label was drawn past the right edge of the viewBox.
+    expect([...container.querySelectorAll('text')].map(t => t.textContent)).not.toContain('capo 3');
   });
 
   it('draws a nut for an open shape and a fret number for one up the neck', () => {
@@ -101,12 +123,21 @@ describe('ChordDiagram', () => {
     expect(container.querySelectorAll('line[stroke-width="4"]')).toHaveLength(1);
   });
 
-  it('notes the capo, and follows the drone anchor when one is fitted', () => {
+  it('moves the drone stub up with the capo', () => {
+    // A banjo capo raises the 5th string too (a spike), so its anchor sits
+    // closer to the capo: three frets above it rather than five above the nut.
+    // Drawing the stub from the nut-relative anchor would put it off the grid.
     const capoed = withCapo(banjoOpenG, 2);
-    const g = generateVoicings(banjo, capoed, { root: 9, quality: findQuality('')! })[0]!;
+    const a = generateVoicings(banjo, capoed, { root: 9, quality: findQuality('')! })[0]!;
     const { container } = render(
-      <ChordDiagram voicing={g} instrument={banjo} tuning={capoed} capo={2} />,
+      <ChordDiagram voicing={a} instrument={banjo} tuning={capoed} capo={2} />,
     );
-    expect([...container.querySelectorAll('text')].some(t => t.textContent === 'capo 2')).toBe(true);
+    const stubNut = container.querySelector('line[stroke-width="4"]');
+    expect(stubNut).not.toBeNull();
+
+    const uncapoed = render(
+      <ChordDiagram voicing={a} instrument={banjo} tuning={banjoOpenG} />,
+    ).container.querySelector('line[stroke-width="4"]')!;
+    expect(Number(stubNut!.getAttribute('y1'))).toBeLessThan(Number(uncapoed.getAttribute('y1')));
   });
 });

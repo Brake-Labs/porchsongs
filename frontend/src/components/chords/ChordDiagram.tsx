@@ -22,11 +22,14 @@ interface ChordDiagramProps {
    * first tuning: a capo moves the anchor, and the diagram has to move with it.
    */
   tuning: Tuning;
-  /** Fret the capo sits at, so the nut can be labelled. 0 for none. */
+  /** Fret the capo sits at. Drawn in place of the nut, since that is what the
+   *  shape is played against and what its fret numbers count from. 0 for none. */
   capo?: number;
   /** Overall width in px. Height follows from the string and fret counts. */
   size?: number;
-  /** Screen-reader description. Falls back to a generated one. */
+  /** Prefixed to the screen-reader description, e.g. "C, shape 1 of 6". The
+   *  shape itself is always described after it: a name alone tells a screen
+   *  reader user which diagram this is, but not how to play it. */
   label?: string;
   className?: string;
 }
@@ -39,7 +42,7 @@ const PAD_BOTTOM = 22;
 const DOT_R = 8;
 
 /** Spoken description of a shape, so the diagram is not a blank to a screen reader. */
-export function describeVoicing(voicing: Voicing, instrument: Instrument): string {
+export function describeVoicing(voicing: Voicing, instrument: Instrument, capo = 0): string {
   const parts = voicing.frets.map((fret, i) => {
     const stringNumber = voicing.frets.length - i;
     if (fret === null) return `string ${stringNumber} muted`;
@@ -47,7 +50,9 @@ export function describeVoicing(voicing: Voicing, instrument: Instrument): strin
     return `string ${stringNumber} fret ${fret}`;
   });
   const barre = voicing.barre ? `, barred at fret ${voicing.barre.fret}` : '';
-  return `${instrument.name}: ${parts.join(', ')}${barre}`;
+  // Fret numbers mean nothing without saying where they are counted from.
+  const withCapo = capo > 0 ? `, capo ${capo}, frets counted from the capo` : '';
+  return `${instrument.name}: ${parts.join(', ')}${barre}${withCapo}`;
 }
 
 export default function ChordDiagram({
@@ -80,7 +85,8 @@ export default function ChordDiagram({
   const fretY = (fret: number) => PAD_TOP + (fret - windowStart + 1) * FRET_GAP;
   const dotY = (fret: number) => fretY(fret) - FRET_GAP / 2;
 
-  const description = label ?? describeVoicing(voicing, instrument);
+  const shape = describeVoicing(voicing, instrument, capo);
+  const description = label ? `${label}. ${shape}` : shape;
 
   return (
     <svg
@@ -93,10 +99,14 @@ export default function ChordDiagram({
     >
       <title id={titleId}>{description}</title>
 
-      {/* Frets. The nut is the thick one, and only when the window starts at 1. */}
+      {/* Frets. The nut is the thick one, and only when the window starts at 1.
+          With a capo fitted it is the capo that the shape is played against, so
+          it is drawn in the accent colour: fret 1 here means one fret above the
+          capo, not above the nut. */}
       {Array.from({ length: fretCount + 1 }, (_, i) => {
         const y = PAD_TOP + i * FRET_GAP;
         const isNut = i === 0 && showNut;
+        const isCapo = isNut && capo > 0;
         return (
           <line
             key={`fret-${i}`}
@@ -104,7 +114,8 @@ export default function ChordDiagram({
             x2={PAD_X + gridWidth + (isNut ? 1 : 0)}
             y1={y}
             y2={y}
-            stroke="currentColor"
+            className={isCapo ? 'stroke-primary' : undefined}
+            stroke={isCapo ? undefined : 'currentColor'}
             strokeWidth={isNut ? 5 : 1.5}
             strokeLinecap="square"
             opacity={isNut ? 1 : 0.35}
@@ -160,21 +171,6 @@ export default function ChordDiagram({
           className="font-mono"
         >
           {windowStart}
-        </text>
-      )}
-
-      {/* Capo, drawn where the nut would be. */}
-      {capo > 0 && showNut && (
-        <text
-          x={PAD_X + gridWidth + 7}
-          y={PAD_TOP - 6}
-          textAnchor="start"
-          fontSize={11}
-          fill="currentColor"
-          opacity={0.7}
-          className="font-mono"
-        >
-          {`capo ${capo}`}
         </text>
       )}
 

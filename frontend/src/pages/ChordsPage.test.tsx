@@ -107,7 +107,7 @@ describe('display', () => {
     renderAt('/app/chords/guitar/c-major');
     const shapes = screen.getAllByRole('img');
     expect(shapes.length).toBeGreaterThan(1);
-    expect(shapes[0]).toHaveAccessibleName('C, shape 1 of ' + shapes.length);
+    expect(shapes[0]).toHaveAccessibleName(new RegExp(`^C, shape 1 of ${shapes.length}\\.`));
   });
 
   it('names the notes in the chord and which is optional', () => {

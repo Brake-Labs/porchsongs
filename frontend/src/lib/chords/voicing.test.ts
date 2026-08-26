@@ -221,6 +221,17 @@ describe('assignFingers', () => {
     // 103211: an F shape with the A string open inside the barre.
     expect(assignFingers([1, 0, 3, 2, 1, 1]).barre).toBeNull();
   });
+
+  it('barres three strings on one fret rather than using three fingers', () => {
+    // Ukulele Bbm7 is 1111. Four fingers side by side on the first fret is not
+    // how anyone plays it, and it is exactly the shape a barre is for.
+    const bbm7 = assignFingers([1, 1, 1, 1]);
+    expect(bbm7.barre).toEqual({ fret: 1, fromString: 0, toString: 3, finger: 1 });
+    expect(bbm7.count).toBe(1);
+
+    // But two strings on the lowest fret is still just two fingers: guitar D.
+    expect(assignFingers([null, null, 0, 2, 3, 2]).barre).toBeNull();
+  });
 });
 
 /**
@@ -244,7 +255,7 @@ const CANONICAL: Record<string, Record<string, string>> = {
     // cheaper, and comes back second. Either is a correct Em.
     Em: '0402',
     A: '2100', Dm: '2210', E: '1402', G7: '0212', C7: '0001', A7: '0100',
-    Cmaj7: '0002', Am7: '0000', F7: '2313',
+    Cmaj7: '0002', Am7: '0000', F7: '2313', Bbm7: '1111',
   },
   // Baritone is tuned like a guitar's top four strings, so its shapes are the
   // guitar ones with the bass strings gone: guitar C (x32010) becomes 2010.
