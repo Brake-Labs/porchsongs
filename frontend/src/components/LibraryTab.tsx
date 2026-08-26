@@ -188,9 +188,11 @@ type SortDir = 'asc' | 'desc';
 type BrowseMode = 'songs' | 'artists';
 type ArtistSortKey = 'name' | 'count';
 
-/** Grouping key for charts with no artist. Not a valid lowercased artist name,
- *  because a real one can never contain the underscores. */
-const UNKNOWN_ARTIST_KEY = '__unknown__';
+/** Grouping key for charts with no artist. The leading space is load-bearing: a
+ *  real key is a `tidyArtist` result, so it is always trimmed, and no artist a
+ *  user can type will collide with this one. Without it, someone who titled an
+ *  artist "__unknown__" would have their charts swallowed by the bucket. */
+const UNKNOWN_ARTIST_KEY = ' __unknown__';
 
 const BROWSE_MODES: ReadonlyArray<{ mode: BrowseMode; label: string }> = [
   { mode: 'songs', label: 'Songs' },
@@ -205,10 +207,18 @@ export interface ArtistGroup {
   count: number;
 }
 
+/** Trimmed, with every run of internal whitespace collapsed to one space. */
+function tidyArtist(artist: string | null | undefined): string {
+  return (artist || '').trim().replace(/\s+/g, ' ');
+}
+
 /** Case-and-whitespace-insensitive grouping key for a song's artist. */
 function artistKeyOf(song: Song): string {
-  const raw = (song.artist || '').trim();
-  return raw ? raw.toLowerCase() : UNKNOWN_ARTIST_KEY;
+  // Internal runs of whitespace collapse as well as leading and trailing ones,
+  // so a double space or a stray tab from a pasted chart does not split one
+  // artist across two cards.
+  const tidy = tidyArtist(song.artist);
+  return tidy ? tidy.toLowerCase() : UNKNOWN_ARTIST_KEY;
 }
 
 /**
@@ -222,9 +232,11 @@ function artistKeyOf(song: Song): string {
  * actually typed wins over a stray capitalisation from an import.
  *
  * A tie is broken by code-unit order, which is deterministic (the label cannot
- * depend on the order the API returned the songs in) and puts 'N' ahead of 'n',
- * so a one-all tie between "Neil Young" and "neil young" shows the capitalised
- * one. `localeCompare` would pick the lowercase spelling instead.
+ * depend on the order the API returned the songs in) and puts every uppercase
+ * letter ahead of its lowercase form. So a tie prefers the more capitalised
+ * spelling at the first letter they differ on, not only at the first letter of
+ * the name: "Neil Young" beats "neil young", and a three-way tie that includes
+ * "NEIL YOUNG" picks that one. `localeCompare` would pick lowercase instead.
  *
  * Exported for tests.
  */
@@ -238,7 +250,7 @@ export function groupSongsByArtist(songs: Song[]): ArtistGroup[] {
       buckets.set(key, bucket);
     }
     bucket.count += 1;
-    const raw = (song.artist || '').trim();
+    const raw = tidyArtist(song.artist);
     if (raw) bucket.spellings.set(raw, (bucket.spellings.get(raw) ?? 0) + 1);
   }
 
@@ -319,7 +331,7 @@ function ArtistCard({ group, onSelect }: ArtistCardProps) {
       role="button"
       tabIndex={0}
       aria-label={`${group.name}, ${group.count} chart${group.count === 1 ? '' : 's'}`}
-      className="p-3 cursor-pointer transition-colors hover:border-primary focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light"
+      className="p-3 cursor-pointer transition-colors hover:border-primary focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       onClick={() => onSelect(group.key)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -654,9 +666,15 @@ export default function LibraryTab() {
       result = result.filter(a => a.name.toLowerCase().includes(q));
     }
     const sorted = [...result].sort((a, b) => {
-      const cmp = artistSortKey === 'count'
-        ? a.count - b.count
-        : a.name.localeCompare(b.name);
+      if (artistSortKey === 'count') {
+        // The direction applies to the count alone. Artists holding the same
+        // number of charts stay alphabetical whichever way the arrow points:
+        // flipping it asks a question about counts, and reversing the tiebreak
+        // along with it just reads as the list having shuffled itself.
+        const byCount = artistSortDir === 'asc' ? a.count - b.count : b.count - a.count;
+        return byCount || a.name.localeCompare(b.name);
+      }
+      const cmp = a.name.localeCompare(b.name);
       return artistSortDir === 'asc' ? cmp : -cmp;
     });
     // "Unknown artist" sorts last whichever way the list is pointing. It is a
@@ -916,6 +934,10 @@ export default function LibraryTab() {
   };
 
   const handleBrowseModeChange = useCallback((mode: BrowseMode) => {
+    // Tapping the half that is already lit is a no-op, not a reset. Both halves
+    // stay clickable so the pair reads as one control, and without this a tap on
+    // the current mode threw away the folder filter and the search query with it.
+    if (mode === browseMode) return;
     setBrowseMode(mode);
     localStorage.setItem(STORAGE_KEYS.LIBRARY_BROWSE_MODE, mode);
     // Both filters are cleared on every switch, not just the one being left.
@@ -929,7 +951,7 @@ export default function LibraryTab() {
     // would drop the user into an empty picker the moment they switched.
     setSearchQuery('');
     setSelectedUuids(new Set());
-  }, []);
+  }, [browseMode]);
 
   // "Name" wants A first; "Charts" wants the artist with the most charts first.
   // Both are what the label means when it is picked, so the direction follows the
@@ -1325,7 +1347,7 @@ export default function LibraryTab() {
                 data-testid={`browse-mode-${mode}`}
                 aria-pressed={browseMode === mode}
                 className={cn(
-                  'rounded-full px-3 py-1 text-xs font-medium transition-colors whitespace-nowrap',
+                  'rounded-full px-3 py-1 text-xs font-medium cursor-pointer transition-colors whitespace-nowrap',
                   browseMode === mode
                     ? 'bg-primary text-white'
                     : 'text-muted-foreground hover:text-foreground',

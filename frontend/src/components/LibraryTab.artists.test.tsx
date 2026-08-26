@@ -133,6 +133,18 @@ describe('groupSongsByArtist', () => {
     expect(backwards[0]?.name).toBe('Neil Young');
   });
 
+  it('collapses runs of whitespace inside a name, not just around it', () => {
+    const groups = groupSongsByArtist([
+      makeSong({ id: 1, artist: 'Neil Young' }),
+      makeSong({ id: 2, artist: 'Neil  Young' }),
+      makeSong({ id: 3, artist: 'Neil\tYoung' }),
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.count).toBe(3);
+    expect(groups[0]?.name).toBe('Neil Young');
+  });
+
   it('buckets null and blank artists under Unknown artist', () => {
     const groups = groupSongsByArtist([
       makeSong({ id: 1, artist: null }),
@@ -256,6 +268,27 @@ describe('LibraryTab artist browsing', () => {
     await waitFor(() => expect(names()).toEqual(['Zoe Keating', 'Aoife Donovan']));
   });
 
+  it('keeps equal-count artists alphabetical whichever way the count sort points', async () => {
+    await renderInArtistMode([
+      makeSong({ id: 1, artist: 'Zoe Keating' }),
+      makeSong({ id: 2, artist: 'Aoife Donovan' }),
+      makeSong({ id: 3, artist: 'Marisa Anderson' }),
+    ]);
+
+    const names = () =>
+      [...screen.getByTestId('artist-grid').children].map(el => el.querySelector('h3')?.textContent);
+
+    fireEvent.change(screen.getByLabelText('Sort artists by'), { target: { value: 'count' } });
+    // All three hold one chart, so the count decides nothing and the names do.
+    await waitFor(() => expect(names()).toEqual(['Aoife Donovan', 'Marisa Anderson', 'Zoe Keating']));
+
+    // Reversing asks about counts. It must not also reverse the name tiebreak,
+    // which would look like the list shuffling for no reason.
+    fireEvent.click(screen.getByLabelText('Sort descending'));
+
+    await waitFor(() => expect(names()).toEqual(['Aoife Donovan', 'Marisa Anderson', 'Zoe Keating']));
+  });
+
   it('keeps Unknown artist last whichever way the sort points', async () => {
     await renderInArtistMode([
       makeSong({ id: 1, artist: null }),
@@ -324,5 +357,97 @@ describe('LibraryTab artist browsing', () => {
     await renderInArtistMode([makeSong({ id: 1, artist: 'Neil Young' })]);
 
     expect(localStorage.getItem('test_library_browse_mode')).toBe('artists');
+  });
+
+  it('drills into the Unknown artist bucket', async () => {
+    await renderInArtistMode([
+      makeSong({ id: 1, title: 'Caleb Meyer', artist: null }),
+      makeSong({ id: 2, title: 'Helpless', artist: '   ' }),
+      makeSong({ id: 3, title: 'Old Man', artist: 'Neil Young' }),
+    ]);
+
+    fireEvent.click(screen.getByText('Unknown artist'));
+
+    await waitFor(() => expect(screen.getByText('Caleb Meyer')).toBeInTheDocument());
+    expect(screen.getByText('Helpless')).toBeInTheDocument();
+    expect(screen.queryByText('Old Man')).not.toBeInTheDocument();
+    // The breadcrumb has to name the bucket, not fall through to a blank label.
+    expect(screen.getByTestId('artist-back')).toBeInTheDocument();
+  });
+
+  it('clears the search box when an artist is picked', async () => {
+    await renderInArtistMode([
+      makeSong({ id: 1, title: 'Old Man', artist: 'Neil Young' }),
+      makeSong({ id: 2, title: 'Miss Ohio', artist: 'Gillian Welch' }),
+    ]);
+
+    fireEvent.change(screen.getByPlaceholderText('Search artists...'), {
+      target: { value: 'neil' },
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId('artist-card-gillian welch')).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('artist-card-neil young'));
+
+    // The query that found the artist must not go on to filter their charts.
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Search songs by title or artist...')).toHaveValue('');
+    });
+    expect(screen.getByText('Old Man')).toBeInTheDocument();
+  });
+
+  it('sorts the drilled-into artist\'s songs with the shared direction button', async () => {
+    await renderInArtistMode([
+      makeSong({ id: 1, title: 'Old Man', artist: 'Neil Young', created_at: '2025-01-01T00:00:00Z' }),
+      makeSong({ id: 2, title: 'Harvest Moon', artist: 'Neil Young', created_at: '2025-02-01T00:00:00Z' }),
+    ]);
+
+    fireEvent.click(screen.getByTestId('artist-card-neil young'));
+    await waitFor(() => expect(screen.getByText('Old Man')).toBeInTheDocument());
+
+    const titles = () =>
+      screen.getAllByRole('heading', { level: 3 }).map(el => el.textContent?.split(' by ')[0]);
+
+    // Drilling in leaves the song list on its own default of newest created first.
+    expect(titles()).toEqual(['Harvest Moon', 'Old Man']);
+
+    fireEvent.click(screen.getByLabelText('Sort descending'));
+
+    await waitFor(() => expect(titles()).toEqual(['Old Man', 'Harvest Moon']));
+  });
+
+  it('opens in the picker when the stored mode is artists', async () => {
+    localStorage.setItem('test_library_browse_mode', 'artists');
+    vi.mocked(api.listSongs).mockResolvedValue([
+      makeSong({ id: 1, title: 'Old Man', artist: 'Neil Young' }),
+    ]);
+
+    renderWithRouter(<LibraryTab />, { route: '/app/library' });
+
+    await waitFor(() => expect(screen.getByTestId('artist-grid')).toBeInTheDocument());
+    expect(screen.queryByText('Old Man')).not.toBeInTheDocument();
+  });
+
+  it('leaves the search box and folder filter alone when the current mode is tapped', async () => {
+    vi.mocked(api.listSongs).mockResolvedValue([
+      makeSong({ id: 1, title: 'Old Man', artist: 'Neil Young', folder: 'Setlist' }),
+      makeSong({ id: 2, title: 'Miss Ohio', artist: 'Gillian Welch', folder: null }),
+    ]);
+
+    renderWithRouter(<LibraryTab />, { route: '/app/library' });
+    await waitFor(() => expect(screen.getByText('Old Man')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('folder-pill-Setlist'));
+    const search = () => screen.getByPlaceholderText('Search songs by title or artist...');
+    fireEvent.change(search(), { target: { value: 'Old' } });
+    await waitFor(() => expect(search()).toHaveValue('Old'));
+
+    // Tapping the half that is already lit must not behave like a mode switch.
+    fireEvent.click(screen.getByTestId('browse-mode-songs'));
+
+    await waitFor(() => expect(search()).toHaveValue('Old'));
+    expect(screen.queryByText('Miss Ohio')).not.toBeInTheDocument();
+    expect(screen.getByTestId('folder-pill-Setlist')).toBeInTheDocument();
   });
 });
