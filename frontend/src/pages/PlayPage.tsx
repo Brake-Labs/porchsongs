@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import TunerDialog from '@/components/TunerDialog';
 import { PerformanceSheet, FontSizeStepper } from '@/components/PlayView';
+import DocumentSheet from '@/components/DocumentSheet';
 import type { ColumnPref, SongVersion } from '@/components/PlayView';
 import { maxColumnsForContent } from '@/lib/performanceLayout';
 import useWakeLock from '@/hooks/useWakeLock';
@@ -73,6 +74,10 @@ export default function PlayPage() {
   }, []);
 
   const [fontSize, setFontSize] = useState<number | null>(null);
+  const [fileData, setFileData] = useState<ArrayBuffer | null>(null);
+  const [fileError, setFileError] = useState('');
+  const [keptOffline, setKeptOffline] = useState(false);
+  const [keepBusy, setKeepBusy] = useState(false);
 
   const wakeLock = useWakeLock();
 
@@ -107,6 +112,55 @@ export default function PlayPage() {
       cancelled = true;
     };
   }, [uuid]);
+
+  // A document's bytes are a second request, deliberately: the library payload
+  // stays a listing and this only runs on the one tab actually being opened.
+  useEffect(() => {
+    if (!song || song.kind !== 'document') {
+      setFileData(null);
+      return;
+    }
+    let cancelled = false;
+    setFileError('');
+    // The digest lets a kept copy answer without touching the network at all.
+    api
+      .fetchSongFile(song.uuid, song.file?.sha256)
+      .then((buf) => {
+        if (!cancelled) setFileData(buf);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setFileError((err as Error)?.message ?? 'Could not load this file.');
+      });
+    api
+      .keptSongFiles()
+      .then((kept) => {
+        if (!cancelled) setKeptOffline(kept.has(song.uuid));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [song]);
+
+  const toggleKeptOffline = useCallback(async () => {
+    if (!song?.file) return;
+    setKeepBusy(true);
+    try {
+      if (keptOffline) {
+        await api.forgetSongFileOffline(song.uuid);
+        setKeptOffline(false);
+      } else {
+        await api.keepSongFileOffline(song.uuid, song.file.sha256);
+        setKeptOffline(true);
+      }
+    } catch (err) {
+      // Surfaced on the sheet rather than swallowed: "keep this for tonight" is a
+      // promise, and silently failing it is discovered on stage.
+      setFileError((err as Error)?.message ?? 'Could not change offline storage.');
+    } finally {
+      setKeepBusy(false);
+    }
+  }, [song, keptOffline]);
 
   const persistFontSize = useCallback(
     (next: number | null) => {
@@ -166,6 +220,67 @@ export default function PlayPage() {
     );
   }
 
+  // Before any of the chart logic below, which reads content that a document does
+  // not have. In particular the "this chart is empty" branch would otherwise claim
+  // a perfectly good tab PDF was empty.
+  if (song.kind === 'document') {
+    const downloadName = song.file?.filename ?? `${song.title ?? 'tab'}.pdf`;
+    return (
+      <PlayChrome
+        onBack={goBack}
+        title={song.title ?? ''}
+        artist={song.artist ?? ''}
+        actions={
+          <>
+            <TunerButton onClick={() => setTunerOpen(true)} />
+            <WakeLockButton wakeLock={wakeLock} />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="min-w-[2.75rem] min-h-[2.75rem] inline-flex items-center justify-center rounded-md border border-border text-xl leading-none text-muted-foreground hover:bg-panel hover:text-foreground cursor-pointer"
+                  aria-label="Tab actions"
+                >
+                  &hellip;
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={() => api.downloadSongFile(song.uuid, downloadName).catch(() => {})}
+                >
+                  Download original
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {/* Per song, never automatic: a tab collection is hundreds of
+                    megabytes and mirroring all of it on every library visit would
+                    be a bug. This is the "I need this one tonight" switch. */}
+                <DropdownMenuItem disabled={keepBusy} onClick={() => void toggleKeptOffline()}>
+                  {keepBusy
+                    ? 'Working\u2026'
+                    : keptOffline
+                      ? 'Stop keeping offline'
+                      : 'Keep offline'}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
+        }
+      >
+        {fileError ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center text-muted-foreground">
+            <h2 className="font-display text-xl text-foreground">Could not load this tab</h2>
+            <p className="text-sm">{fileError}</p>
+            <Button variant="secondary" onClick={goBack}>
+              Back to library
+            </Button>
+          </div>
+        ) : (
+          <DocumentSheet data={fileData} className="flex-1 min-h-0" />
+        )}
+        <TunerDialog open={tunerOpen} onOpenChange={setTunerOpen} />
+      </PlayChrome>
+    );
+  }
+
   const hasDistinctOriginal =
     song.original_content.trim() !== '' &&
     song.original_content.trim() !== song.rewritten_content.trim();
@@ -195,36 +310,8 @@ export default function PlayPage() {
       artist={song.artist ?? ''}
       actions={
         <>
-          <button
-            type="button"
-            onClick={() => setTunerOpen(true)}
-            className="min-w-[2.75rem] min-h-[2.75rem] inline-flex items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-panel hover:text-foreground cursor-pointer"
-            aria-label="Open tuner"
-            title="Tuner"
-          >
-            {/* Tuning fork / guitar head glyph */}
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-              <path d="M9 3v8a3 3 0 006 0V3" />
-              <path d="M12 14v7" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            onClick={wakeLock.toggle}
-            aria-pressed={wakeLock.enabled}
-            className={cn(
-              'min-h-[2.75rem] px-3 inline-flex items-center justify-center rounded-md border text-xs cursor-pointer whitespace-nowrap',
-              wakeLock.enabled
-                ? 'border-primary bg-primary text-white'
-                : 'border-border text-muted-foreground hover:bg-panel hover:text-foreground',
-            )}
-            // Engaged on tap, never automatically: iOS Safari has no native wake
-            // lock and the nosleep fallback must run inside a user gesture, so an
-            // effect-driven "auto" would silently do nothing on an iPad.
-            title="Keep the screen awake while you play"
-          >
-            {wakeLock.enabled ? 'Awake' : 'Stay awake'}
-          </button>
+          <TunerButton onClick={() => setTunerOpen(true)} />
+          <WakeLockButton wakeLock={wakeLock} />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -317,6 +404,49 @@ export default function PlayPage() {
       />
       <TunerDialog open={tunerOpen} onOpenChange={setTunerOpen} />
     </PlayChrome>
+  );
+}
+
+/** Shared by both play surfaces: a chart has a tuner, and so does a tab. */
+function TunerButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="min-w-[2.75rem] min-h-[2.75rem] inline-flex items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-panel hover:text-foreground cursor-pointer"
+      aria-label="Open tuner"
+      title="Tuner"
+    >
+      {/* Tuning fork / guitar head glyph */}
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+        <path d="M9 3v8a3 3 0 006 0V3" />
+        <path d="M12 14v7" />
+      </svg>
+    </button>
+  );
+}
+
+/**
+ * Engaged on tap, never automatically: iOS Safari has no native wake lock and the
+ * nosleep fallback must run inside a user gesture, so an effect-driven "auto"
+ * would silently do nothing on an iPad.
+ */
+function WakeLockButton({ wakeLock }: { wakeLock: ReturnType<typeof useWakeLock> }) {
+  return (
+    <button
+      type="button"
+      onClick={wakeLock.toggle}
+      aria-pressed={wakeLock.enabled}
+      className={cn(
+        'min-h-[2.75rem] px-3 inline-flex items-center justify-center rounded-md border text-xs cursor-pointer whitespace-nowrap',
+        wakeLock.enabled
+          ? 'border-primary bg-primary text-white'
+          : 'border-border text-muted-foreground hover:bg-panel hover:text-foreground',
+      )}
+      title="Keep the screen awake while you play"
+    >
+      {wakeLock.enabled ? 'Awake' : 'Stay awake'}
+    </button>
   );
 }
 

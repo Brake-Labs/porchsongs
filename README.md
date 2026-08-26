@@ -65,15 +65,28 @@ The AI is optional, and self-hosting without it is a supported setup:
 cd backend && uv run uvicorn app.main:app --reload
 ```
 
-Importing charts, the library, the performance view, the tuner, hands-free scrolling,
-the chord dictionary, and PDF export all work with no gateway configured. Only three
-things need one: tidying up a chart's formatting, rewriting lyrics, and suggesting a
-folder for a chart. Those actions disable themselves and say why. Folders themselves
+Importing charts, storing tab PDFs, the library, the performance view, the tuner,
+hands-free scrolling, the chord dictionary, and PDF export all work with no gateway
+configured. Only three things need one: tidying up a chart's formatting, rewriting
+lyrics, and suggesting a folder for a chart. Those actions disable themselves and say why. Folders themselves
 are entirely manual and always work; the AI suggestion is one opt-in tap on one chart.
 
 This used to be impossible. Saving a chart went through the LLM parse endpoint and the
 save button was gated on having a model selected, so an instance with no gateway could
 not store a song at all.
+
+### Store the tabs you already have
+
+Not everything in a songbook is a chord chart. Tab you have collected as PDFs can be
+stored alongside your charts and played from the same performance view: page forward
+and back with the on-screen controls, the arrow keys, or a bluetooth page turner, and
+zoom in to read the fret numbers from a stand.
+
+Stored tabs are kept as files, not parsed. Nothing rewrites them, and no gateway is
+involved. Any one of them can be kept on the device for offline play, which is a
+per-tab choice rather than an automatic sync: a chart is a few kilobytes of text, but a
+tab collection is hundreds of megabytes and syncing all of it is not a favour. A kept
+tab opens with no network request at all.
 
 By default, porchsongs runs in **zero-config dev mode** -- no login required, a local user is auto-created. See [Authentication](#authentication) below for production setups.
 

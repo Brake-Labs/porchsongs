@@ -1,4 +1,4 @@
-import { lyricsPreview, splitContentForColumns } from './LibraryTab';
+import { lyricsPreview, splitContentForColumns, formatBytes } from './LibraryTab';
 
 function makeSongText(sections: number, linesPerSection: number): string {
   const parts: string[] = [];
@@ -100,5 +100,21 @@ describe('lyricsPreview', () => {
 
   it('handles single line', () => {
     expect(lyricsPreview('Just one line')).toBe('Just one line');
+  });
+});
+
+describe('formatBytes', () => {
+  // Decimal units, matching what a phone's storage screen reports. A tab library
+  // is the one place in this app where the number gets large enough to matter.
+  it.each([
+    [0, '0 B'],
+    [999, '999 B'],
+    [1_000, '1 KB'],
+    [999_000, '999 KB'],
+    [1_200_000, '1.2 MB'],
+    [12_400_000, '12.4 MB'],
+    [340_000_000, '340 MB'],
+  ])('formats %i as %s', (bytes, expected) => {
+    expect(formatBytes(bytes)).toBe(expected);
   });
 });

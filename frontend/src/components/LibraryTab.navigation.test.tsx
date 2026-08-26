@@ -9,6 +9,7 @@ const MOCK_SONG = vi.hoisted<Song>(() => ({
   uuid: 'test-uuid-123',
   user_id: 1,
   profile_id: 1,
+  kind: 'chart',
   title: 'Amazing Grace',
   artist: 'John Newton',
   source_url: null,
@@ -29,6 +30,8 @@ vi.mock('@/api', () => ({
     listSongs: vi.fn().mockResolvedValue([MOCK_SONG]),
     getSong: vi.fn().mockResolvedValue(MOCK_SONG),
     getSongRevisions: vi.fn().mockResolvedValue([]),
+    // The library asks which tabs are kept on the device to render its markers.
+    keptSongFiles: vi.fn().mockResolvedValue(new Set()),
   },
   STORAGE_KEYS: {
     PROVIDER: 'test_provider',

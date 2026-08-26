@@ -42,6 +42,8 @@ vi.mock('@/api', () => ({
     listSongs: vi.fn(),
     getSong: vi.fn().mockResolvedValue(MOCK_SONG),
     getSongRevisions: vi.fn().mockResolvedValue([]),
+    // The library asks which tabs are kept on the device to render its markers.
+    keptSongFiles: vi.fn().mockResolvedValue(new Set()),
   },
   STORAGE_KEYS: {
     CURRENT_SONG_ID: 'test_song_id',
