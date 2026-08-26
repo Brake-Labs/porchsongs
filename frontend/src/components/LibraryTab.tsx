@@ -183,6 +183,96 @@ function SongMenu({ song, onDelete, onRename, onEdit, folders, onMoveToFolder, o
 type SortKey = 'date' | 'modified' | 'title' | 'artist';
 type SortDir = 'asc' | 'desc';
 
+/** Which axis the library is browsed along. 'songs' is the flat list filtered by
+ *  folder; 'artists' shows an artist picker first and then that artist's charts. */
+type BrowseMode = 'songs' | 'artists';
+type ArtistSortKey = 'name' | 'count';
+
+/** Grouping key for charts with no artist. The leading space is load-bearing: a
+ *  real key is a `tidyArtist` result, so it is always trimmed, and no artist a
+ *  user can type will collide with this one. Without it, someone who titled an
+ *  artist "__unknown__" would have their charts swallowed by the bucket. */
+const UNKNOWN_ARTIST_KEY = ' __unknown__';
+
+const BROWSE_MODES: ReadonlyArray<{ mode: BrowseMode; label: string }> = [
+  { mode: 'songs', label: 'Songs' },
+  { mode: 'artists', label: 'Artists' },
+];
+
+export interface ArtistGroup {
+  /** Normalised grouping key, and what `selectedArtist` holds. */
+  key: string;
+  /** Spelling shown on the card. */
+  name: string;
+  count: number;
+}
+
+/** Trimmed, with every run of internal whitespace collapsed to one space. */
+function tidyArtist(artist: string | null | undefined): string {
+  return (artist || '').trim().replace(/\s+/g, ' ');
+}
+
+/** Case-and-whitespace-insensitive grouping key for a song's artist. */
+function artistKeyOf(song: Song): string {
+  // Internal runs of whitespace collapse as well as leading and trailing ones,
+  // so a double space or a stray tab from a pasted chart does not split one
+  // artist across two cards.
+  const tidy = tidyArtist(song.artist);
+  return tidy ? tidy.toLowerCase() : UNKNOWN_ARTIST_KEY;
+}
+
+/**
+ * Buckets songs by artist.
+ *
+ * `artist` is free text, nullable, and often filled in by the `guessSongMeta`
+ * heuristic rather than typed, so the same act arrives as "Neil Young",
+ * "neil young" and " Neil Young ". Grouping on the raw string would show those
+ * as three separate artists holding one chart each. The key is normalised and
+ * the label is the spelling that occurs most often, so the version the user
+ * actually typed wins over a stray capitalisation from an import.
+ *
+ * A tie is broken by code-unit order, which is deterministic (the label cannot
+ * depend on the order the API returned the songs in) and puts every uppercase
+ * letter ahead of its lowercase form. So a tie prefers the more capitalised
+ * spelling at the first letter they differ on, not only at the first letter of
+ * the name: "Neil Young" beats "neil young", and a three-way tie that includes
+ * "NEIL YOUNG" picks that one. `localeCompare` would pick lowercase instead.
+ *
+ * Exported for tests.
+ */
+export function groupSongsByArtist(songs: Song[]): ArtistGroup[] {
+  const buckets = new Map<string, { spellings: Map<string, number>; count: number }>();
+  for (const song of songs) {
+    const key = artistKeyOf(song);
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = { spellings: new Map(), count: 0 };
+      buckets.set(key, bucket);
+    }
+    bucket.count += 1;
+    const raw = tidyArtist(song.artist);
+    if (raw) bucket.spellings.set(raw, (bucket.spellings.get(raw) ?? 0) + 1);
+  }
+
+  const groups: ArtistGroup[] = [];
+  for (const [key, bucket] of buckets) {
+    let name = '';
+    let best = 0;
+    for (const [spelling, uses] of bucket.spellings) {
+      if (uses > best || (uses === best && spelling < name)) {
+        name = spelling;
+        best = uses;
+      }
+    }
+    groups.push({
+      key,
+      name: key === UNKNOWN_ARTIST_KEY ? 'Unknown artist' : name,
+      count: bucket.count,
+    });
+  }
+  return groups;
+}
+
 type DialogState =
   | { kind: 'none' }
   | { kind: 'delete'; songUuid: string }
@@ -227,6 +317,40 @@ function useCanScrollHorizontally(): boolean {
   }, []);
 
   return wide;
+}
+
+interface ArtistCardProps {
+  group: ArtistGroup;
+  onSelect: (key: string) => void;
+}
+
+function ArtistCard({ group, onSelect }: ArtistCardProps) {
+  return (
+    <Card
+      data-testid={`artist-card-${group.key}`}
+      role="button"
+      tabIndex={0}
+      aria-label={`${group.name}, ${group.count} chart${group.count === 1 ? '' : 's'}`}
+      className="p-3 cursor-pointer transition-colors hover:border-primary focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      onClick={() => onSelect(group.key)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect(group.key);
+        }
+      }}
+    >
+      {/* Wraps rather than truncates. This is a picker, and a name the user
+          cannot read is a name they cannot pick: "Old Crow Medicine Show" is
+          wider than a card at phone width. */}
+      <h3 className="font-display text-sm sm:text-base font-semibold text-foreground leading-snug break-words">
+        {group.name}
+      </h3>
+      <p className="text-xs text-muted-foreground tabular-nums mt-0.5">
+        {group.count} chart{group.count === 1 ? '' : 's'}
+      </p>
+    </Card>
+  );
 }
 
 interface SongCardProps {
@@ -351,6 +475,19 @@ export default function LibraryTab() {
   const selectMode = selectedUuids.size > 0;
   const [sortKey, setSortKey] = useState<SortKey>('date');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [browseMode, setBrowseMode] = useState<BrowseMode>(() =>
+    localStorage.getItem(STORAGE_KEYS.LIBRARY_BROWSE_MODE) === 'artists' ? 'artists' : 'songs',
+  );
+  // Which artist has been drilled into, as a normalised `artistKeyOf` key. Null
+  // in artist mode means the picker is showing. Deliberately not in the URL: the
+  // folder filter is not either, and the two need to behave the same way.
+  const [selectedArtist, setSelectedArtist] = useState<string | null>(null);
+  const [artistSortKey, setArtistSortKey] = useState<ArtistSortKey>('name');
+  // Separate from `sortDir` rather than shared with it. The song list defaults to
+  // descending because its default key is Created, and newest-first is what that
+  // should mean. Pointing an A-to-Z list of artists the same way would open the
+  // picker at Z.
+  const [artistSortDir, setArtistSortDir] = useState<SortDir>('asc');
   const [page, setPage] = useState(0);
   const [dialogState, setDialogState] = useState<DialogState>({ kind: 'none' });
   const [scrollDir, setScrollDir] = useState<'vertical' | 'horizontal'>(() => {
@@ -515,6 +652,45 @@ export default function LibraryTab() {
     return [...names].sort();
   }, [songs, localFolders]);
 
+  const artistGroups = useMemo(() => groupSongsByArtist(songs), [songs]);
+
+  const artistLookup = useMemo(
+    () => new Map(artistGroups.map(g => [g.key, g])),
+    [artistGroups],
+  );
+
+  const visibleArtists = useMemo(() => {
+    let result = artistGroups;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(a => a.name.toLowerCase().includes(q));
+    }
+    const sorted = [...result].sort((a, b) => {
+      if (artistSortKey === 'count') {
+        // The direction applies to the count alone. Artists holding the same
+        // number of charts stay alphabetical whichever way the arrow points:
+        // flipping it asks a question about counts, and reversing the tiebreak
+        // along with it just reads as the list having shuffled itself.
+        const byCount = artistSortDir === 'asc' ? a.count - b.count : b.count - a.count;
+        return byCount || a.name.localeCompare(b.name);
+      }
+      const cmp = a.name.localeCompare(b.name);
+      return artistSortDir === 'asc' ? cmp : -cmp;
+    });
+    // "Unknown artist" sorts last whichever way the list is pointing. It is a
+    // bucket for charts that were never labelled, not an artist, and someone
+    // reversing the sort is asking about artists, not asking to be handed the
+    // unlabelled pile first.
+    const unknownAt = sorted.findIndex(a => a.key === UNKNOWN_ARTIST_KEY);
+    if (unknownAt >= 0) sorted.push(...sorted.splice(unknownAt, 1));
+    return sorted;
+  }, [artistGroups, searchQuery, artistSortKey, artistSortDir]);
+
+  // True when the artist picker itself is on screen, rather than a song list.
+  const showingArtistPicker = browseMode === 'artists' && selectedArtist === null;
+  // The one direction button drives whichever list is on screen.
+  const activeSortDir = showingArtistPicker ? artistSortDir : sortDir;
+
   const filteredSongs = useMemo(() => {
     let result = songs;
     if (searchQuery) {
@@ -524,16 +700,28 @@ export default function LibraryTab() {
         (s.artist || '').toLowerCase().includes(q)
       );
     }
-    if (activeFolder === '__unfiled__') {
+    // Artist and folder are either/or: only one of them is reachable at a time,
+    // because only one of the two is ever on screen to explain an empty list.
+    if (browseMode === 'artists') {
+      if (selectedArtist) result = result.filter(s => artistKeyOf(s) === selectedArtist);
+    } else if (activeFolder === '__unfiled__') {
       result = result.filter(s => !s.folder);
     } else if (activeFolder) {
       result = result.filter(s => s.folder === activeFolder);
     }
     return result;
-  }, [songs, searchQuery, activeFolder]);
+  }, [songs, searchQuery, activeFolder, browseMode, selectedArtist]);
 
   // Reset page when filters/sorting change
-  useEffect(() => { setPage(0); }, [searchQuery, activeFolder, sortKey, sortDir]);
+  useEffect(() => { setPage(0); }, [searchQuery, activeFolder, sortKey, sortDir, browseMode, selectedArtist]);
+
+  // An artist can vanish under the drilled-in view: delete its last chart, or
+  // retitle the artist from the song menu, and `selectedArtist` would keep
+  // filtering the list down to nothing with a breadcrumb naming an artist that
+  // no longer exists. Fall back to the picker instead.
+  useEffect(() => {
+    if (selectedArtist && !artistLookup.has(selectedArtist)) setSelectedArtist(null);
+  }, [selectedArtist, artistLookup]);
 
   const sortedSongs = useMemo(() => {
     const sorted = [...filteredSongs].sort((a, b) => {
@@ -744,6 +932,47 @@ export default function LibraryTab() {
     }
     setActiveFolder(trimmed);
   };
+
+  const handleBrowseModeChange = useCallback((mode: BrowseMode) => {
+    // Tapping the half that is already lit is a no-op, not a reset. Both halves
+    // stay clickable so the pair reads as one control, and without this a tap on
+    // the current mode threw away the folder filter and the search query with it.
+    if (mode === browseMode) return;
+    setBrowseMode(mode);
+    localStorage.setItem(STORAGE_KEYS.LIBRARY_BROWSE_MODE, mode);
+    // Both filters are cleared on every switch, not just the one being left.
+    // Carrying a folder into artist mode would silently narrow the artist list
+    // with nothing on screen saying so, and carrying an artist back into song
+    // mode would do the same to the songs.
+    setSelectedArtist(null);
+    setActiveFolder(null);
+    // The search box is shared but the two modes search different things: a
+    // query that found songs almost never matches an artist name, so keeping it
+    // would drop the user into an empty picker the moment they switched.
+    setSearchQuery('');
+    setSelectedUuids(new Set());
+  }, [browseMode]);
+
+  // "Name" wants A first; "Charts" wants the artist with the most charts first.
+  // Both are what the label means when it is picked, so the direction follows the
+  // key rather than making the user fix it by hand every time.
+  const handleArtistSortKeyChange = useCallback((key: ArtistSortKey) => {
+    setArtistSortKey(key);
+    setArtistSortDir(key === 'count' ? 'desc' : 'asc');
+  }, []);
+
+  const handleSelectArtist = useCallback((key: string) => {
+    setSelectedArtist(key);
+    // The query that found the artist would go on to filter their charts, which
+    // is not what picking an artist asks for.
+    setSearchQuery('');
+  }, []);
+
+  const handleClearArtist = useCallback(() => {
+    setSelectedArtist(null);
+    setSearchQuery('');
+    setSelectedUuids(new Set());
+  }, []);
 
   const toggleSelect = (songUuid: string) => {
     setSelectedUuids(prev => {
@@ -1028,35 +1257,56 @@ export default function LibraryTab() {
       <div className="flex flex-col gap-2">
         <div className="flex gap-2">
           <Input
-            placeholder="Search songs by title or artist..."
+            placeholder={showingArtistPicker ? 'Search artists...' : 'Search songs by title or artist...'}
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             className="bg-card flex-1"
           />
-          <Select
-            className="w-auto py-2 px-2 text-xs"
-            value={sortKey}
-            onChange={(e) => setSortKey(e.target.value as SortKey)}
-          >
-            <option value="date">Created</option>
-            <option value="modified">Modified</option>
-            <option value="title">Title</option>
-            <option value="artist">Artist</option>
-          </Select>
+          {/* The picker lists artists, so it gets the two orderings that mean
+              something for artists. The sort direction button is shared, because
+              it means the same thing in both. */}
+          {showingArtistPicker ? (
+            <Select
+              className="w-auto py-2 px-2 text-xs"
+              value={artistSortKey}
+              onChange={(e) => handleArtistSortKeyChange(e.target.value as ArtistSortKey)}
+              aria-label="Sort artists by"
+            >
+              <option value="name">Name</option>
+              <option value="count">Charts</option>
+            </Select>
+          ) : (
+            <Select
+              className="w-auto py-2 px-2 text-xs"
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as SortKey)}
+              aria-label="Sort songs by"
+            >
+              <option value="date">Created</option>
+              <option value="modified">Modified</option>
+              <option value="title">Title</option>
+              <option value="artist">Artist</option>
+            </Select>
+          )}
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-            title={sortDir === 'asc' ? 'Ascending' : 'Descending'}
-            aria-label={sortDir === 'asc' ? 'Sort ascending' : 'Sort descending'}
+            onClick={() => {
+              const setter = showingArtistPicker ? setArtistSortDir : setSortDir;
+              setter(d => d === 'asc' ? 'desc' : 'asc');
+            }}
+            title={activeSortDir === 'asc' ? 'Ascending' : 'Descending'}
+            aria-label={activeSortDir === 'asc' ? 'Sort ascending' : 'Sort descending'}
           >
-            {sortDir === 'asc' ? '\u2191' : '\u2193'}
+            {activeSortDir === 'asc' ? '\u2191' : '\u2193'}
           </Button>
           {/* Hidden below the breakpoint rather than shown and made inert. At phone
               width the grid it switches to is still one column, so the control
               could only move charts off the right edge behind a sideways swipe. A
               disabled button would still be asking the question. */}
-          {canScrollHorizontally && (
+          {/* The picker uses a plain wrapping grid rather than either song layout,
+              so the control would toggle a preference with nothing to apply it to. */}
+          {canScrollHorizontally && !showingArtistPicker && (
             <Button
               variant="ghost"
               size="sm"
@@ -1084,7 +1334,49 @@ export default function LibraryTab() {
           )}
         </div>
         <div className="flex flex-wrap gap-1.5 items-center overflow-x-auto">
-          {hasFolders && (
+          {/* Which axis the library is browsed along. Sits ahead of the folder
+              pills because it decides whether they are the thing being shown. */}
+          <div
+            className="inline-flex items-center rounded-full border border-border bg-card p-0.5 mr-1 shrink-0"
+            role="group"
+            aria-label="Browse by"
+          >
+            {BROWSE_MODES.map(({ mode, label }) => (
+              <button
+                key={mode}
+                data-testid={`browse-mode-${mode}`}
+                aria-pressed={browseMode === mode}
+                className={cn(
+                  'rounded-full px-3 py-1 text-xs font-medium cursor-pointer transition-colors whitespace-nowrap',
+                  browseMode === mode
+                    ? 'bg-primary text-white'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+                onClick={() => handleBrowseModeChange(mode)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {browseMode === 'artists' && selectedArtist && (
+            <div className="flex items-center gap-1.5 text-xs">
+              <button
+                data-testid="artist-back"
+                className={FOLDER_PILL_CLASS}
+                onClick={handleClearArtist}
+              >
+                &larr; All artists
+              </button>
+              <span className="text-muted-foreground" aria-hidden="true">/</span>
+              <span className="font-semibold text-foreground">
+                {artistLookup.get(selectedArtist)?.name ?? 'Unknown artist'}
+              </span>
+              <span className="text-muted-foreground tabular-nums">
+                ({artistLookup.get(selectedArtist)?.count ?? 0})
+              </span>
+            </div>
+          )}
+          {browseMode === 'songs' && hasFolders && (
             <button
               className={cn(
                 FOLDER_PILL_CLASS,
@@ -1095,7 +1387,7 @@ export default function LibraryTab() {
               All
             </button>
           )}
-          {folders.map(f => (
+          {browseMode === 'songs' && folders.map(f => (
             <FolderPill
               key={f}
               folder={f}
@@ -1109,7 +1401,7 @@ export default function LibraryTab() {
               onDrop={handleFolderDrop}
             />
           ))}
-          {hasFolders && hasUnfiled && (
+          {browseMode === 'songs' && hasFolders && hasUnfiled && (
             <button
               className={cn(
                 FOLDER_PILL_CLASS,
@@ -1124,6 +1416,7 @@ export default function LibraryTab() {
               Unfiled
             </button>
           )}
+          {browseMode === 'songs' && (
           <button
             className="bg-card border border-dashed border-border rounded-full px-3 py-1.5 text-xs cursor-pointer font-semibold text-muted-foreground hover:border-primary hover:text-foreground whitespace-nowrap"
             onClick={handleCreateFolder}
@@ -1140,6 +1433,7 @@ export default function LibraryTab() {
           >
             + New Folder
           </button>
+          )}
         </div>
       </div>
 
@@ -1166,7 +1460,27 @@ export default function LibraryTab() {
         </div>
       )}
 
-      {layout === 'horizontal' ? (
+      {showingArtistPicker ? (
+        /* Deliberately a plain wrapping grid rather than either song layout. The
+           horizontal grid measures song cards to size its rows, and an artist
+           card is a different height, so reusing it would mis-measure the moment
+           the user switched back. */
+        <>
+          <div
+            data-testid="artist-grid"
+            className="grid gap-2 grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 items-start"
+          >
+            {visibleArtists.map(group => (
+              <ArtistCard key={group.key} group={group} onSelect={handleSelectArtist} />
+            ))}
+          </div>
+          {visibleArtists.length === 0 && (
+            <div className="text-center py-16 px-8 text-muted-foreground">
+              <p>No artists match your search.</p>
+            </div>
+          )}
+        </>
+      ) : layout === 'horizontal' ? (
         <div
           ref={setGridRef}
           data-testid="horizontal-grid"
