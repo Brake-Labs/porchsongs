@@ -312,7 +312,12 @@ export function PerformanceSheet({
   const lines = useMemo(() => text.split('\n'), [text]);
 
   return (
-    <div className={cn('relative', className)}>
+    // A hairline of padding on the left. The play route is chromeless, so
+    // without it the first character of every chord line is flush against the
+    // window edge, which reads as the chart having been cut off rather than as
+    // it starting there. On the outer wrapper rather than the scroller, so the
+    // layout solver still measures the width the text actually gets.
+    <div className={cn('relative pl-px', className)}>
       <div
         ref={sheetRef}
         className={cn(
