@@ -25,6 +25,18 @@ function LegacyRedirect({ prefix }: { prefix: string }) {
   return <Navigate to={`${prefix}/${suffix}`} replace />;
 }
 
+/**
+ * /app/library/:id was the old address of the performance surface.
+ *
+ * `from` is what the play route's back button reads, so arriving this way still
+ * lands back in the library rather than wherever the tab was before.
+ */
+function PlayRedirect() {
+  const { id } = useParams<{ id: string }>();
+  if (!id) return <Navigate to="/app/library" replace />;
+  return <Navigate to={`/app/play/${id}`} replace state={{ from: '/app/library' }} />;
+}
+
 export default function App() {
   const { authState, isPremium } = useAuth();
 
@@ -56,7 +68,11 @@ export default function App() {
         <Route index element={<Navigate to="/app/library" replace />} />
         <Route path="rewrite" element={<ErrorBoundary fallbackLabel="Rewrite"><RewriteTab /></ErrorBoundary>} />
         <Route path="library" element={<ErrorBoundary fallbackLabel="Library"><LibraryTab /></ErrorBoundary>} />
-        <Route path="library/:id" element={<ErrorBoundary fallbackLabel="Library"><LibraryTab /></ErrorBoundary>} />
+        {/* Playing a chart has one home. This path used to mount a second copy
+            of the performance surface inside the library, which is why the
+            chord panel and stored tabs only ever worked on one of them. Kept as
+            a redirect: it is in browser history and in bookmarks. */}
+        <Route path="library/:id" element={<PlayRedirect />} />
         {/* Chord dictionary. The chord is in the path so a shape can be linked and
             bookmarked; premium serves the same page publicly under /chords. */}
         <Route path="chords" element={<ErrorBoundary fallbackLabel="Chords"><ChordsPage /></ErrorBoundary>} />

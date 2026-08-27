@@ -97,7 +97,6 @@ function renderLibrary(entry = '/app/library') {
       <Routes>
         <Route element={<Outlet context={stubContext} />}>
           <Route path="/app/library" element={<LibraryTab />} />
-          <Route path="/app/library/:id" element={<LibraryTab />} />
         </Route>
         <Route path="/app/play/:uuid" element={<div>PLAY ROUTE</div>} />
         <Route path="/app/rewrite" element={<div>IMPORT ROUTE</div>} />
@@ -157,13 +156,6 @@ describe('documents in the library list', () => {
     expect(await screen.findByText('Rewrite')).toBeInTheDocument();
   });
 
-  it('sends a deep link to a stored tab to the play route', async () => {
-    // The inline library view is the chart performance surface and reads text a
-    // document does not have; landing there shows an empty sheet.
-    mockListSongs.mockResolvedValue([DOCUMENT]);
-    renderLibrary('/app/library/doc-uuid');
-    expect(await screen.findByText('PLAY ROUTE')).toBeInTheDocument();
-  });
 });
 
 describe('adding a tab', () => {

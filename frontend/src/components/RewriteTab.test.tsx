@@ -1100,8 +1100,10 @@ describe('RewriteTab', () => {
       fireEvent.click(screen.getByText('Add to library'));
 
       await waitFor(() => expect(api.saveSong).toHaveBeenCalled());
-      // Goes straight to the song's play view and resets the import surface.
-      await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/app/library/uuid-77'));
+      // Goes straight to the song's play route and resets the import surface.
+      // This used to point at /app/library/:id, which mounted a second copy of
+      // the performance surface with no chord panel on it.
+      await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/app/play/uuid-77'));
       expect(onClearParse).toHaveBeenCalled();
       // Not routed into the workshop (no current-song handoff).
       expect(onSongSaved).not.toHaveBeenCalled();

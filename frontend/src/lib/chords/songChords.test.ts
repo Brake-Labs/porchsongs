@@ -121,3 +121,51 @@ describe('chordsUsedIn', () => {
     expect(chordsUsedIn('   \n\n  ')).toEqual([]);
   });
 });
+
+/**
+ * Rows that used to come back empty.
+ *
+ * Each of these was classified as a *lyric* line, because the classifier that
+ * decides what a chord row is and the parser that reads the chords on it were
+ * separate regexes that disagreed. They now share a vocabulary
+ * (lib/chords/chordToken.ts), so these are the cases that must not regress.
+ */
+describe('chordsUsedIn, on rows the old grammars misread', () => {
+  const chart = (chordRow: string): string =>
+    ['[Verse 1]', chordRow, 'Blue moon you saw me standing alone'].join('\n');
+
+  it('reads a two-chord row containing a half-diminished chord', () => {
+    // 1 of 2 tokens recognised put this under the 60% threshold, so the whole
+    // row read as a lyric and the panel showed nothing.
+    expect(names(chart('Cm7b5   Fm7'))).toEqual(['Cm7b5', 'Fm7']);
+  });
+
+  it('reads a row spelled with a unicode sharp', () => {
+    expect(names(chart('C\u266fm     A'))).toEqual(['C#m', 'A']);
+  });
+
+  it('reads a row spelled with a unicode flat', () => {
+    expect(names(chart('E\u266dmaj7   A\u266d'))).toEqual(['Ebmaj7', 'Ab']);
+  });
+
+  it('reads a row written with bar lines', () => {
+    // Bar lines used to count against the ratio: two chords among five tokens
+    // is 40%, so a perfectly ordinary chart row was a lyric.
+    expect(names(chart('| C | G |'))).toEqual(['C', 'G']);
+  });
+
+  it('reads a row with a six-nine chord on it', () => {
+    expect(names(chart('C6/9    G'))).toEqual(['C6/9', 'G']);
+  });
+
+  it('treats a row of undrawable qualities as a chord row anyway', () => {
+    // The panel cannot draw m11, so it contributes no pill. What matters is
+    // that the row is still a chord row: Follow must not try to align a singer
+    // against it, and the chords beside it must still be found.
+    expect(names(chart('Cm11    F13'))).toEqual(['F13']);
+  });
+
+  it('still refuses a line of words that opens with a note letter', () => {
+    expect(names(['[Verse 1]', 'Amazing grace how sweet the sound'].join('\n'))).toEqual([]);
+  });
+});

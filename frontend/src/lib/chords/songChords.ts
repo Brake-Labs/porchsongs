@@ -1,4 +1,5 @@
 import { normalizeSong } from '@/lib/followAlign';
+import { unwrapChordToken } from './chordToken';
 import { chordName, parseChordName, type Chord } from './theory';
 
 /**
@@ -14,6 +15,12 @@ import { chordName, parseChordName, type Chord } from './theory';
  * out. The chords-above-lyrics case leans on `normalizeSong`, which already
  * decides line by line what is a chord row for Follow. Scanning every line for
  * chord-shaped words instead would collect the "A" in "A long time ago".
+ *
+ * Note the two questions being asked of a token here. `normalizeSong` decides
+ * which rows are chord rows using `isChordShaped`, which is permissive; this
+ * then keeps only the ones `parseChordName` can turn into a diagram. So a row
+ * of `Cm11  F13` is correctly a chord row even though neither quality is in the
+ * dictionary, and simply contributes nothing to the panel.
  */
 
 /** Longest bracketed token still worth testing. "[Instrumental break]" is not a chord. */
@@ -56,9 +63,10 @@ export function chordsUsedIn(text: string): Chord[] {
     found.push(chord);
   };
 
-  /** A bare token from a chord row, which sometimes wears parentheses. */
+  /** A bare token from a chord row, which sometimes wears brackets or bar lines. */
   const addToken = (token: string): void => {
-    if (token) add(token.replace(/^\(|\)$/g, ''));
+    const bare = unwrapChordToken(token);
+    if (bare) add(bare);
   };
 
   // One walk down the chart rather than a pass per format, so the order really

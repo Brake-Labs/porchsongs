@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback, type DragEvent, type MouseEvent } from 'react';
-import { useParams, useNavigate, useLocation, useSearchParams, useOutletContext } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams, useOutletContext } from 'react-router-dom';
 import { toast } from 'sonner';
 import api, { STORAGE_KEYS } from '@/api';
 import { Button } from '@/components/ui/button';
@@ -20,15 +20,9 @@ import ConfirmDialog from '@/components/ui/confirm-dialog';
 import PromptDialog, { type PromptField } from '@/components/ui/prompt-dialog';
 import FolderSuggestDialog from '@/components/FolderSuggestDialog';
 import { cn } from '@/lib/utils';
-import { maxColumnsForContent, splitContentForColumns } from '@/lib/performanceLayout';
 import { SongCapNotice } from '@/extensions';
-import { PerformanceSheet, FontSizeStepper } from '@/components/PlayView';
-import type { ColumnPref, SongVersion } from '@/components/PlayView';
 import type { AppShellContext } from '@/layouts/AppShell';
 import type { Song } from '@/types';
-
-// Re-exported for tests and callers that import from this module.
-export { splitContentForColumns };
 
 const FOLDER_PILL_CLASS = 'bg-card border border-border rounded-full px-3 py-1.5 text-xs cursor-pointer transition-all text-muted-foreground font-medium hover:border-primary hover:text-foreground whitespace-nowrap';
 const FOLDER_PILL_ACTIVE = 'bg-primary text-white border-primary';
@@ -109,11 +103,6 @@ function FolderPill({
     </DropdownMenu>
   );
 }
-
-// The performance sheet and its column/version types now live in PlayView, which
-// backs the dedicated /app/play/:uuid route. Re-exported here because tests and
-// callers import them from this module.
-export type { ColumnPref, SongVersion } from '@/components/PlayView';
 
 interface SongMenuProps {
   song: Song;
@@ -539,14 +528,11 @@ export function lyricsPreview(content: string): string {
 export default function LibraryTab() {
   const ctx = useOutletContext<AppShellContext>();
   const onLoadSong = ctx.onLoadSong;
-  const { id: idParam } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const initialSongRef = idParam ?? null;
   const [songs, setSongs] = useState<Song[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [viewingSong, setViewingSong] = useState<Song | null>(null);
   const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
   const [draggingSongUuid, setDraggingSongUuid] = useState<string | null>(null);
   const [localFolders, setLocalFolders] = useState<string[]>([]);
@@ -674,37 +660,6 @@ export default function LibraryTab() {
       localStorage.setItem(STORAGE_KEYS.LIBRARY_LAYOUT, next);
       return next;
     });
-  }, []);
-
-  // Performance view: font size override (per-song, persisted to DB)
-  const [perfFontSize, setPerfFontSize] = useState<number | null>(null);
-  // Performance view: column preference (user preference, persisted to localStorage).
-  // 'auto' lets the layout fit the song to the screen; a number forces a count.
-  const [perfColumns, setPerfColumns] = useState<ColumnPref>(() => {
-    const stored = localStorage.getItem(STORAGE_KEYS.PERFORMANCE_LAYOUT);
-    const n = Number(stored);
-    return stored && Number.isInteger(n) && n >= 1 && n <= 4 ? (n as ColumnPref) : 'auto';
-  });
-
-  // Performance view: which content to perform (user preference, persisted to
-  // localStorage). 'rewritten' is your edited version; 'original' is the song
-  // as pasted/imported. The toggle only appears when the two differ.
-  const [perfVersion, setPerfVersion] = useState<SongVersion>(() =>
-    localStorage.getItem(STORAGE_KEYS.PERFORMANCE_VERSION) === 'original' ? 'original' : 'rewritten',
-  );
-
-  useEffect(() => {
-    setPerfFontSize(viewingSong?.font_size ?? null);
-  }, [viewingSong?.uuid, viewingSong?.font_size]);
-
-  const handlePerfColumnsChange = useCallback((value: ColumnPref) => {
-    setPerfColumns(value);
-    localStorage.setItem(STORAGE_KEYS.PERFORMANCE_LAYOUT, String(value));
-  }, []);
-
-  const handlePerfVersionChange = useCallback((value: SongVersion) => {
-    setPerfVersion(value);
-    localStorage.setItem(STORAGE_KEYS.PERFORMANCE_VERSION, value);
   }, []);
 
   const containerClass = layout === 'horizontal' ? 'w-full' : 'max-w-[1120px] mx-auto w-full';
@@ -928,30 +883,6 @@ export default function LibraryTab() {
     measureRowHeight();
   }, [layout, measureRowHeight, colWidth, sortedSongs]);
 
-  useEffect(() => {
-    if (initialSongRef != null && loaded) {
-      const song = songs.find(s => s.uuid === initialSongRef);
-      if (song?.kind === 'document') {
-        // The inline view below is the chart performance surface and reads text a
-        // document does not have. The play route knows both kinds, so a deep link
-        // to a stored tab belongs there.
-        navigate(`/app/play/${song.uuid}`, { replace: true });
-      } else if (song) {
-        setViewingSong(song);
-      }
-    } else if (initialSongRef == null) {
-      // URL changed to /app/library (no song id), return to list view
-      setViewingSong(null);
-    }
-  }, [initialSongRef, loaded, songs, navigate]);
-
-  const pushSongUrl = useCallback((songUuid: string | null) => {
-    const pathname = songUuid ? `/app/library/${songUuid}` : '/app/library';
-    // The filter parameters ride along. Opening a chart and closing it again has
-    // to land back in the view it was opened from, not in an unfiltered library.
-    navigate({ pathname, search: location.search }, { replace: true });
-  }, [navigate, location.search]);
-
   const refreshKept = useCallback(async () => {
     try {
       const [kept, bytes] = await Promise.all([api.keptSongFiles(), api.keptSongFilesSize()]);
@@ -1009,11 +940,6 @@ export default function LibraryTab() {
   }, [navigate, location.search]);
 
 
-  const handleBack = () => {
-    setViewingSong(null);
-    pushSongUrl(null);
-  };
-
 
   const handleDeleteRequest = (uuid: string) => {
     setDialogState({ kind: 'delete', songUuid: uuid });
@@ -1023,10 +949,6 @@ export default function LibraryTab() {
     try {
       await api.deleteSong(uuid);
       setSongs(prev => prev.filter(s => s.uuid !== uuid));
-      if (viewingSong?.uuid === uuid) {
-        setViewingSong(null);
-        pushSongUrl(null);
-      }
     } catch (err) {
       toast.error('Failed to delete: ' + (err as Error).message);
     }
@@ -1034,17 +956,7 @@ export default function LibraryTab() {
 
   const handleSongUpdated = (updated: Song) => {
     setSongs(prev => prev.map(s => s.uuid === updated.uuid ? updated : s));
-    if (viewingSong?.uuid === updated.uuid) setViewingSong(updated);
   };
-
-  const persistPerfFontSize = useCallback((value: number | null) => {
-    if (!viewingSong) return;
-    const sendValue = value === null ? 0 : value;
-    api.updateSong(viewingSong.uuid, { font_size: sendValue } as Partial<Song>).then(updated => {
-      setSongs(prev => prev.map(s => s.uuid === updated.uuid ? updated : s));
-      setViewingSong(prev => prev?.uuid === updated.uuid ? updated : prev);
-    }).catch(() => {});
-  }, [viewingSong]);
 
   const handleRenameRequest = (song: Song) => {
     setDialogState({ kind: 'rename', song });
@@ -1228,10 +1140,6 @@ export default function LibraryTab() {
     try {
       await Promise.all([...selectedUuids].map(uuid => api.deleteSong(uuid)));
       setSongs(prev => prev.filter(s => !selectedUuids.has(s.uuid)));
-      if (viewingSong && selectedUuids.has(viewingSong.uuid)) {
-        setViewingSong(null);
-        pushSongUrl(null);
-      }
       setSelectedUuids(new Set());
     } catch (err) {
       toast.error('Failed to delete some songs: ' + (err as Error).message);
@@ -1253,17 +1161,6 @@ export default function LibraryTab() {
     }
   };
 
-  const handleDownloadPdf = (song: Song) => {
-    toast.promise(
-      api.downloadSongPdf(song.uuid, song.title, song.artist),
-      {
-        loading: 'Generating PDF...',
-        success: 'PDF downloaded',
-        error: 'Failed to download PDF',
-      }
-    );
-  };
-
   // Rename dialog fields
   const renameFields: PromptField[] = useMemo(() => {
     if (dialogState.kind !== 'rename') return [];
@@ -1281,155 +1178,6 @@ export default function LibraryTab() {
     if (dialogState.kind !== 'renameFolder') return [];
     return [{ key: 'name', label: 'Folder name', defaultValue: dialogState.folder, placeholder: 'New folder name' }];
   }, [dialogState]);
-
-  // --- Performance View (single song) ---
-  if (viewingSong) {
-    const song = viewingSong;
-    // Only offer the original when it meaningfully differs from the edited
-    // version; otherwise the toggle is noise. A stale 'original' preference
-    // falls back to the edited version when there's nothing distinct to show.
-    const hasDistinctOriginal =
-      song.original_content.trim() !== '' &&
-      song.original_content.trim() !== song.rewritten_content.trim();
-    const activeVersion: SongVersion = hasDistinctOriginal ? perfVersion : 'rewritten';
-    const activeContent = activeVersion === 'original' ? song.original_content : song.rewritten_content;
-    const maxCols = maxColumnsForContent(activeContent);
-    const showColumnSelect = maxCols >= 2;
-    return (
-      <div className="flex flex-col h-full min-h-0 w-auto bg-card rounded-none p-1 -mx-2 -mt-4 sm:w-full sm:rounded-lg sm:p-4 sm:mx-0 sm:mt-0">
-        <div className="shrink-0 mb-1 sm:mb-2">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleBack}
-              className="text-sm text-muted-foreground hover:text-foreground cursor-pointer"
-              aria-label="Back to library"
-            >
-              &larr;
-            </button>
-            <div className="flex-1 min-w-0">
-              <span className="font-display text-lg font-bold text-foreground truncate">
-                {song.title || 'Untitled'}
-              </span>
-              {song.artist && (
-                <span className="text-sm text-muted-foreground ml-2">{song.artist}</span>
-              )}
-            </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              <Button variant="default" size="sm" onClick={() => onLoadSong(song)}>Rewrite</Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    className="bg-transparent border border-border rounded-md cursor-pointer text-xl leading-none px-2 py-1.5 text-muted-foreground hover:bg-panel hover:text-foreground"
-                    aria-label="Song actions"
-                  >
-                    &hellip;
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => handleDownloadPdf(song)}>
-                    Download PDF
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleRenameRequest(song)}>
-                    Rename
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="text-danger hover:!bg-danger-light"
-                    onClick={() => handleDeleteRequest(song.uuid)}
-                  >
-                    Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 mt-1 flex-wrap">
-            {hasDistinctOriginal && (
-              <div
-                className="inline-flex rounded-md border border-border overflow-hidden shrink-0"
-                role="group"
-                aria-label="Song version"
-              >
-                <button
-                  onClick={() => handlePerfVersionChange('rewritten')}
-                  aria-pressed={activeVersion === 'rewritten'}
-                  className={cn(
-                    'px-3 py-1 text-xs font-medium cursor-pointer transition-colors',
-                    activeVersion === 'rewritten'
-                      ? 'bg-primary text-white'
-                      : 'bg-transparent text-muted-foreground hover:bg-panel hover:text-foreground',
-                  )}
-                >
-                  Your Version
-                </button>
-                <button
-                  onClick={() => handlePerfVersionChange('original')}
-                  aria-pressed={activeVersion === 'original'}
-                  className={cn(
-                    'px-3 py-1 text-xs font-medium cursor-pointer transition-colors border-l border-border',
-                    activeVersion === 'original'
-                      ? 'bg-primary text-white'
-                      : 'bg-transparent text-muted-foreground hover:bg-panel hover:text-foreground',
-                  )}
-                >
-                  Original
-                </button>
-              </div>
-            )}
-            <FontSizeStepper
-              value={perfFontSize}
-              onChange={setPerfFontSize}
-              onCommit={persistPerfFontSize}
-            />
-            {showColumnSelect && (
-              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span className="whitespace-nowrap">Columns</span>
-                <Select
-                  value={String(perfColumns)}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    handlePerfColumnsChange(v === 'auto' ? 'auto' : (Number(v) as ColumnPref));
-                  }}
-                  className="w-auto px-2 py-1 text-xs"
-                  aria-label="Number of columns"
-                >
-                  <option value="auto">Auto</option>
-                  {Array.from({ length: maxCols }, (_, i) => i + 1).map((n) => (
-                    <option key={n} value={String(n)}>{n}</option>
-                  ))}
-                </Select>
-              </label>
-            )}
-          </div>
-        </div>
-
-        <PerformanceSheet song={song} version={activeVersion} className="flex-1 min-h-0" fontSizeOverride={perfFontSize} columnsPref={perfColumns} llmModel={ctx.llmSettings?.model} />
-
-        <ConfirmDialog
-          open={dialogState.kind === 'delete'}
-          onOpenChange={(open) => { if (!open) setDialogState({ kind: 'none' }); }}
-          title="Delete Song"
-          description="Are you sure you want to delete this song? This action cannot be undone."
-          confirmLabel="Delete"
-          variant="destructive"
-          onConfirm={() => {
-            if (dialogState.kind === 'delete') handleDeleteConfirmed(dialogState.songUuid);
-          }}
-        />
-
-        <PromptDialog
-          open={dialogState.kind === 'rename'}
-          onOpenChange={(open) => { if (!open) setDialogState({ kind: 'none' }); }}
-          title="Rename Song"
-          fields={renameFields}
-          confirmLabel="Save"
-          onConfirm={(values) => {
-            if (dialogState.kind === 'rename') handleRenameConfirmed(dialogState.song, values);
-          }}
-        />
-      </div>
-    );
-  }
 
   // --- Loading ---
   if (!loaded) {
