@@ -11,6 +11,8 @@
  * first.
  */
 
+import { isChordNoiseToken, isChordShaped, isNoChordToken } from '@/lib/chords/chordToken';
+
 export interface SongMeta {
   title: string;
   artist: string;
@@ -24,16 +26,6 @@ const DIRECTIVE = /^\s*\{\s*([a-z_]+)\s*:\s*(.+?)\s*\}\s*$/i;
 /** A section marker on its own line, e.g. `[Verse 1]` or `[Chorus]`. */
 const SECTION_LINE = /^\s*\[[^\]]*\]\s*$/;
 
-/**
- * One chord token: a root note, optional accidental, optional quality/extension,
- * optional slash bass. Wrapped brackets and parens are tolerated because inline
- * chord formats use them.
- */
-const CHORD_TOKEN =
-  /^[[(]?[A-G][#b♯♭]?(?:maj|min|m|M|aug|dim|sus|add|°|ø|\+|-)?\d*(?:(?:sus|add|maj|no)\d+)?(?:\/[A-G][#b♯♭]?)?[\])]?$/;
-
-/** Percussive or structural noise that shows up on chord lines. */
-const CHORD_NOISE = /^(?:\||\|\||:\||\|:|%|-+|x\d+|\d+x|N\.?C\.?|\/+)$/i;
 
 /** Words that mean "this line is a chart annotation, not a title". */
 const ANNOTATION =
@@ -46,16 +38,24 @@ const ANNOTATION =
  */
 const TITLE_ARTIST_SEPARATORS = [' -- ', ' — ', ' – ', ' - ', ' by ', ' · ', ' | '];
 
+/**
+ * Stricter than Follow's version of this question, on purpose.
+ *
+ * Follow asks "is this a chord row" and tolerates a stray token, because getting
+ * it wrong costs one mis-scrolled line. This asks "is it safe to skip this line
+ * while hunting for a title", where a false positive silently discards the
+ * title. So every token that is not furniture has to be a chord.
+ */
 function isChordLine(line: string): boolean {
   const tokens = line.trim().split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return false;
   let chords = 0;
   for (const token of tokens) {
-    if (CHORD_NOISE.test(token)) continue;
-    if (!CHORD_TOKEN.test(token)) return false;
+    if (isChordNoiseToken(token) || isNoChordToken(token)) continue;
+    if (!isChordShaped(token)) return false;
     chords += 1;
   }
-  // All tokens parsed as chords or noise, and at least one was a real chord.
+  // Everything was a chord or furniture, and at least one was a real chord.
   return chords > 0;
 }
 

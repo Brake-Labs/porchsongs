@@ -27,6 +27,8 @@
  * may consult a gated async arbiter; that lives outside this pure core.
  */
 
+import { isChordNoiseToken, isChordShaped, isNoChordToken } from '@/lib/chords/chordToken';
+
 export type LineKind = 'chord' | 'lyric' | 'section' | 'blank';
 
 /** One lyric line: the rendered-line index to scroll to, and its normalized tokens. */
@@ -166,27 +168,46 @@ export const DEFAULT_FOLLOW_CONFIG: FollowConfig = {
   topK: 3,
 };
 
-const CHORD_TOKEN =
-  /^\(?(N\.?C\.?|[A-G](#{1,2}|b{1,2})?(maj|min|aug|dim|sus|add|m|M)?\d*(\/[A-G](#{1,2}|b{1,2})?)?)\)?$/;
-
 const SECTION_LINE = /^\[.+\]$/;
 
 // Header/metadata lines that are not lyrics even without [Section] markers:
 // "Key: G", "Tempo: 120 BPM", "Time: 4/4", "Capo: 2", "Chords used:", "Title: ..."
 const METADATA_PREFIX = /^(key|tempo|time|capo|bpm|tuning|chords?\s+used|title|artist)\b\s*[:|-]/i;
 // Chord-chart legend rows: "G - 320003", "C - x32010", "D7 - xx0212".
-const CHORD_LEGEND = /^\(?[A-G](#{1,2}|b{1,2})?[A-Za-z0-9/]*\)?\s*[-–—]\s*[xX0-9]{4,6}$/;
+// Split rather than matched whole, so the chord half goes through the shared
+// grammar instead of carrying a fourth private spelling of "looks like a chord".
+const CHORD_LEGEND = /^(.+?)\s*[-–—]\s*([xX0-9]{4,6})$/;
 
-function isMetadataLine(trimmed: string): boolean {
-  return METADATA_PREFIX.test(trimmed) || CHORD_LEGEND.test(trimmed);
+function isChordLegendLine(trimmed: string): boolean {
+  const m = CHORD_LEGEND.exec(trimmed);
+  return m !== null && isChordShaped(m[1]!);
 }
 
-/** A line is a chord line when it is non-empty and most of its tokens look like chords. */
+function isMetadataLine(trimmed: string): boolean {
+  return METADATA_PREFIX.test(trimmed) || isChordLegendLine(trimmed);
+}
+
+/**
+ * A line is a chord line when most of the tokens that are *not* chart furniture
+ * look like chords.
+ *
+ * Bar lines and repeat marks are dropped from the denominator rather than
+ * counted against the line. `| C | G |` is a chord row with two chords on it;
+ * counting the three bar lines put it at 40% and classified it as a lyric.
+ */
 function isChordLine(trimmed: string): boolean {
   const tokens = trimmed.split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) return false;
-  const chords = tokens.filter((t) => CHORD_TOKEN.test(t)).length;
-  return chords / tokens.length >= 0.6;
+  let considered = 0;
+  let chords = 0;
+  for (const token of tokens) {
+    if (isChordNoiseToken(token)) continue;
+    considered += 1;
+    // "N.C." counts as a chord here: it only ever appears on a chord row, and a
+    // row that is just "N.C." is still one.
+    if (isChordShaped(token) || isNoChordToken(token)) chords += 1;
+  }
+  if (considered === 0) return false;
+  return chords / considered >= 0.6;
 }
 
 /**
