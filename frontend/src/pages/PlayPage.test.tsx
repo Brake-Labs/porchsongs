@@ -182,6 +182,45 @@ describe('PlayPage', () => {
     await waitFor(() => expect(screen.getByLabelText('Song version')).toBeInTheDocument());
   });
 
+  // The next two moved here from LibraryTab.version.test.tsx, which exercised
+  // the toggle on the second performance surface that used to live inside the
+  // library. There is one surface now, so this is where the behaviour lives.
+  it('switches the sheet to the original and back', async () => {
+    const user = userEvent.setup();
+    mockGetSong.mockResolvedValue(makeSong());
+    renderAt('abc-123');
+
+    await waitFor(() => expect(screen.getByTestId('sheet')).toHaveTextContent('My words'));
+
+    await user.click(screen.getByRole('button', { name: 'Original' }));
+    expect(screen.getByTestId('sheet')).toHaveTextContent('Original words');
+    expect(screen.getByTestId('sheet')).not.toHaveTextContent('My words');
+
+    await user.click(screen.getByRole('button', { name: 'Your Version' }));
+    expect(screen.getByTestId('sheet')).toHaveTextContent('My words');
+  });
+
+  it('remembers the last chosen version across songs', async () => {
+    // A preference, not a per-song setting: someone performing from originals
+    // is performing from originals all evening.
+    localStorage.setItem('test_perf_version', 'original');
+    mockGetSong.mockResolvedValue(makeSong());
+    renderAt('abc-123');
+
+    await waitFor(() => expect(screen.getByTestId('sheet')).toHaveTextContent('Original words'));
+  });
+
+  it('ignores a stored original preference when there is nothing distinct to show', async () => {
+    localStorage.setItem('test_perf_version', 'original');
+    mockGetSong.mockResolvedValue(
+      makeSong({ original_content: 'same', rewritten_content: 'same' }),
+    );
+    renderAt('abc-123');
+
+    await waitFor(() => expect(screen.getByTestId('sheet')).toBeInTheDocument());
+    expect(screen.getByTestId('sheet')).toHaveAttribute('data-version', 'rewritten');
+  });
+
   it('exposes the tuner and a tap-to-engage wake lock on the chart', async () => {
     mockGetSong.mockResolvedValue(makeSong());
     renderAt('abc-123');

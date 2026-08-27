@@ -1,6 +1,5 @@
-import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Routes, Route, Outlet, useNavigate } from 'react-router-dom';
+import { render, waitFor } from '@testing-library/react';
+import { MemoryRouter, Routes, Route, Outlet } from 'react-router-dom';
 import type { AppShellContext } from '@/layouts/AppShell';
 import type { Song } from '@/types';
 
@@ -88,41 +87,7 @@ function ContextWrapper() {
   return <Outlet context={stubContext} />;
 }
 
-/** Button that navigates to /app/library, simulating a tab click */
-function NavButton() {
-  const navigate = useNavigate();
-  return (
-    <button data-testid="go-library" onClick={() => navigate('/app/library')}>
-      Library Tab
-    </button>
-  );
-}
-
 import LibraryTab from '@/components/LibraryTab';
-
-describe('LibraryTab performance view', () => {
-  it('has white card background on song detail view', async () => {
-    render(
-      <MemoryRouter initialEntries={['/app/library/test-uuid-123']}>
-        <Routes>
-          <Route path="/app" element={<ContextWrapper />}>
-            <Route path="library/:id" element={<LibraryTab />} />
-          </Route>
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText('Amazing Grace')).toBeInTheDocument();
-    });
-
-    // The performance view wrapper should have bg-card for a white background
-    const backButton = screen.getByRole('button', { name: /back to library/i });
-    const perfWrapper = backButton.closest('.bg-card');
-    expect(perfWrapper).not.toBeNull();
-    expect(perfWrapper?.className).toContain('bg-card');
-  });
-});
 
 describe('LibraryTab last-surface recording (issue #274)', () => {
   afterEach(() => {
@@ -146,40 +111,6 @@ describe('LibraryTab last-surface recording (issue #274)', () => {
     // stale 'workshop' survives and the relaunch reopens the rewrite editor.
     await waitFor(() => {
       expect(localStorage.getItem('test_last_surface')).toBe('library');
-    });
-  });
-});
-
-describe('LibraryTab navigation (issue #94)', () => {
-  it('returns to song list when navigating from /app/library/:id to /app/library', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <MemoryRouter initialEntries={['/app/library/test-uuid-123']}>
-        <NavButton />
-        <Routes>
-          <Route path="/app" element={<ContextWrapper />}>
-            <Route path="library" element={<LibraryTab />} />
-            <Route path="library/:id" element={<LibraryTab />} />
-          </Route>
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // Wait for the song detail view to render (shows the song title)
-    await waitFor(() => {
-      expect(screen.getByText('Amazing Grace')).toBeInTheDocument();
-    });
-
-    // The back button should be visible (detail view indicator)
-    expect(screen.getByRole('button', { name: /back to library/i })).toBeInTheDocument();
-
-    // Click the Library tab (simulated via NavButton navigating to /app/library)
-    await user.click(screen.getByTestId('go-library'));
-
-    // After navigating to /app/library, the detail view should be gone
-    await waitFor(() => {
-      expect(screen.queryByRole('button', { name: /back to library/i })).not.toBeInTheDocument();
     });
   });
 });

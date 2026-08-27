@@ -507,7 +507,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
       setSongArtist('');
       setIsDirty(false);
       setSaveStatus(null);
-      navigate(`/app/library/${song.uuid}`);
+      navigate(`/app/play/${song.uuid}`);
     } catch (err) {
       setSaveStatus(null);
       // The paste is still in the box and in DRAFT_INPUT, so nothing is lost.
@@ -517,7 +517,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
 
   // AI import: cleans up the pasted song, then saves it. `mode` decides where the
   // user lands afterward:
-  //   'library'  -> straight to the play view
+  //   'library'  -> straight to the play route
   //   'rewrite'  -> stay here in the workshop to rewrite it
   const handleImport = async (mode: 'library' | 'rewrite') => {
     const trimmedInput = input.trim();
@@ -561,7 +561,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
             setSongArtist('');
             setIsDirty(false);
             setSaveStatus(null);
-            navigate(`/app/library/${song.uuid}`);
+            navigate(`/app/play/${song.uuid}`);
           } else {
             savedSongRef.current = { id: song.id, uuid: song.uuid };
             onSongSaved(song);

@@ -1,4 +1,5 @@
-import { lyricsPreview, splitContentForColumns, formatBytes } from './LibraryTab';
+import { lyricsPreview, formatBytes } from './LibraryTab';
+import { splitContentForColumns } from '@/lib/performanceLayout';
 
 function makeSongText(sections: number, linesPerSection: number): string {
   const parts: string[] = [];
