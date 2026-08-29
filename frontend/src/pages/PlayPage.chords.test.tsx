@@ -244,10 +244,9 @@ describe('PlayPage chord panel', () => {
     await waitFor(() => expect(screen.getByTestId('sheet')).toBeInTheDocument());
     await openPanel(user);
 
-    expect(within(panel()).getByRole('button', { name: /^Standard/ })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    // The panel collapses the tunings into one select, so the fallback shows as
+    // the select's value rather than a pressed button.
+    expect(within(panel()).getByRole('combobox', { name: 'Tuning' })).toHaveValue('standard');
   });
 
   it('reads the chords from whichever version is on screen', async () => {
