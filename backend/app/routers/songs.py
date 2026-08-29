@@ -1,4 +1,3 @@
-import hashlib
 import io
 import json
 import re
@@ -14,6 +13,7 @@ from ..database import get_db
 from ..models import (
     ChatMessage,
     Song,
+    SongBlob,
     SongFile,
     SongRevision,
     User,
@@ -29,6 +29,7 @@ from ..schemas import (
     SongStatusUpdate,
     SongUpdate,
 )
+from ..services.blob_store import hashes_for_songs, prune_orphan_blobs, put_blob
 from ..services.pdf_service import generate_song_pdf
 
 router = APIRouter(tags=["songs"])
@@ -211,15 +212,19 @@ async def upload_document(
     db.add(song)
     db.flush()
 
+    # Content-addressed, so uploading a file somebody already holds costs a row
+    # rather than another copy of the bytes. That is the common case once tabs are
+    # passed between people, and it is also what happens when one person imports
+    # the same scan twice.
+    digest, size = put_blob(db, data)
     db.add(
         SongFile(
             song_id=song.id,
-            content=data,
             filename=filename,
             content_type=DOCUMENT_CONTENT_TYPE,
-            size_bytes=len(data),
+            size_bytes=size,
             page_count=_document_page_count(data),
-            sha256=hashlib.sha256(data).hexdigest(),
+            sha256=digest,
         )
     )
     db.commit()
@@ -243,9 +248,7 @@ async def download_song_file(
     if song.kind != "document":
         raise HTTPException(status_code=404, detail="This song has no stored file.")
 
-    record = (
-        db.query(SongFile).options(undefer(SongFile.content)).filter(SongFile.song_id == song.id)
-    ).first()
+    record = db.query(SongFile).filter(SongFile.song_id == song.id).first()
     if record is None:
         raise HTTPException(status_code=404, detail="This song has no stored file.")
 
@@ -256,11 +259,22 @@ async def download_song_file(
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers={"ETag": etag})
 
+    # Only now, and only after the 304 has had its chance. This is the single
+    # place in the app that loads a stored file's bytes.
+    blob = (
+        db.query(SongBlob)
+        .options(undefer(SongBlob.content))
+        .filter(SongBlob.sha256 == record.sha256)
+        .first()
+    )
+    if blob is None:
+        raise HTTPException(status_code=404, detail="This song has no stored file.")
+
     safe_filename = re.sub(r'[\x00-\x1f"\\;]', "", record.filename)
     encoded_filename = quote(record.filename, safe=" -_.!~*'()")
 
     return Response(
-        content=record.content,
+        content=blob.content,
         media_type=record.content_type,
         headers={
             # inline, not attachment: the point is to read it on a music stand, not
@@ -383,7 +397,13 @@ async def delete_song(
     db: Session = Depends(get_db),
 ) -> OkResponse:
     song = _resolve_song(db, current_user, song_ref)
+    # Read before the delete, because afterwards there is nothing left to ask.
+    # Deleting the song cascades to its song_files row; the bytes it pointed at
+    # survive if any other song still holds them, and go if none does.
+    hashes = hashes_for_songs(db, [song.id])
     db.delete(song)
+    db.flush()
+    prune_orphan_blobs(db, hashes)
     db.commit()
     return OkResponse(ok=True)
 

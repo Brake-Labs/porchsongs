@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from pypdf import PdfWriter
 from sqlalchemy.orm import Session
 
-from app.models import Song, SongFile
+from app.models import Song, SongBlob, SongFile
 
 
 def _pdf_bytes(pages: int = 2) -> bytes:
@@ -175,16 +175,29 @@ def test_listing_carries_metadata_but_never_content(client: TestClient, profile_
     assert "%PDF" not in body
 
 
-def test_content_is_deferred_at_the_mapper(
+def test_a_song_file_row_carries_no_bytes_at_all(
     client: TestClient, profile_id: int, db_session: Session
 ) -> None:
-    """Loading a SongFile row must not fetch the PDF until content is named."""
+    """The metadata row and the bytes are separate tables, not one row with a
+    deferred column. Loading everything the library shows cannot reach a PDF."""
     _upload(client, profile_id)
     db_session.expire_all()
     record = db_session.query(SongFile).one()
-    assert "content" not in record.__dict__
+    assert not hasattr(record, "content")
     assert record.page_count == 2
-    assert record.content.startswith(b"%PDF-")
+    assert len(record.sha256) == 64
+
+
+def test_blob_content_is_deferred_at_the_mapper(
+    client: TestClient, profile_id: int, db_session: Session
+) -> None:
+    """And reaching the blob row still does not fetch the PDF until named."""
+    _upload(client, profile_id)
+    db_session.expire_all()
+    blob = db_session.query(SongBlob).one()
+    assert "content" not in blob.__dict__
+    assert blob.size_bytes > 0
+    assert blob.content.startswith(b"%PDF-")
 
 
 def test_charts_report_no_file(client: TestClient, profile_id: int) -> None:
@@ -269,3 +282,98 @@ def test_deleting_a_document_removes_its_bytes(
     assert client.delete(f"/api/songs/{song['uuid']}").status_code == 200
     assert db_session.query(SongFile).count() == 0
     assert db_session.query(Song).count() == 0
+
+
+# --- One set of bytes, however many songs point at it ----------------------
+#
+# The reason this table exists. A tab passed around a jam used to be stored once
+# per person; a scan re-imported by one person was stored twice.
+
+
+def test_the_same_file_uploaded_twice_is_stored_once(
+    client: TestClient, profile_id: int, db_session: Session
+) -> None:
+    first = _upload(client, profile_id)
+    second = _upload(client, profile_id)
+
+    assert first["uuid"] != second["uuid"]
+    assert db_session.query(Song).count() == 2
+    assert db_session.query(SongFile).count() == 2
+    # The saving: two library entries, two claims, one copy of the PDF.
+    assert db_session.query(SongBlob).count() == 1
+
+
+def test_different_files_get_their_own_blobs(
+    client: TestClient, profile_id: int, db_session: Session
+) -> None:
+    _upload(client, profile_id)
+    resp = client.post(
+        "/api/songs/documents",
+        data={"profile_id": str(profile_id)},
+        files={"file": ("other.pdf", _pdf_bytes(pages=3), "application/pdf")},
+    )
+    assert resp.status_code == 201
+
+    assert db_session.query(SongBlob).count() == 2
+
+
+def test_deleting_one_of_two_songs_keeps_the_shared_bytes(
+    client: TestClient, profile_id: int, db_session: Session
+) -> None:
+    first = _upload(client, profile_id)
+    second = _upload(client, profile_id)
+
+    assert client.delete(f"/api/songs/{first['uuid']}").status_code == 200
+
+    db_session.expire_all()
+    assert db_session.query(SongBlob).count() == 1
+    # And the survivor can still be read, which is the part a reference count
+    # gets wrong when it drifts.
+    assert client.get(f"/api/songs/{second['uuid']}/file").status_code == 200
+
+
+def test_deleting_the_last_song_releases_the_bytes(
+    client: TestClient, profile_id: int, db_session: Session
+) -> None:
+    first = _upload(client, profile_id)
+    second = _upload(client, profile_id)
+
+    client.delete(f"/api/songs/{first['uuid']}")
+    client.delete(f"/api/songs/{second['uuid']}")
+
+    db_session.expire_all()
+    assert db_session.query(SongBlob).count() == 0
+
+
+def test_deleting_a_chart_leaves_stored_tabs_alone(
+    client: TestClient, profile_id: int, db_session: Session
+) -> None:
+    """A chart has no file, so the delete path must not stumble looking for one."""
+    _upload(client, profile_id)
+    chart = client.post(
+        "/api/songs",
+        json={
+            "profile_id": profile_id,
+            "title": "Salt Creek",
+            "original_content": "G C G",
+            "rewritten_content": "G C G",
+        },
+    ).json()
+
+    assert client.delete(f"/api/songs/{chart['uuid']}").status_code == 200
+    assert db_session.query(SongBlob).count() == 1
+
+
+def test_the_served_bytes_are_the_uploaded_bytes(client: TestClient, profile_id: int) -> None:
+    """Content addressing is only worth anything if the round trip is exact."""
+    sent = _pdf_bytes(pages=4)
+    created = client.post(
+        "/api/songs/documents",
+        data={"profile_id": str(profile_id)},
+        files={"file": ("Big Sciota.pdf", sent, "application/pdf")},
+    ).json()
+
+    got = client.get(f"/api/songs/{created['uuid']}/file")
+
+    assert got.status_code == 200
+    assert got.content == sent

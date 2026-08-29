@@ -42,3 +42,4 @@ export {
   useFollowCaptureEnabled,
 } from './quota';
 export { FeedbackButton } from './feedback';
+export { SongShareAction, SongShareNotice } from './sharing';

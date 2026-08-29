@@ -6,6 +6,7 @@ import * as settings from '@/extensions/settings';
 import * as quota from '@/extensions/quota';
 import * as extensionsApi from '@/extensions/api';
 import * as feedback from '@/extensions/feedback';
+import * as sharing from '@/extensions/sharing';
 
 /**
  * Enforces the OSS <-> premium extensions contract. See ./README.md.
@@ -54,6 +55,7 @@ const MANIFEST: Record<string, string[]> = {
     'uploadFollowLog',
   ],
   feedback: ['FeedbackButton'],
+  sharing: ['SongShareAction', 'SongShareNotice'],
 };
 
 /** Everything the barrel must re-export, flattened from the manifest. */
@@ -100,6 +102,7 @@ const MODULES: Record<string, Record<string, unknown>> = {
   quota,
   api: extensionsApi,
   feedback,
+  sharing,
 };
 
 /** Runtime value exports only. Types vanish at runtime and cannot be compared. */

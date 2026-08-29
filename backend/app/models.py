@@ -111,8 +111,8 @@ class Song(Base):
     )
     # selectin, so listing a library of documents costs one extra query in total
     # rather than one per row. What keeps the PDFs themselves out of that query is
-    # SongFile.content being deferred: this loads the metadata the library shows
-    # and leaves the bytes in the database until something names them.
+    # that the bytes are not on this table at all: this loads the metadata the
+    # library shows and leaves song_blobs untouched until something names it.
     file: Mapped["SongFile | None"] = relationship(
         "SongFile",
         back_populates="song",
@@ -158,18 +158,52 @@ class ChatMessage(Base):
     song: Mapped["Song"] = relationship("Song", back_populates="chat_messages")
 
 
+class SongBlob(Base):
+    """File bytes, addressed by their own hash.
+
+    Split out of `song_files` so that one set of bytes can back many songs. Two
+    people keeping the same tab, or one person who imported it twice, previously
+    stored it twice; a 25MB scan passed around a jam of six was stored six times.
+    Now the second and every later copy is a row pointing at bytes that are
+    already here.
+
+    The primary key is the hash of the content, which is what makes that work:
+    there is no way to hold two rows for the same bytes, because the bytes name
+    the row. `song_files.sha256` was already computed and stored for the download
+    ETag, so nothing new has to be calculated to find the match.
+
+    Nothing here says who owns the bytes. Ownership lives in `song_files`, one row
+    per song, and a blob is reachable only through one of those. Deleting the last
+    song that points at a blob is what removes it: see `prune_orphan_blobs`.
+    """
+
+    __tablename__ = "song_blobs"
+
+    # 64 hex characters of SHA-256. The key rather than a surrogate id, so the
+    # uniqueness of the content is enforced by the schema and not by a lookup that
+    # some future caller forgets to do.
+    sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    # Deferred for the same reason it was deferred on song_files: loading a row to
+    # read its size must not drag megabytes along with it.
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False, deferred=True)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
 class SongFile(Base):
-    """The stored bytes of a document-kind song: a tab PDF you keep and play from.
+    """One song's claim on a stored file: a tab PDF you keep and play from.
 
     A separate table rather than a column on `songs` so that binary can never be
     dragged into a library listing by accident. `list_songs` returns a full
     serialisation of every row it selects, and a personal tab collection is
-    hundreds of megabytes; keeping the bytes one join away means the only way to
+    hundreds of megabytes; keeping the bytes two joins away means the only way to
     load them is to ask for them by name.
 
-    One row per song, enforced by the unique constraint on `song_id`. Replacing a
-    file replaces the row, so `sha256` and `size_bytes` always describe the bytes
-    currently in `content` rather than whatever was uploaded first.
+    One row per song, enforced by the unique constraint on `song_id`. The bytes
+    themselves are in `song_blobs`, shared with any other song holding the same
+    file. Everything that differs between two songs holding the same bytes lives
+    here: the filename it arrived with is the obvious one, since the same tab can
+    reach two people under two names.
     """
 
     __tablename__ = "song_files"
@@ -178,20 +212,22 @@ class SongFile(Base):
     song_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("songs.id"), unique=True, index=True, nullable=False
     )
-    # Deferred: the second guard, and the one that survives a careless query. Even
-    # when the row is loaded to read `page_count` for a library listing, the bytes
-    # stay in the database until something asks for this attribute by name.
-    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False, deferred=True)
     # The name the file arrived with, kept for the download filename only.
     filename: Mapped[str] = mapped_column(String, nullable=False)
     content_type: Mapped[str] = mapped_column(String, nullable=False)
+    # Denormalised from the blob. The library lists it, and the whole point of this
+    # table is that a listing never has to touch song_blobs at all.
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     # Page count, read once at upload. The library shows it, and computing it on
     # read would mean loading the whole PDF to render a number in a list.
     page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # Hex digest of `content`, serving as the download ETag. Reopening a tab on a
-    # music stand should not refetch several megabytes over a phone connection.
-    sha256: Mapped[str] = mapped_column(String, nullable=False)
+    # Hex digest of the bytes, and the foreign key to them. Also the download ETag:
+    # reopening a tab on a music stand should not refetch several megabytes over
+    # whatever connection the venue has.
+    sha256: Mapped[str] = mapped_column(
+        String(64), ForeignKey("song_blobs.sha256"), index=True, nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
     song: Mapped["Song"] = relationship("Song", back_populates="file")
+    blob: Mapped["SongBlob"] = relationship("SongBlob")

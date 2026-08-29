@@ -20,7 +20,7 @@ import ConfirmDialog from '@/components/ui/confirm-dialog';
 import PromptDialog, { type PromptField } from '@/components/ui/prompt-dialog';
 import FolderSuggestDialog from '@/components/FolderSuggestDialog';
 import { cn } from '@/lib/utils';
-import { SongCapNotice } from '@/extensions';
+import { SongCapNotice, SongShareAction, SongShareNotice } from '@/extensions';
 import type { AppShellContext } from '@/layouts/AppShell';
 import type { Song } from '@/types';
 
@@ -146,6 +146,11 @@ function SongMenu({ song, onDelete, onRename, onEdit, folders, onMoveToFolder, o
         <DropdownMenuItem onClick={() => onRename(song)}>
           Rename
         </DropdownMenuItem>
+        {/* Premium renders a DropdownMenuItem here; OSS renders nothing, because
+            a single local user has nobody to send anything to. Above the folder
+            separator because sending is something you do to the song, and filing
+            is something you do to the library. */}
+        <SongShareAction songUuids={[song.uuid]} variant="menu" />
         <DropdownMenuSeparator />
         {song.folder && (
           <DropdownMenuLabel>In: {song.folder}</DropdownMenuLabel>
@@ -1259,6 +1264,10 @@ export default function LibraryTab() {
           approaches and an explanation once it is passed. The library owns the
           count, so it is passed in rather than refetched. */}
       <SongCapNotice count={songs.length} />
+      {/* Songs somebody sent you. Renders nothing when the inbox is empty, so this
+          costs the one screen everybody opens exactly nothing until it has
+          something to say. Accepting creates songs, hence the reload. */}
+      <SongShareNotice onSongsChanged={loadSongs} />
       {/* One input for both entry points. accept is a hint the picker uses; the
           backend decides for real by reading the file header. */}
       <input
@@ -1548,6 +1557,11 @@ export default function LibraryTab() {
               <option value="__remove__">Remove from folder</option>
             </Select>
           )}
+          <SongShareAction
+            songUuids={[...selectedUuids]}
+            variant="bulk"
+            onSent={clearSelection}
+          />
           <Button variant="danger" size="sm" onClick={handleBulkDeleteRequest}>Delete Selected</Button>
         </div>
       )}
