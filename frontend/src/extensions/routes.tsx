@@ -44,10 +44,39 @@ export interface TopLevelTab {
   key: string;
   path: string;
   label: string;
+  /**
+   * Path prefixes that light this tab up, defaulting to `[path]`.
+   *
+   * A surface with detail pages under it needs this: /app/friends/dave has to
+   * keep Friends lit rather than falling through to the library. OSS used to
+   * hardcode '/app/admin' in its own matcher for exactly this reason, which
+   * meant every premium surface needed an OSS change to become highlightable.
+   */
+  match?: string[];
+  /**
+   * Rendered beside the label. A node rather than a number, so the extension
+   * owns whatever it takes to know the count: this is called during render and
+   * cannot fetch, but the node it returns can.
+   */
+  badge?: ReactNode;
 }
 
 export function getExtraTopLevelTabs(_isPremium: boolean, _isAdmin: boolean): TopLevelTab[] {
   return [];
+}
+
+/**
+ * Extra routes inside the authenticated shell, at /app/<something>.
+ *
+ * `getPremiumRouteElements` covers the marketing site, which is outside /app and
+ * outside auth. This is the counterpart for surfaces that live *in* the app.
+ *
+ * It exists so a new premium screen is a premium change. The admin panel got its
+ * own hardcoded `<Route path="admin/*">` in OSS, and repeating that per surface
+ * makes the OSS repo carry a list of things it does not have.
+ */
+export function getPremiumAppRoutes(): ReactNode {
+  return null;
 }
 
 export function getAdminPageElement(): ReactNode {

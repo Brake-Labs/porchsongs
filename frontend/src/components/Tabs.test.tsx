@@ -55,7 +55,13 @@ describe('Tabs', () => {
 
 describe('activeKeyFromPath', () => {
   it('returns admin for /app/admin path', () => {
-    expect(activeKeyFromPath('/app/admin')).toBe('admin');
+    // Admin is a premium tab, so OSS no longer knows the path by name. It lights
+    // up because the tab says which prefixes are its own.
+    const adminTab = { key: 'admin', path: '/app/admin', label: 'Admin' };
+    expect(activeKeyFromPath('/app/admin', [adminTab])).toBe('admin');
+    expect(activeKeyFromPath('/app/admin/users/7', [adminTab])).toBe('admin');
+    // And without it, the path is just an unknown one.
+    expect(activeKeyFromPath('/app/admin')).toBe('library');
   });
 
   it('returns settings for /app/settings paths', () => {
@@ -84,5 +90,47 @@ describe('buildTabItems', () => {
     // In OSS, getExtraTopLevelTabs returns [] regardless
     const tabs = buildTabItems(false, true);
     expect(tabs.find(t => t.key === 'admin')).toBeUndefined();
+  });
+});
+
+/**
+ * The nav seam, generalised so a premium surface does not need an OSS change to
+ * appear, highlight, or carry a count.
+ */
+describe('extension tabs', () => {
+  const friends = {
+    key: 'friends',
+    path: '/app/friends',
+    label: 'Friends',
+    match: ['/app/friends'],
+  };
+
+  it('places extension tabs before Settings', () => {
+    // Settings configures what the other tabs do, so it reads last. Appending
+    // after it stranded every premium surface past the end of the nav.
+    const keys = buildTabItems(true, false).map((t) => t.key);
+    const extraKeys = keys.filter((k) => !['library', 'rewrite', 'chords', 'settings'].includes(k));
+    for (const key of extraKeys) {
+      expect(keys.indexOf(key)).toBeLessThan(keys.indexOf('settings'));
+    }
+    expect(keys[keys.length - 1]).toBe('settings');
+  });
+
+  it('lights an extension tab from its own match prefixes', () => {
+    expect(activeKeyFromPath('/app/friends', [friends])).toBe('friends');
+    expect(activeKeyFromPath('/app/friends/requests', [friends])).toBe('friends');
+  });
+
+  it('falls back to the tab path when no match list is given', () => {
+    const bare = { key: 'friends', path: '/app/friends', label: 'Friends' };
+    expect(activeKeyFromPath('/app/friends', [bare])).toBe('friends');
+  });
+
+  it('lets an extension tab win over a built-in prefix', () => {
+    // Deliberate: an extension owning /app/library/shared should keep its own tab
+    // lit rather than handing the highlight to the library underneath it.
+    const nested = { key: 'shared', path: '/app/library/shared', label: 'Shared' };
+    expect(activeKeyFromPath('/app/library/shared', [nested])).toBe('shared');
+    expect(activeKeyFromPath('/app/library', [nested])).toBe('library');
   });
 });

@@ -15,6 +15,7 @@ import {
   getPremiumRouteElements,
   getDefaultSettingsTab,
   getAdminPageElement,
+  getPremiumAppRoutes,
   shouldRedirectRootToApp,
 } from '@/extensions';
 
@@ -90,6 +91,9 @@ export default function App() {
             detail page unreachable. Harmless in OSS, where `getAdminPageElement`
             redirects to /app, so the splat just redirects a wider set of paths. */}
         <Route path="admin/*" element={<ErrorBoundary fallbackLabel="Admin">{getAdminPageElement()}</ErrorBoundary>} />
+        {/* Premium surfaces that live inside the app. Null in OSS. Placed last so
+            a premium route can never shadow a built-in one by accident. */}
+        {getPremiumAppRoutes()}
       </Route>
 
       {/* OSS root redirects to app; premium root handled by extension routes */}
