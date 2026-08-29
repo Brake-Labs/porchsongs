@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import DocumentSheet from '@/components/DocumentSheet';
 
@@ -144,4 +144,142 @@ it('stops a render still running when the sheet unmounts', async () => {
 
   unmount();
   await waitFor(() => expect(cancelRender).toHaveBeenCalledWith(task));
+});
+
+/**
+ * Turning pages with a hand that is holding an instrument.
+ *
+ * The buttons are 44px at the bottom edge of the screen, which on a phone
+ * propped on a stand is the far corner. A swipe is a target the size of the
+ * page.
+ */
+describe('gestures', () => {
+  /** jsdom builds no TouchEvent, so the handlers are driven directly. */
+  function swipe(
+    el: HTMLElement,
+    { from, to, ms = 120 }: { from: number; to: number; ms?: number },
+  ) {
+    const touch = (x: number) => ({ clientX: x, clientY: 200 });
+    fireEvent.touchStart(el, { touches: [touch(from)] });
+    vi.advanceTimersByTime(ms);
+    fireEvent.touchEnd(el, { changedTouches: [touch(to)] });
+  }
+
+  async function ready(pages = 3) {
+    openPdf.mockResolvedValue(fakePdf(pages));
+    render(<DocumentSheet data={BYTES} />);
+    await waitFor(() => expect(screen.getByLabelText('Page 1')).toBeInTheDocument());
+    return screen.getByTestId('document-scroll');
+  }
+
+  beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
+  afterEach(() => vi.useRealTimers());
+
+  it('turns forward on a swipe left and back on a swipe right', async () => {
+    const el = await ready();
+
+    swipe(el, { from: 300, to: 100 });
+    await waitFor(() => expect(screen.getByLabelText('Page 2')).toBeInTheDocument());
+
+    swipe(el, { from: 100, to: 300 });
+    await waitFor(() => expect(screen.getByLabelText('Page 1')).toBeInTheDocument());
+  });
+
+  it('stops at the ends rather than wrapping', async () => {
+    const el = await ready(2);
+
+    swipe(el, { from: 100, to: 300 });
+    expect(screen.getByLabelText('Page 1')).toBeInTheDocument();
+
+    swipe(el, { from: 300, to: 100 });
+    await waitFor(() => expect(screen.getByLabelText('Page 2')).toBeInTheDocument());
+    swipe(el, { from: 300, to: 100 });
+    expect(screen.getByLabelText('Page 2')).toBeInTheDocument();
+  });
+
+  it('ignores a mostly vertical drag, which is a scroll', async () => {
+    const el = await ready();
+
+    fireEvent.touchStart(el, { touches: [{ clientX: 300, clientY: 100 }] });
+    fireEvent.touchEnd(el, { changedTouches: [{ clientX: 240, clientY: 500 }] });
+
+    expect(screen.getByLabelText('Page 1')).toBeInTheDocument();
+  });
+
+  it('ignores a short drag, which is a wobble', async () => {
+    const el = await ready();
+    swipe(el, { from: 300, to: 270 });
+    expect(screen.getByLabelText('Page 1')).toBeInTheDocument();
+  });
+
+  it('ignores a slow drag, which was meant to pan', async () => {
+    const el = await ready();
+    swipe(el, { from: 300, to: 100, ms: 900 });
+    expect(screen.getByLabelText('Page 1')).toBeInTheDocument();
+  });
+
+  it('pans a zoomed page instead of turning, until it reaches the edge', async () => {
+    const el = await ready();
+    // A zoomed page: wider than its box, and scrolled to the middle.
+    Object.defineProperty(el, 'scrollWidth', { value: 1000, configurable: true });
+    Object.defineProperty(el, 'clientWidth', { value: 400, configurable: true });
+    Object.defineProperty(el, 'scrollLeft', { value: 300, writable: true, configurable: true });
+
+    swipe(el, { from: 300, to: 100 });
+    expect(screen.getByLabelText('Page 1')).toBeInTheDocument();
+
+    // Panned to the right-hand edge, the same gesture now turns the page.
+    (el as unknown as { scrollLeft: number }).scrollLeft = 600;
+    swipe(el, { from: 300, to: 100 });
+    await waitFor(() => expect(screen.getByLabelText('Page 2')).toBeInTheDocument());
+  });
+
+  it('toggles zoom on a double tap', async () => {
+    const el = await ready();
+    const tap = () => {
+      fireEvent.touchStart(el, { touches: [{ clientX: 200, clientY: 200 }] });
+      fireEvent.touchEnd(el, { changedTouches: [{ clientX: 200, clientY: 200 }] });
+    };
+
+    tap();
+    tap();
+    await waitFor(() => expect(screen.getByLabelText(/Zoom: 200 percent/)).toBeInTheDocument());
+
+    tap();
+    tap();
+    await waitFor(() => expect(screen.getByLabelText(/Zoom: 100 percent/)).toBeInTheDocument());
+  });
+
+  it('does not zoom on two taps far apart in time', async () => {
+    const el = await ready();
+    const tap = () => {
+      fireEvent.touchStart(el, { touches: [{ clientX: 200, clientY: 200 }] });
+      fireEvent.touchEnd(el, { changedTouches: [{ clientX: 200, clientY: 200 }] });
+    };
+
+    tap();
+    vi.advanceTimersByTime(600);
+    tap();
+
+    expect(screen.getByLabelText(/Zoom: 100 percent/)).toBeInTheDocument();
+  });
+
+  it('leaves a pinch to the browser', async () => {
+    const el = await ready();
+    fireEvent.touchStart(el, {
+      touches: [{ clientX: 300, clientY: 200 }, { clientX: 100, clientY: 200 }],
+    });
+    fireEvent.touchEnd(el, { changedTouches: [{ clientX: 100, clientY: 200 }] });
+
+    expect(screen.getByLabelText('Page 1')).toBeInTheDocument();
+  });
+
+  it('flashes the page number, since the bar is not where your eyes are', async () => {
+    const el = await ready();
+    swipe(el, { from: 300, to: 100 });
+
+    await waitFor(() => expect(screen.getAllByText('2 / 3').length).toBe(2));
+    vi.advanceTimersByTime(1400);
+    await waitFor(() => expect(screen.getAllByText('2 / 3').length).toBe(1));
+  });
 });
