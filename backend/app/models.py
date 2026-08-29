@@ -101,10 +101,6 @@ class Song(Base):
     changes_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     llm_provider: Mapped[str | None] = mapped_column(String, nullable=True)
     llm_model: Mapped[str | None] = mapped_column(String, nullable=True)
-    # Kept until migration 009 drops it. 008 backfills `song_tags` from it and
-    # leaves it alone, so the database reads correctly under both the old code and
-    # the new; see the migration.
-    folder: Mapped[str | None] = mapped_column(String, nullable=True)
     font_size: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String, default="draft")
     current_version: Mapped[int] = mapped_column(Integer, default=1)
