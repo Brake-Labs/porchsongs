@@ -9,6 +9,7 @@ export {
   getReportIssueUrl,
   getExtraTopLevelTabs,
   getAdminPageElement,
+  getPremiumAppRoutes,
 } from './routes';
 export type { TopLevelTab } from './routes';
 export {

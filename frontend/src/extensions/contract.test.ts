@@ -30,6 +30,7 @@ const MANIFEST: Record<string, string[]> = {
     'getExtraTopLevelTabs',
     'getFeatureRequestUrl',
     'getLoginPageElement',
+    'getPremiumAppRoutes',
     'getPremiumProviders',
     'getPremiumRouteElements',
     'getReportIssueUrl',
@@ -155,6 +156,8 @@ describe('extensions seam contract', () => {
       expect(quota.QuotaBanner()).toBeNull();
       expect(quota.QuotaUpgradeLink({})).toBeNull();
       expect(quota.SongCapNotice({ count: 0 })).toBeNull();
+      expect(sharing.SongShareAction({ songUuids: [], variant: 'menu' })).toBeNull();
+      expect(sharing.SongShareNotice({})).toBeNull();
       expect(feedback.FeedbackButton()).toBeNull();
     });
 
@@ -171,6 +174,10 @@ describe('extensions seam contract', () => {
       expect(quota.OnboardingBanner({ children: child })).toBe(child);
     });
 
+    it('nodes that may be absent are null, not undefined', () => {
+      expect(routes.getPremiumAppRoutes()).toBeNull();
+    });
+
     it('list stubs return an empty array', () => {
       expect(routes.getExtraTopLevelTabs(false, false)).toEqual([]);
       expect(settings.getExtraSettingsTabs(false, false)).toEqual([]);
@@ -180,6 +187,7 @@ describe('extensions seam contract', () => {
       // Totality is the point of rule 1: self-hosted porchsongs must work with no
       // premium layer, so every stub has to be callable in a bare environment.
       expect(() => routes.getPremiumRouteElements()).not.toThrow();
+      expect(() => routes.getPremiumAppRoutes()).not.toThrow();
       expect(() => routes.getDefaultSettingsTab(false)).not.toThrow();
       expect(() => routes.shouldRedirectRootToApp(false)).not.toThrow();
       expect(() => routes.getFeatureRequestUrl()).not.toThrow();
