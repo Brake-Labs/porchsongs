@@ -53,7 +53,21 @@ const STORAGE_KEYS = {
   // surface must write this, including the library: an unrecorded surface leaves
   // a stale value behind and the relaunch restores to wherever the user was
   // *before* the one they actually quit from.
+  //
+  // It has to record where the user *chose* to be, not where the app *put* them.
+  // The workshop is the one surface reachable without choosing it, because
+  // AppShell restores the open song into it on every launch, so it writes this
+  // only when WORKSHOP_TOUCHED says the user did something here, and clears it
+  // otherwise. Missing means the library, which is the app's front door.
   LAST_SURFACE: 'porchsongs_last_surface',
+  // Whether the user has actually worked in the workshop during this run of the
+  // app. sessionStorage, not localStorage, and that is the whole point: it is
+  // gone on a cold start, so it can only be true because of something the user
+  // did this time. LAST_SURFACE is written from it, which is what stops the
+  // workshop claiming the launch surface just because a song was restored into
+  // it. Survives navigating to the library and back, which a component-local
+  // flag would not.
+  WORKSHOP_TOUCHED: 'porchsongs_workshop_touched',
 } as const;
 
 export { STORAGE_KEYS };
