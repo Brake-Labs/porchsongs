@@ -203,30 +203,30 @@ class TagRename(BaseModel):
 
 
 # --- Tag suggestion (AI, opt-in, per chart) ---
-class FolderSuggestRequest(BaseModel):
+class TagSuggestRequest(BaseModel):
     song_id: int
     model: str
     # Bounded here, not only in premium's guard. Premium rewrites this before the
     # request is validated, so hosted users are clamped either way, but a
     # self-hoster pointing at a shared gateway was previously able to ask for any
     # number of output tokens on an endpoint documented as costing one credit.
-    # 96 is llm_service.FOLDER_SUGGEST_MAX_OUTPUT_TOKENS, repeated rather than
+    # 96 is llm_service.TAG_SUGGEST_MAX_OUTPUT_TOKENS, repeated rather than
     # imported so this module keeps out of the LLM dependency graph. Raised from
     # 64 with the move to tags: one call now proposes several, so the answer is
     # several short strings rather than one.
-    # test_folder_suggest_schema_bound_matches_the_service_cap pins them together.
+    # test_tag_suggest_schema_bound_matches_the_service_cap pins them together.
     max_tokens: int | None = Field(default=None, ge=1, le=96)
 
 
-class FolderSuggestion(BaseModel):
+class TagSuggestion(BaseModel):
     tag: str
     # How many songs already carry it, so the UI can say "new" before the user
     # taps and one more tag quietly appears in their library.
     count: int
 
 
-class FolderSuggestResponse(BaseModel):
-    suggestions: list[FolderSuggestion]
+class TagSuggestResponse(BaseModel):
+    suggestions: list[TagSuggestion]
     usage: TokenUsage | None = None
 
 

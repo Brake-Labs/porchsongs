@@ -33,9 +33,9 @@ from ..schemas import (
     DefaultPromptsResponse,
     FileExtractRequest,
     FileExtractResponse,
-    FolderSuggestion,
-    FolderSuggestRequest,
-    FolderSuggestResponse,
+    TagSuggestion,
+    TagSuggestRequest,
+    TagSuggestResponse,
     ImageExtractRequest,
     ImageExtractResponse,
     ModelsResponse,
@@ -828,13 +828,13 @@ async def chat_stream(
     )
 
 
-@router.post("/tags/suggest", response_model=FolderSuggestResponse, tags=["songs"])
+@router.post("/tags/suggest", response_model=TagSuggestResponse, tags=["songs"])
 async def suggest_tags(
-    req: FolderSuggestRequest,
+    req: TagSuggestRequest,
     request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> FolderSuggestResponse:
+) -> TagSuggestResponse:
     """Suggest tags for one chart, ranking the user's own tags first.
 
     Opt-in and per chart. Importing a chart stays free and makes no LLM call at
@@ -857,16 +857,16 @@ async def suggest_tags(
     reject_documents(song, "sent to the model")
 
     counts = dict(user_tags(db, current_user.id))
-    existing_folders = sorted(counts)
+    existing_tags = sorted(counts)
 
     try:
         result = await _cancellable(
             request,
-            llm_service.suggest_folder(
+            llm_service.suggest_tags(
                 title=song.title,
                 artist=song.artist,
                 content=song.rewritten_content or song.original_content,
-                existing_folders=existing_folders,
+                existing_tags=existing_tags,
                 provider=settings.llm_provider,
                 model=req.model,
                 api_base=settings.llm_api_base,
@@ -885,7 +885,7 @@ async def suggest_tags(
     # since it is the one holding the numbers. A tag the service marked new has
     # no count by definition.
     suggestions = [
-        FolderSuggestion(tag=s["tag"], count=0 if s["is_new"] else counts.get(s["tag"], 0))
+        TagSuggestion(tag=s["tag"], count=0 if s["is_new"] else counts.get(s["tag"], 0))
         for s in result["suggestions"]
     ]
 
@@ -894,11 +894,11 @@ async def suggest_tags(
     # paid for by the time we get here.
     if not suggestions:
         artist = (song.artist or "").strip()[: llm_service.FOLDER_NAME_MAX_CHARS]
-        if artist and artist.casefold() not in {f.casefold() for f in existing_folders}:
-            suggestions = [FolderSuggestion(tag=artist, count=0)]
+        if artist and artist.casefold() not in {f.casefold() for f in existing_tags}:
+            suggestions = [TagSuggestion(tag=artist, count=0)]
 
     usage_data = result.get("usage")
-    return FolderSuggestResponse(
+    return TagSuggestResponse(
         suggestions=suggestions,
         usage=TokenUsage(**usage_data) if usage_data else None,
     )

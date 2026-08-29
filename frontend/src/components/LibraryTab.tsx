@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback, type DragEvent, type MouseEvent } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, type DragEvent } from 'react';
 import { useNavigate, useLocation, useSearchParams, useOutletContext } from 'react-router-dom';
 import { toast } from 'sonner';
 import api, { STORAGE_KEYS } from '@/api';
@@ -14,11 +14,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
 import ConfirmDialog from '@/components/ui/confirm-dialog';
 import PromptDialog, { type PromptField } from '@/components/ui/prompt-dialog';
-import FolderSuggestDialog from '@/components/FolderSuggestDialog';
+import TagSuggestDialog from '@/components/TagSuggestDialog';
+import TagEditDialog from '@/components/TagEditDialog';
 import { cn } from '@/lib/utils';
 import { SongCapNotice, SongShareAction, SongShareNotice } from '@/extensions';
 import type { AppShellContext } from '@/layouts/AppShell';
@@ -30,101 +30,109 @@ import type { Song } from '@/types';
 const FOLDER_PILL_CLASS = 'shrink-0 bg-card border border-border rounded-full px-3 py-1.5 text-xs cursor-pointer transition-all text-muted-foreground font-medium hover:border-primary hover:text-foreground whitespace-nowrap';
 const FOLDER_PILL_ACTIVE = 'bg-primary text-white border-primary';
 
-interface FolderPillProps {
-  folder: string;
+/** What the library sends to mean "songs carrying no tags at all". */
+const UNTAGGED = '__untagged__';
+
+interface TagPillProps {
+  tag: string;
+  count: number;
   isActive: boolean;
   isDragOver: boolean;
-  onSelect: (folder: string) => void;
-  onRename: (folder: string) => void;
-  onDelete: (folder: string) => void;
-  onDragOver: (e: DragEvent, folder: string) => void;
+  onToggle: (tag: string) => void;
+  onRename: (tag: string) => void;
+  onDelete: (tag: string) => void;
+  onDragOver: (e: DragEvent, tag: string) => void;
   onDragLeave: () => void;
-  onDrop: (e: DragEvent, folder: string) => void;
+  onDrop: (e: DragEvent, tag: string) => void;
 }
 
-function FolderPill({
-  folder,
-  isActive,
-  isDragOver,
-  onSelect,
-  onRename,
-  onDelete,
-  onDragOver,
-  onDragLeave,
-  onDrop,
-}: FolderPillProps) {
+function TagPill({
+  tag, count, isActive, isDragOver, onToggle, onRename, onDelete,
+  onDragOver, onDragLeave, onDrop,
+}: TagPillProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const openedByContextMenu = useRef(false);
-
-  const handleContextMenu = (e: MouseEvent) => {
-    e.preventDefault();
-    openedByContextMenu.current = true;
-    setMenuOpen(true);
-  };
-
-  const handleOpenChange = (open: boolean) => {
-    if (open && !openedByContextMenu.current) {
-      /* Ignore Radix trying to open the menu from trigger click */
-      return;
-    }
-    openedByContextMenu.current = false;
-    setMenuOpen(open);
-  };
 
   return (
-    <DropdownMenu open={menuOpen} onOpenChange={handleOpenChange}>
-      <DropdownMenuTrigger asChild>
-        <button
-          data-testid={`folder-pill-${folder}`}
-          className={cn(
-            FOLDER_PILL_CLASS,
-            isActive && FOLDER_PILL_ACTIVE,
-            isDragOver && 'bg-primary-light border-primary text-primary shadow-[0_0_0_2px_var(--color-primary-light)]'
-          )}
-          onClick={() => {
-            onSelect(folder);
-          }}
-          onContextMenu={handleContextMenu}
-          onDragOver={(e) => onDragOver(e, folder)}
-          onDragLeave={onDragLeave}
-          onDrop={(e) => onDrop(e, folder)}
-        >
-          {folder}
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent>
-        <DropdownMenuItem onClick={() => onRename(folder)}>
-          Rename
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          className="text-danger hover:!bg-danger-light"
-          onClick={() => onDelete(folder)}
-        >
-          Delete folder
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <div
+      className={cn(
+        'shrink-0 inline-flex items-stretch rounded-full border overflow-hidden transition-all',
+        isActive
+          ? 'bg-primary border-primary text-white'
+          : 'bg-card border-border text-muted-foreground',
+        isDragOver && 'bg-primary-light border-primary text-primary shadow-[0_0_0_2px_var(--color-primary-light)]',
+      )}
+      onDragOver={(e) => onDragOver(e, tag)}
+      onDragLeave={onDragLeave}
+      onDrop={(e) => onDrop(e, tag)}
+    >
+      <button
+        data-testid={`tag-pill-${tag}`}
+        aria-pressed={isActive}
+        className="px-3 py-1.5 text-xs font-medium cursor-pointer whitespace-nowrap"
+        onClick={() => onToggle(tag)}
+      >
+        {tag}
+        <span className={cn('ml-1.5 tabular-nums', isActive ? 'opacity-80' : 'opacity-60')}>
+          {count}
+        </span>
+      </button>
+      {/* A visible trigger, not a right-click.
+          The folder version opened its menu from `onContextMenu` and explicitly
+          swallowed the click, so renaming or deleting one was impossible on a
+          phone: there is no right-click, and a long press does not reliably fire
+          contextmenu in a mobile browser. That is why tags could not be tidied up
+          from the device most people use this on. */}
+      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+        <DropdownMenuTrigger asChild>
+          <button
+            aria-label={`Actions for ${tag}`}
+            className={cn(
+              'px-2 text-xs leading-none cursor-pointer border-l',
+              isActive
+                ? 'border-white/30 hover:bg-primary-hover'
+                : 'border-border hover:bg-panel hover:text-foreground',
+            )}
+          >
+            &hellip;
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <DropdownMenuItem onClick={() => onRename(tag)}>Rename</DropdownMenuItem>
+          <DropdownMenuItem
+            className="text-danger hover:!bg-danger-light"
+            onClick={() => onDelete(tag)}
+          >
+            Delete tag
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
+
 
 interface SongMenuProps {
   song: Song;
   onDelete: (uuid: string) => void;
   onRename: (song: Song) => void;
   onEdit: (song: Song) => void;
-  folders: string[];
-  onMoveToFolder: (song: Song, folder: string) => void;
-  onMoveToNewFolder: (song: Song) => void;
-  onSuggestFolder: (song: Song) => void;
+  tags: string[];
+  onToggleTag: (song: Song, tag: string) => void;
+  onEditTags: (song: Song) => void;
+  onSuggestTags: (song: Song) => void;
 }
 
-function SongMenu({ song, onDelete, onRename, onEdit, folders, onMoveToFolder, onMoveToNewFolder, onSuggestFolder }: SongMenuProps) {
-  const otherFolders = folders.filter(f => f !== song.folder);
-  // Filing and renaming a stored tab is ordinary housekeeping. Rewriting one and
-  // asking an LLM where it belongs are not: the backend refuses both with a 409,
-  // because there is no chart text to send, so offering them here would only
-  // produce an error a tap later.
+function SongMenu({ song, onDelete, onRename, onEdit, tags, onToggleTag, onEditTags, onSuggestTags }: SongMenuProps) {
+  // Tagging and renaming a stored tab is ordinary housekeeping. Rewriting one and
+  // asking an LLM about it are not: the backend refuses both with a 409, because
+  // there is no chart text to send, so offering them here would only produce an
+  // error a tap later.
   const isDocument = song.kind === 'document';
+  const have = song.tags ?? [];
+  const has = (t: string) => have.some(x => x.toLowerCase() === t.toLowerCase());
+  // The tags already on the song first, then the rest. A menu that lists the
+  // whole library's tags in name order buries the two this song actually has.
+  const ordered = [...tags].sort((a, b) => Number(has(b)) - Number(has(a)));
 
   return (
     <DropdownMenu>
@@ -147,34 +155,30 @@ function SongMenu({ song, onDelete, onRename, onEdit, folders, onMoveToFolder, o
           Rename
         </DropdownMenuItem>
         {/* Premium renders a DropdownMenuItem here; OSS renders nothing, because
-            a single local user has nobody to send anything to. Above the folder
-            separator because sending is something you do to the song, and filing
-            is something you do to the library. */}
+            a single local user has nobody to send anything to. Above the tag
+            separator because sending is something you do to the song, and
+            tagging is something you do to the library. */}
         <SongShareAction songUuids={[song.uuid]} variant="menu" />
         <DropdownMenuSeparator />
-        {song.folder && (
-          <DropdownMenuLabel>In: {song.folder}</DropdownMenuLabel>
-        )}
-        {otherFolders.map(f => (
-          <DropdownMenuItem key={f} onClick={() => onMoveToFolder(song, f)}>
-            Move to {f}
+        {/* Toggles, not moves. A song carries as many tags as suit it, so the
+            menu shows which are on and lets you switch each one, rather than
+            offering a list of places to send it. Capped, because the whole
+            library's tags in one dropdown is a scroll, not a menu. */}
+        {ordered.slice(0, 8).map(t => (
+          <DropdownMenuItem key={t} onClick={() => onToggleTag(song, t)}>
+            {has(t) ? '\u2713\u00A0' : '\u00A0\u00A0\u00A0'}{t}
           </DropdownMenuItem>
         ))}
-        <DropdownMenuItem onClick={() => onMoveToNewFolder(song)}>
-          Move to new folder&hellip;
+        <DropdownMenuItem onClick={() => onEditTags(song)}>
+          Edit tags&hellip;
         </DropdownMenuItem>
-        {/* Sits with the manual moves rather than on the import path: adding a
-            chart is free and silent, and asking where one belongs is a separate,
+        {/* Sits with the manual tagging rather than on the import path: adding a
+            chart is free and silent, and asking what to call it is a separate,
             paid thing you opt into per chart. The dialog names the price before
             it spends anything. */}
         {!isDocument && (
-          <DropdownMenuItem onClick={() => onSuggestFolder(song)}>
-            Suggest a folder with AI&hellip;
-          </DropdownMenuItem>
-        )}
-        {song.folder && (
-          <DropdownMenuItem onClick={() => onMoveToFolder(song, '')}>
-            Remove from folder
+          <DropdownMenuItem onClick={() => onSuggestTags(song)}>
+            Suggest tags with AI&hellip;
           </DropdownMenuItem>
         )}
         <DropdownMenuSeparator />
@@ -186,11 +190,12 @@ function SongMenu({ song, onDelete, onRename, onEdit, folders, onMoveToFolder, o
   );
 }
 
+
 type SortKey = 'date' | 'modified' | 'title' | 'artist';
 type SortDir = 'asc' | 'desc';
 
 /** Which axis the library is browsed along. 'songs' is the flat list filtered by
- *  folder; 'artists' shows an artist picker first and then that artist's charts. */
+ *  tags; 'artists' shows an artist picker first and then that artist's charts. */
 type BrowseMode = 'songs' | 'artists';
 type ArtistSortKey = 'name' | 'count';
 
@@ -220,7 +225,7 @@ const BROWSE_MODES: ReadonlyArray<{ mode: BrowseMode; label: string }> = [
  * being trusted: these values arrive from whatever was pasted into the address
  * bar.
  */
-type ViewParam = 'view' | 'artist' | 'folder' | 'q' | 'sort' | 'dir' | 'artistSort' | 'artistDir';
+type ViewParam = 'view' | 'artist' | 'tags' | 'q' | 'sort' | 'dir' | 'artistSort' | 'artistDir';
 
 const BROWSE_MODE_VALUES: readonly BrowseMode[] = ['songs', 'artists'];
 const SORT_KEYS: readonly SortKey[] = ['date', 'modified', 'title', 'artist'];
@@ -325,10 +330,11 @@ type DialogState =
   | { kind: 'delete'; songUuid: string }
   | { kind: 'bulkDelete'; count: number }
   | { kind: 'rename'; song: Song }
-  | { kind: 'newFolder'; song?: Song }
-  | { kind: 'renameFolder'; folder: string }
-  | { kind: 'deleteFolder'; folder: string }
-  | { kind: 'suggestFolder'; song: Song };
+  | { kind: 'newTag'; song?: Song }
+  | { kind: 'renameTag'; tag: string }
+  | { kind: 'deleteTag'; tag: string }
+  | { kind: 'editTags'; song: Song }
+  | { kind: 'suggestTags'; song: Song };
 
 const SONGS_PER_PAGE = 20;
 
@@ -415,17 +421,17 @@ interface SongCardProps {
   onDelete: (uuid: string) => void;
   onRename: (song: Song) => void;
   onEdit: (song: Song) => void;
-  folders: string[];
-  onMoveToFolder: (song: Song, folder: string) => void;
-  onMoveToNewFolder: (song: Song) => void;
-  onSuggestFolder: (song: Song) => void;
+  tags: string[];
+  onToggleTag: (song: Song, tag: string) => void;
+  onEditTags: (song: Song) => void;
+  onSuggestTags: (song: Song) => void;
 }
 
 function SongCard({
   song, selectMode, isSelected, isDragging, stretch, keptOffline,
   onView, onToggleSelect, onDragStart, onDragEnd,
   onDelete, onRename, onEdit,
-  folders, onMoveToFolder, onMoveToNewFolder, onSuggestFolder,
+  tags, onToggleTag, onEditTags, onSuggestTags,
 }: SongCardProps) {
   const date = new Date(song.created_at).toLocaleDateString();
   const artist = song.artist ? ` by ${song.artist}` : '';
@@ -499,7 +505,7 @@ function SongCard({
           >
             {date}
             {!isDocument && song.current_version > 1 ? ` \u00B7 v${song.current_version}` : ''}
-            {song.folder ? ` \u00B7 ${song.folder}` : ''}
+            {(song.tags ?? []).length ? ` \u00B7 ${(song.tags ?? []).join(', ')}` : ''}
           </span>
         </div>
         <div className="flex gap-2" onClick={e => e.stopPropagation()}>
@@ -508,10 +514,10 @@ function SongCard({
             onDelete={onDelete}
             onRename={onRename}
             onEdit={onEdit}
-            folders={folders}
-            onMoveToFolder={onMoveToFolder}
-            onMoveToNewFolder={onMoveToNewFolder}
-            onSuggestFolder={onSuggestFolder}
+            tags={tags}
+            onToggleTag={onToggleTag}
+            onEditTags={onEditTags}
+            onSuggestTags={onSuggestTags}
           />
         </div>
       </div>
@@ -541,9 +547,12 @@ export default function LibraryTab() {
   const [songs, setSongs] = useState<Song[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
+  const [dragOverTag, setDragOverTag] = useState<string | null>(null);
   const [draggingSongUuid, setDraggingSongUuid] = useState<string | null>(null);
-  const [localFolders, setLocalFolders] = useState<string[]>([]);
+  // Tags the user just made that no song carries yet. A tag exists because a song
+  // has it, so a brand new one would vanish the moment it was created if the list
+  // came only from the songs.
+  const [localTags, setLocalTags] = useState<string[]>([]);
   const [selectedUuids, setSelectedUuids] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -571,7 +580,13 @@ export default function LibraryTab() {
   );
 
   const searchQuery = searchParams.get('q') ?? '';
-  const activeFolder = searchParams.get('folder');
+  // Comma separated in the URL, so a filtered library stays one linkable address.
+  // AND, not OR: each tag you add narrows the list, which is what a tag row is for
+  // once a library is big enough to need one.
+  const activeTags = useMemo(
+    () => (searchParams.get('tags') ?? '').split(',').map(t => t.trim()).filter(Boolean),
+    [searchParams],
+  );
   const browseMode = oneOf(searchParams.get('view'), BROWSE_MODE_VALUES, rememberedMode);
   // Which artist has been drilled into, as a normalised `artistKeyOf` key. Null
   // means the picker is showing. Narrowed to artist mode so the value always
@@ -629,8 +644,21 @@ export default function LibraryTab() {
     applyView({ q: value });
   }, [applyView]);
 
-  const setActiveFolder = useCallback((folder: string | null) => {
-    applyView({ folder }, { push: true });
+  /** Add or remove one tag from the filter, keeping the rest. */
+  const toggleTag = useCallback((tag: string) => {
+    const next = activeTags.includes(tag)
+      ? activeTags.filter(t => t !== tag)
+      // Untagged is not a tag, so it cannot be combined with one: no song is both.
+      // Picking it replaces the filter rather than producing an empty list nobody
+      // asked for.
+      : tag === UNTAGGED || activeTags.includes(UNTAGGED)
+        ? [tag]
+        : [...activeTags, tag];
+    applyView({ tags: next.length ? next.join(',') : null }, { push: true });
+  }, [activeTags, applyView]);
+
+  const clearTags = useCallback(() => {
+    applyView({ tags: null }, { push: true });
   }, [applyView]);
 
   const setSortKey = useCallback((key: SortKey) => {
@@ -770,13 +798,26 @@ export default function LibraryTab() {
   }, [loadSongs]);
 
 
-  const folders = useMemo(() => {
-    const names = new Set(localFolders);
-    for (const s of songs) {
-      if (s.folder) names.add(s.folder);
+  // Case-folded, because the pill row shows one entry per spelling but two
+  // spellings of the same tag are the same tag to the server.
+  const tagCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const song of songs) {
+      for (const t of song.tags ?? []) {
+        const key = t.toLowerCase();
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
     }
-    return [...names].sort();
-  }, [songs, localFolders]);
+    return counts;
+  }, [songs]);
+
+  const tags = useMemo(() => {
+    const names = new Set(localTags);
+    for (const s of songs) {
+      for (const t of s.tags ?? []) names.add(t);
+    }
+    return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }, [songs, localTags]);
 
   const artistGroups = useMemo(() => groupSongsByArtist(songs), [songs]);
 
@@ -826,20 +867,26 @@ export default function LibraryTab() {
         (s.artist || '').toLowerCase().includes(q)
       );
     }
-    // Artist and folder are either/or: only one of them is reachable at a time,
+    // Artist and tags are either/or: only one of them is reachable at a time,
     // because only one of the two is ever on screen to explain an empty list.
     if (browseMode === 'artists') {
       if (selectedArtist) result = result.filter(s => artistKeyOf(s) === selectedArtist);
-    } else if (activeFolder === '__unfiled__') {
-      result = result.filter(s => !s.folder);
-    } else if (activeFolder) {
-      result = result.filter(s => s.folder === activeFolder);
+    } else if (activeTags.includes(UNTAGGED)) {
+      result = result.filter(s => (s.tags ?? []).length === 0);
+    } else if (activeTags.length) {
+      // Every selected tag, not any. Compared case-insensitively, the same way
+      // the server does, so a link written by hand still matches.
+      const wanted = activeTags.map(t => t.toLowerCase());
+      result = result.filter(s => {
+        const have = (s.tags ?? []).map(t => t.toLowerCase());
+        return wanted.every(t => have.includes(t));
+      });
     }
     return result;
-  }, [songs, searchQuery, activeFolder, browseMode, selectedArtist]);
+  }, [songs, searchQuery, activeTags, browseMode, selectedArtist]);
 
   // Reset page when filters/sorting change
-  useEffect(() => { setPage(0); }, [searchQuery, activeFolder, sortKey, sortDir, browseMode, selectedArtist]);
+  useEffect(() => { setPage(0); }, [searchQuery, activeTags, sortKey, sortDir, browseMode, selectedArtist]);
 
   // An artist can vanish under the drilled-in view: delete its last chart, or
   // retitle the artist from the song menu, and `selectedArtist` would keep
@@ -985,103 +1032,136 @@ export default function LibraryTab() {
     }
   };
 
-  const handleMoveToFolder = async (song: Song, folderName: string) => {
+  /** Replace a song's whole tag set. The API takes the set, not a delta. */
+  const setSongTags = async (song: Song, next: string[]) => {
     try {
-      const updated = await api.updateSong(song.uuid, { folder: folderName } as Partial<Song>);
+      const updated = await api.updateSong(song.uuid, { tags: next } as Partial<Song>);
       handleSongUpdated(updated);
+      return updated;
     } catch (err) {
-      toast.error('Failed to move song: ' + (err as Error).message);
+      toast.error('Failed to save tags: ' + (err as Error).message);
+      return null;
     }
   };
 
-  const handleMoveToNewFolder = (song: Song) => {
-    setDialogState({ kind: 'newFolder', song });
+  /** Add one tag if it is missing, remove it if it is there. */
+  const handleToggleSongTag = async (song: Song, tag: string) => {
+    const have = song.tags ?? [];
+    const next = have.some(t => t.toLowerCase() === tag.toLowerCase())
+      ? have.filter(t => t.toLowerCase() !== tag.toLowerCase())
+      : [...have, tag];
+    await setSongTags(song, next);
   };
 
-  const handleSuggestFolderRequest = (song: Song) => {
-    setDialogState({ kind: 'suggestFolder', song });
-  };
+  const handleEditTags = (song: Song) => setDialogState({ kind: 'editTags', song });
+  const handleSuggestTagsRequest = (song: Song) => setDialogState({ kind: 'suggestTags', song });
 
   const handleDragStart = (e: DragEvent<HTMLDivElement>, songUuid: string) => {
     e.dataTransfer.setData('text/plain', songUuid);
-    e.dataTransfer.effectAllowed = 'move';
+    // Copy, not move. Dropping a song on a tag adds that tag; it does not take
+    // the song out of anything, because it was never in one place to begin with.
+    e.dataTransfer.effectAllowed = 'copy';
     setDraggingSongUuid(songUuid);
   };
 
   const handleDragEnd = () => {
     setDraggingSongUuid(null);
-    setDragOverFolder(null);
+    setDragOverTag(null);
   };
 
-  const handleFolderDragOver = (e: DragEvent, folderKey: string) => {
+  const handleTagDragOver = (e: DragEvent, tag: string) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    setDragOverFolder(folderKey);
+    e.dataTransfer.dropEffect = 'copy';
+    setDragOverTag(tag);
   };
 
-  const handleFolderDragLeave = () => {
-    setDragOverFolder(null);
-  };
+  const handleTagDragLeave = () => setDragOverTag(null);
 
-  const handleFolderDrop = async (e: DragEvent, folderName: string) => {
+  const handleTagDrop = async (e: DragEvent, tag: string) => {
     e.preventDefault();
-    setDragOverFolder(null);
+    setDragOverTag(null);
     const songUuid = e.dataTransfer.getData('text/plain');
     if (!songUuid) return;
     const song = songs.find(s => s.uuid === songUuid);
     if (!song) return;
-    await handleMoveToFolder(song, folderName);
+    const have = song.tags ?? [];
+    // Adding a tag a song already has is a no-op rather than a removal. A drop is
+    // a statement about where the song belongs, not a toggle, and silently
+    // untagging something because it was dropped on the wrong pill is the sort of
+    // thing nobody notices until the tag is empty.
+    if (have.some(t => t.toLowerCase() === tag.toLowerCase())) return;
+    await setSongTags(song, [...have, tag]);
   };
 
-  const handleCreateFolder = () => {
-    setDialogState({ kind: 'newFolder', song: draggingSongUuid ? songs.find(s => s.uuid === draggingSongUuid) : undefined });
+  const handleCreateTag = () => {
+    setDialogState({
+      kind: 'newTag',
+      song: draggingSongUuid ? songs.find(s => s.uuid === draggingSongUuid) : undefined,
+    });
   };
 
-  const handleRenameFolderRequest = (folder: string) => {
-    setDialogState({ kind: 'renameFolder', folder });
-  };
+  const handleRenameTagRequest = (tag: string) => setDialogState({ kind: 'renameTag', tag });
 
-  const handleRenameFolderConfirmed = async (oldName: string, values: Record<string, string>) => {
+  const handleRenameTagConfirmed = async (oldName: string, values: Record<string, string>) => {
     const newName = (values.name ?? '').trim();
     if (!newName || newName === oldName) return;
     try {
-      await api.renameFolder(oldName, newName);
-      setSongs(prev => prev.map(s => s.folder === oldName ? { ...s, folder: newName } : s));
-      setLocalFolders(prev => prev.map(f => f === oldName ? newName : f));
-      // Replace rather than push. The folder moved under the view; the user did
-      // not go anywhere. A pushed entry leaves Back pointing at a name that no
-      // longer exists, and the list under it is empty with no pill to clear.
-      if (activeFolder === oldName) applyView({ folder: newName });
+      await api.renameTag(oldName, newName);
+      setSongs(prev =>
+        prev.map(s => {
+          const have = s.tags ?? [];
+          if (!have.some(t => t.toLowerCase() === oldName.toLowerCase())) return s;
+          const renamed = have.filter(t => t.toLowerCase() !== oldName.toLowerCase());
+          // The rename may have merged onto a tag the song already had, which is
+          // what the server does rather than refusing.
+          if (!renamed.some(t => t.toLowerCase() === newName.toLowerCase())) renamed.push(newName);
+          return { ...s, tags: renamed.sort() };
+        }),
+      );
+      setLocalTags(prev => prev.map(t => (t === oldName ? newName : t)));
+      // Replace rather than push. The tag moved under the view; the user did not
+      // go anywhere. A pushed entry leaves Back pointing at a name that no longer
+      // exists, and the list under it is empty with no pill to clear.
+      if (activeTags.includes(oldName)) {
+        applyView({ tags: activeTags.map(t => (t === oldName ? newName : t)).join(',') });
+      }
     } catch (err) {
-      toast.error('Failed to rename folder: ' + (err as Error).message);
+      toast.error('Failed to rename tag: ' + (err as Error).message);
     }
   };
 
-  const handleDeleteFolderRequest = (folder: string) => {
-    setDialogState({ kind: 'deleteFolder', folder });
-  };
+  const handleDeleteTagRequest = (tag: string) => setDialogState({ kind: 'deleteTag', tag });
 
-  const handleDeleteFolderConfirmed = async (folder: string) => {
+  const handleDeleteTagConfirmed = async (tag: string) => {
     try {
-      await api.deleteFolder(folder);
-      setSongs(prev => prev.map(s => s.folder === folder ? { ...s, folder: null } : s));
-      setLocalFolders(prev => prev.filter(f => f !== folder));
+      await api.deleteTag(tag);
+      setSongs(prev =>
+        prev.map(s => ({
+          ...s,
+          tags: (s.tags ?? []).filter(t => t.toLowerCase() !== tag.toLowerCase()),
+        })),
+      );
+      setLocalTags(prev => prev.filter(t => t !== tag));
       // Replace, for the same reason as the rename above.
-      if (activeFolder === folder) applyView({ folder: null });
+      if (activeTags.includes(tag)) {
+        const rest = activeTags.filter(t => t !== tag);
+        applyView({ tags: rest.length ? rest.join(',') : null });
+      }
     } catch (err) {
-      toast.error('Failed to delete folder: ' + (err as Error).message);
+      toast.error('Failed to delete tag: ' + (err as Error).message);
     }
   };
 
-  const handleNewFolderConfirmed = (values: Record<string, string>, song?: Song) => {
+  const handleNewTagConfirmed = (values: Record<string, string>, song?: Song) => {
     const trimmed = (values.name ?? '').trim();
     if (!trimmed) return;
     if (song) {
-      handleMoveToFolder(song, trimmed);
+      void handleToggleSongTag(song, trimmed);
     } else {
-      setLocalFolders(prev => prev.includes(trimmed) ? prev : [...prev, trimmed]);
+      // Nothing carries it yet, so it would vanish on the next render if the pill
+      // row read only from the songs.
+      setLocalTags(prev => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
     }
-    setActiveFolder(trimmed);
   };
 
   const handleBrowseModeChange = useCallback((mode: BrowseMode) => {
@@ -1102,7 +1182,7 @@ export default function LibraryTab() {
     // `view` is written out even for the default mode. An absent parameter means
     // "whatever this browser last chose", so leaving it off would make the URL
     // say something weaker than what is on screen.
-    applyView({ view: mode, artist: null, folder: null, q: null }, { push: true });
+    applyView({ view: mode, artist: null, tags: null, q: null }, { push: true });
   }, [browseMode, applyView]);
 
   // Clearing `artistDir` rather than setting it hands the direction back to
@@ -1154,10 +1234,17 @@ export default function LibraryTab() {
     }
   };
 
-  const handleBulkMoveToFolder = async (folderName: string) => {
+  const handleBulkTag = async (tag: string, add: boolean) => {
     try {
       const results = await Promise.all(
-        [...selectedUuids].map(uuid => api.updateSong(uuid, { folder: folderName } as Partial<Song>))
+        [...selectedUuids].map(uuid => {
+          const song = songs.find(s => s.uuid === uuid);
+          const have = song?.tags ?? [];
+          const next = add
+            ? (have.some(t => t.toLowerCase() === tag.toLowerCase()) ? have : [...have, tag])
+            : have.filter(t => t.toLowerCase() !== tag.toLowerCase());
+          return api.updateSong(uuid, { tags: next } as Partial<Song>);
+        })
       );
       setSongs(prev => prev.map(s => {
         const updated = results.find(r => r.uuid === s.uuid);
@@ -1178,13 +1265,13 @@ export default function LibraryTab() {
     ];
   }, [dialogState]);
 
-  const newFolderFields: PromptField[] = useMemo(() => [
-    { key: 'name', label: 'Folder name', placeholder: 'Enter folder name' },
+  const newTagFields: PromptField[] = useMemo(() => [
+    { key: 'name', label: 'Tag name', placeholder: 'Enter tag name' },
   ], []);
 
-  const renameFolderFields: PromptField[] = useMemo(() => {
-    if (dialogState.kind !== 'renameFolder') return [];
-    return [{ key: 'name', label: 'Folder name', defaultValue: dialogState.folder, placeholder: 'New folder name' }];
+  const renameTagFields: PromptField[] = useMemo(() => {
+    if (dialogState.kind !== 'renameTag') return [];
+    return [{ key: 'name', label: 'Tag name', defaultValue: dialogState.tag, placeholder: 'New tag name' }];
   }, [dialogState]);
 
   // --- Loading ---
@@ -1255,8 +1342,8 @@ export default function LibraryTab() {
     );
   }
 
-  const hasUnfiled = songs.some(s => !s.folder);
-  const hasFolders = folders.length > 0;
+  const hasUntagged = songs.some(s => (s.tags ?? []).length === 0);
+  const hasTags = tags.length > 0;
 
   return (
     <div className={cn('flex flex-col gap-4', containerClass, layout === 'horizontal' && 'h-full min-h-0')}>
@@ -1470,68 +1557,59 @@ export default function LibraryTab() {
               </span>
             </div>
           )}
-          {browseMode === 'songs' && hasFolders && (
+          {browseMode === 'songs' && hasTags && (
             <button
-              className={cn(
-                FOLDER_PILL_CLASS,
-                activeFolder === null && FOLDER_PILL_ACTIVE
-              )}
-              onClick={() => setActiveFolder(null)}
+              className={cn(FOLDER_PILL_CLASS, activeTags.length === 0 && FOLDER_PILL_ACTIVE)}
+              onClick={clearTags}
             >
               All
             </button>
           )}
-          {browseMode === 'songs' && folders.map(f => (
-            <FolderPill
-              key={f}
-              folder={f}
-              isActive={activeFolder === f}
-              isDragOver={dragOverFolder === f}
-              onSelect={setActiveFolder}
-              onRename={handleRenameFolderRequest}
-              onDelete={handleDeleteFolderRequest}
-              onDragOver={handleFolderDragOver}
-              onDragLeave={handleFolderDragLeave}
-              onDrop={handleFolderDrop}
+          {browseMode === 'songs' && tags.map(t => (
+            <TagPill
+              key={t}
+              tag={t}
+              count={tagCounts.get(t.toLowerCase()) ?? 0}
+              isActive={activeTags.includes(t)}
+              isDragOver={dragOverTag === t}
+              onToggle={toggleTag}
+              onRename={handleRenameTagRequest}
+              onDelete={handleDeleteTagRequest}
+              onDragOver={handleTagDragOver}
+              onDragLeave={handleTagDragLeave}
+              onDrop={handleTagDrop}
             />
           ))}
-          {browseMode === 'songs' && hasFolders && hasUnfiled && (
+          {browseMode === 'songs' && hasTags && hasUntagged && (
             <button
-              className={cn(
-                FOLDER_PILL_CLASS,
-                activeFolder === '__unfiled__' && FOLDER_PILL_ACTIVE,
-                dragOverFolder === '__unfiled__' && 'bg-primary-light border-primary text-primary shadow-[0_0_0_2px_var(--color-primary-light)]'
-              )}
-              onClick={() => setActiveFolder('__unfiled__')}
-              onDragOver={(e) => handleFolderDragOver(e, '__unfiled__')}
-              onDragLeave={handleFolderDragLeave}
-              onDrop={(e) => handleFolderDrop(e, '')}
+              className={cn(FOLDER_PILL_CLASS, activeTags.includes(UNTAGGED) && FOLDER_PILL_ACTIVE)}
+              onClick={() => toggleTag(UNTAGGED)}
             >
-              Unfiled
+              Untagged
             </button>
           )}
-          {/* Divides making a folder from choosing one. Both are pills in the same
-              row, and dashed alone was not enough to stop "+ New Folder" reading
-              as the last folder in the list. */}
-          {browseMode === 'songs' && hasFolders && (
+          {/* Divides making a tag from choosing one. Both are pills in the same
+              row, and dashed alone was not enough to stop "+ New Tag" reading as
+              the last tag in the list. */}
+          {browseMode === 'songs' && hasTags && (
             <span aria-hidden="true" className="shrink-0 w-px h-5 bg-border mx-0.5" />
           )}
           {browseMode === 'songs' && (
           <button
             className="shrink-0 bg-card border border-dashed border-border rounded-full px-3 py-1.5 text-xs cursor-pointer font-semibold text-muted-foreground hover:border-primary hover:text-foreground whitespace-nowrap"
-            onClick={handleCreateFolder}
-            onDragOver={(e: DragEvent<HTMLButtonElement>) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+            onClick={handleCreateTag}
+            onDragOver={(e: DragEvent<HTMLButtonElement>) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
             onDrop={(e: DragEvent<HTMLButtonElement>) => {
               e.preventDefault();
               const songUuid = e.dataTransfer.getData('text/plain');
               if (!songUuid) return;
               const song = songs.find(s => s.uuid === songUuid);
-              if (song) setDialogState({ kind: 'newFolder', song });
+              if (song) setDialogState({ kind: 'newTag', song });
             }}
-            title="Create new folder"
-            aria-label="Create new folder"
+            title="Make a new tag"
+            aria-label="Make a new tag"
           >
-            + New Folder
+            + New Tag
           </button>
           )}
         </div>
@@ -1543,19 +1621,31 @@ export default function LibraryTab() {
           <span className="text-sm font-semibold text-primary mr-1 tabular-nums">{selectedUuids.size} selected</span>
           <Button variant="secondary" size="sm" onClick={selectAll}>Select All</Button>
           <Button variant="secondary" size="sm" onClick={clearSelection}>Clear</Button>
-          {folders.length > 0 && (
-            <Select
-              className="w-auto py-1.5 px-2 text-xs"
-              value=""
-              onChange={(e) => {
-                if (e.target.value === '__remove__') handleBulkMoveToFolder('');
-                else if (e.target.value) handleBulkMoveToFolder(e.target.value);
-              }}
-            >
-              <option value="">Move to folder&hellip;</option>
-              {folders.map(f => <option key={f} value={f}>{f}</option>)}
-              <option value="__remove__">Remove from folder</option>
-            </Select>
+          {tags.length > 0 && (
+            <>
+              {/* Two selects rather than one with a remove sentinel. Adding and
+                  removing are opposite actions, and a single list that does both
+                  depending on which row you pick is how somebody untags twenty
+                  songs meaning to tag them. */}
+              <Select
+                className="w-auto py-1.5 px-2 text-xs"
+                value=""
+                aria-label="Add a tag to the selected songs"
+                onChange={(e) => { if (e.target.value) void handleBulkTag(e.target.value, true); }}
+              >
+                <option value="">Add tag&hellip;</option>
+                {tags.map(t => <option key={t} value={t}>{t}</option>)}
+              </Select>
+              <Select
+                className="w-auto py-1.5 px-2 text-xs"
+                value=""
+                aria-label="Remove a tag from the selected songs"
+                onChange={(e) => { if (e.target.value) void handleBulkTag(e.target.value, false); }}
+              >
+                <option value="">Remove tag&hellip;</option>
+                {tags.map(t => <option key={t} value={t}>{t}</option>)}
+              </Select>
+            </>
           )}
           <SongShareAction
             songUuids={[...selectedUuids]}
@@ -1620,16 +1710,16 @@ export default function LibraryTab() {
               onDelete={handleDeleteRequest}
               onRename={handleRenameRequest}
               onEdit={onLoadSong}
-              folders={folders}
-              onMoveToFolder={handleMoveToFolder}
-              onMoveToNewFolder={handleMoveToNewFolder}
-              onSuggestFolder={handleSuggestFolderRequest}
+              tags={tags}
+              onToggleTag={handleToggleSongTag}
+              onEditTags={handleEditTags}
+              onSuggestTags={handleSuggestTagsRequest}
             />
           ))}
           {sortedSongs.length === 0 && songs.length > 0 && (
             <div className="text-center py-16 px-8 text-muted-foreground col-span-full">
-              {activeFolder && !searchQuery ? (
-                <p>No songs in this folder yet. Drag songs onto the folder tab or use the song menu to move them here.</p>
+              {activeTags.length > 0 && !searchQuery ? (
+                <p>Nothing carries {activeTags.length === 1 ? 'that tag' : 'all of those tags'} yet. Drag a song onto a tag, or use the song menu.</p>
               ) : (
                 <p>No songs match your search.</p>
               )}
@@ -1654,16 +1744,16 @@ export default function LibraryTab() {
                 onDelete={handleDeleteRequest}
                 onRename={handleRenameRequest}
                 onEdit={onLoadSong}
-                folders={folders}
-                onMoveToFolder={handleMoveToFolder}
-                onMoveToNewFolder={handleMoveToNewFolder}
-                onSuggestFolder={handleSuggestFolderRequest}
+                tags={tags}
+                onToggleTag={handleToggleSongTag}
+                onEditTags={handleEditTags}
+                onSuggestTags={handleSuggestTagsRequest}
               />
             ))}
             {sortedSongs.length === 0 && songs.length > 0 && (
               <div className="text-center py-16 px-8 text-muted-foreground">
-                {activeFolder && !searchQuery ? (
-                  <p>No songs in this folder yet. Drag songs onto the folder tab or use the song menu to move them here.</p>
+                {activeTags.length > 0 && !searchQuery ? (
+                  <p>Nothing carries {activeTags.length === 1 ? 'that tag' : 'all of those tags'} yet. Drag a song onto a tag, or use the song menu.</p>
                 ) : (
                   <p>No songs match your search.</p>
                 )}
@@ -1701,7 +1791,7 @@ export default function LibraryTab() {
 
       <ConfirmDialog
         open={dialogState.kind === 'delete'}
-        onOpenChange={(open) => { if (!open) setDialogState({ kind: 'none' }); }}
+        onOpenChange={(o: boolean) => { if (!o) setDialogState({ kind: 'none' }); }}
         title="Delete Song"
         description="Are you sure you want to delete this song? This action cannot be undone."
         confirmLabel="Delete"
@@ -1713,7 +1803,7 @@ export default function LibraryTab() {
 
       <ConfirmDialog
         open={dialogState.kind === 'bulkDelete'}
-        onOpenChange={(open) => { if (!open) setDialogState({ kind: 'none' }); }}
+        onOpenChange={(o: boolean) => { if (!o) setDialogState({ kind: 'none' }); }}
         title="Delete Songs"
         description={dialogState.kind === 'bulkDelete' ? `Are you sure you want to delete ${dialogState.count} selected song${dialogState.count > 1 ? 's' : ''}? This action cannot be undone.` : ''}
         confirmLabel="Delete"
@@ -1723,7 +1813,7 @@ export default function LibraryTab() {
 
       <PromptDialog
         open={dialogState.kind === 'rename'}
-        onOpenChange={(open) => { if (!open) setDialogState({ kind: 'none' }); }}
+        onOpenChange={(o: boolean) => { if (!o) setDialogState({ kind: 'none' }); }}
         title="Rename Song"
         fields={renameFields}
         confirmLabel="Save"
@@ -1733,50 +1823,58 @@ export default function LibraryTab() {
       />
 
       <PromptDialog
-        open={dialogState.kind === 'newFolder'}
-        onOpenChange={(open) => { if (!open) setDialogState({ kind: 'none' }); }}
-        title="New Folder"
-        fields={newFolderFields}
+        open={dialogState.kind === 'newTag'}
+        onOpenChange={(o: boolean) => { if (!o) setDialogState({ kind: 'none' }); }}
+        title="New Tag"
+        fields={newTagFields}
         confirmLabel="Create"
         onConfirm={(values) => {
-          handleNewFolderConfirmed(values, dialogState.kind === 'newFolder' ? dialogState.song : undefined);
+          handleNewTagConfirmed(values, dialogState.kind === 'newTag' ? dialogState.song : undefined);
         }}
       />
 
       <PromptDialog
-        open={dialogState.kind === 'renameFolder'}
-        onOpenChange={(open) => { if (!open) setDialogState({ kind: 'none' }); }}
-        title="Rename Folder"
-        fields={renameFolderFields}
+        open={dialogState.kind === 'renameTag'}
+        onOpenChange={(o: boolean) => { if (!o) setDialogState({ kind: 'none' }); }}
+        title="Rename Tag"
+        fields={renameTagFields}
         confirmLabel="Rename"
         onConfirm={(values) => {
-          if (dialogState.kind === 'renameFolder') handleRenameFolderConfirmed(dialogState.folder, values);
+          if (dialogState.kind === 'renameTag') handleRenameTagConfirmed(dialogState.tag, values);
         }}
       />
 
       <ConfirmDialog
-        open={dialogState.kind === 'deleteFolder'}
-        onOpenChange={(open) => { if (!open) setDialogState({ kind: 'none' }); }}
-        title="Delete Folder"
-        description={dialogState.kind === 'deleteFolder' ? `Delete the folder "${dialogState.folder}"? Songs in this folder will be moved to Unfiled.` : ''}
+        open={dialogState.kind === 'deleteTag'}
+        onOpenChange={(o: boolean) => { if (!o) setDialogState({ kind: 'none' }); }}
+        title="Delete Tag"
+        description={dialogState.kind === 'deleteTag' ? `Remove the tag "${dialogState.tag}" from every song carrying it? The songs themselves are not touched.` : ''}
         confirmLabel="Delete"
         variant="destructive"
         onConfirm={() => {
-          if (dialogState.kind === 'deleteFolder') handleDeleteFolderConfirmed(dialogState.folder);
+          if (dialogState.kind === 'deleteTag') handleDeleteTagConfirmed(dialogState.tag);
         }}
       />
 
-      <FolderSuggestDialog
-        open={dialogState.kind === 'suggestFolder'}
-        onOpenChange={(open) => { if (!open) setDialogState({ kind: 'none' }); }}
-        song={dialogState.kind === 'suggestFolder' ? dialogState.song : null}
+      <TagEditDialog
+        open={dialogState.kind === 'editTags'}
+        onOpenChange={(o: boolean) => { if (!o) setDialogState({ kind: 'none' }); }}
+        song={dialogState.kind === 'editTags' ? dialogState.song : null}
+        allTags={tags}
+        onSave={setSongTags}
+      />
+
+      <TagSuggestDialog
+        open={dialogState.kind === 'suggestTags'}
+        onOpenChange={(o: boolean) => { if (!o) setDialogState({ kind: 'none' }); }}
+        song={dialogState.kind === 'suggestTags' ? dialogState.song : null}
         // Premium sends an empty model on purpose: the guard middleware pins the
         // platform model before the endpoint sees the body, exactly as it does
         // for parse and chat. So availability is a separate question from which
         // model string goes on the wire.
         model={ctx.llmSettings?.model ?? ''}
         canUseAi={ctx.isPremium || !!ctx.llmSettings?.model}
-        onPick={handleMoveToFolder}
+        onApply={setSongTags}
         onOpenSettings={ctx.onOpenSettings}
       />
     </div>

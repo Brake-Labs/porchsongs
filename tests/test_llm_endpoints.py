@@ -1644,7 +1644,7 @@ def _make_song_in_folder(client: TestClient, profile_id: int, title: str, folder
 
 
 @patch("app.services.llm_service.amessages")
-def test_suggest_folder_ranks_existing_folders_first(
+def test_suggest_tags_ranks_existing_tags_first(
     mock_amessages: MagicMock, client: TestClient
 ) -> None:
     profile, song = _make_profile_and_song(client)
@@ -1668,7 +1668,7 @@ def test_suggest_folder_ranks_existing_folders_first(
 
 
 @patch("app.services.llm_service.amessages")
-def test_suggest_folder_proposes_a_new_one_for_a_user_with_no_folders(
+def test_suggest_tags_proposes_a_new_one_for_a_user_with_no_folders(
     mock_amessages: MagicMock, client: TestClient
 ) -> None:
     _, song = _make_profile_and_song(client)
@@ -1681,7 +1681,7 @@ def test_suggest_folder_proposes_a_new_one_for_a_user_with_no_folders(
 
 
 @patch("app.services.llm_service.amessages")
-def test_suggest_folder_falls_back_to_the_artist_when_the_reply_is_unusable(
+def test_suggest_tags_falls_back_to_the_artist_when_the_reply_is_unusable(
     mock_amessages: MagicMock, client: TestClient
 ) -> None:
     """An unreadable reply must still leave something to tap.
@@ -1699,7 +1699,7 @@ def test_suggest_folder_falls_back_to_the_artist_when_the_reply_is_unusable(
 
 
 @patch("app.services.llm_service.amessages")
-def test_suggest_folder_does_not_file_the_chart(
+def test_suggest_tags_does_not_file_the_chart(
     mock_amessages: MagicMock, client: TestClient
 ) -> None:
     """Suggesting is not filing. Only an explicit tap (a PUT) moves a chart."""
@@ -1712,7 +1712,7 @@ def test_suggest_folder_does_not_file_the_chart(
 
 
 @patch("app.services.llm_service.amessages")
-def test_suggest_folder_only_sees_the_callers_own_folders(
+def test_suggest_tags_only_sees_the_callers_own_folders(
     mock_amessages: MagicMock, client: TestClient, db_session: Session
 ) -> None:
     """Another account's folder names must never reach the prompt or the reply."""
@@ -1750,7 +1750,7 @@ def test_suggest_folder_only_sees_the_callers_own_folders(
     assert resp.json()["suggestions"] == [{"folder": "Mine", "is_new": False}]
 
 
-def test_suggest_folder_rejects_another_users_song(client: TestClient, db_session: Session) -> None:
+def test_suggest_tags_rejects_another_users_song(client: TestClient, db_session: Session) -> None:
     from app.models import Profile, User
 
     other = User(email="other2@porchsongs.local", name="Other", role="user", is_active=True)
@@ -1775,7 +1775,7 @@ def test_suggest_folder_rejects_another_users_song(client: TestClient, db_sessio
     assert resp.status_code == 404
 
 
-def test_suggest_folder_requires_gateway(client: TestClient) -> None:
+def test_suggest_tags_requires_gateway(client: TestClient) -> None:
     """Self-hosters with no gateway get the same 503 slug as the other AI actions."""
     from app.config import settings
 
@@ -1792,7 +1792,7 @@ def test_suggest_folder_requires_gateway(client: TestClient) -> None:
 
 
 @patch("app.services.llm_service.amessages")
-def test_suggest_folder_reports_provider_failures(
+def test_suggest_tags_reports_provider_failures(
     mock_amessages: MagicMock, client: TestClient
 ) -> None:
     from any_llm import RateLimitError
