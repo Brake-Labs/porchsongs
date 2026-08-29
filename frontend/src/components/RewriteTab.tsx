@@ -145,6 +145,12 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const docFileInputRef = useRef<HTMLInputElement>(null);
   const [fileLoading, setFileLoading] = useState(false);
+  // Separate from docFileInputRef even though both take a PDF. That one reads a
+  // file and throws it away; this one keeps it. Sharing an input would mean
+  // storing which of the two the user meant somewhere else and reading it back
+  // in the change handler.
+  const tabPdfInputRef = useRef<HTMLInputElement>(null);
+  const [tabStoring, setTabStoring] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [linkLoading, setLinkLoading] = useState(false);
   // Which of the four ways in is showing. Photo, file, and link all end by
@@ -377,6 +383,38 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     } finally {
       setFileLoading(false);
     }
+  };
+
+  /**
+   * Store tab PDFs as they are, then hand the user off to the library.
+   *
+   * The other three ways in end by filling the paste box, because they produce
+   * chart text that wants reading before it is saved. This one produces no text
+   * to read: the file is kept byte for byte and the library is where it lands,
+   * so going there is both the confirmation and the next thing you would do.
+   */
+  const handleStoreTabPdfs = async (files: FileList | null) => {
+    if (!files?.length || !profile?.id) return;
+    setParseError(null);
+    setTabStoring(true);
+    // Sequential, matching the library's own uploader: these are megabytes each,
+    // and firing a folder of them at once on a phone connection times them all
+    // out together.
+    let stored = 0;
+    const failed: string[] = [];
+    for (const file of Array.from(files)) {
+      try {
+        await api.uploadDocument(profile.id, file);
+        stored++;
+      } catch (err) {
+        failed.push(`${file.name}: ${(err as Error)?.message ?? 'upload failed'}`);
+      }
+    }
+    setTabStoring(false);
+    if (failed.length) setParseError(failed.join('; '));
+    // Partial success still counts: the ones that worked are in the library, so
+    // go there. The failures are named above and the user can retry those.
+    if (stored > 0) navigate('/app/library');
   };
 
   const handleScrapeUrl = async () => {
@@ -1006,6 +1044,19 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 className="hidden"
                 onChange={handleFileUpload}
               />
+              <input
+                ref={tabPdfInputRef}
+                type="file"
+                accept="application/pdf,.pdf"
+                multiple
+                className="hidden"
+                data-testid="import-tab-pdf-input"
+                onChange={e => {
+                  void handleStoreTabPdfs(e.target.files);
+                  // Cleared so picking the same file twice in a row still fires.
+                  e.target.value = '';
+                }}
+              />
 
               {/* The four sources are tabs because they are four alternatives, and
                   a tab strip is how you show that. They were previously three
@@ -1149,14 +1200,32 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                   </div>
                 </TabsContent>
 
+                {/* Two outcomes, not one, because a PDF arrives here meaning one of
+                    two different things. A chord chart that happens to be a PDF
+                    wants its text pulled out so it can be played, transposed and
+                    scrolled. A mandolin tab or a piece of notation has no text
+                    worth pulling: it is a picture of a page, and extracting it
+                    would return a scrambled column of nothing. That one wants
+                    keeping as it is.
+
+                    Storing used to be reachable only from the "+ Tab" button in
+                    the library toolbar, which is where you would look for it
+                    second. Import is where you look first. */}
                 <TabsContent value="file" className="mt-3">
                   <div className="rounded-md border border-dashed border-border p-6 text-center">
-                    <p className="text-sm text-muted-foreground mb-3">
-                      A PDF up to 10 MB, or a text file up to 1 MB. No AI credits needed.
+                    <p className="text-sm font-semibold text-foreground mb-1">
+                      Pull the chords out as text
+                    </p>
+                    {/* Capped measure: the card is as wide as the window on a
+                        desktop, and a single line of help text running 1400px is
+                        a line nobody tracks to the end of. */}
+                    <p className="text-sm text-muted-foreground mb-3 max-w-md mx-auto text-balance">
+                      A PDF up to 10 MB, or a text file up to 1 MB. The text lands in Paste so you
+                      can read it before you save. No AI credits needed.
                     </p>
                     <Button
                       variant="secondary"
-                      disabled={!hasProfile || fileLoading}
+                      disabled={!hasProfile || fileLoading || tabStoring}
                       onClick={() => docFileInputRef.current?.click()}
                     >
                       {fileLoading ? <><Spinner size="sm" className="mr-1.5" /> Extracting...</> : 'Choose file'}
@@ -1164,6 +1233,28 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                     <p className="mt-3 text-xs text-muted-foreground">
                       You can also drop a file anywhere on this card.
                     </p>
+
+                    <div className="flex items-center gap-3 my-5 max-w-md mx-auto" aria-hidden="true">
+                      <span className="h-px flex-1 bg-border" />
+                      <span className="text-xs text-muted-foreground">or</span>
+                      <span className="h-px flex-1 bg-border" />
+                    </div>
+
+                    <p className="text-sm font-semibold text-foreground mb-1">
+                      Keep the PDF as it is
+                    </p>
+                    <p className="text-sm text-muted-foreground mb-3 max-w-md mx-auto text-balance">
+                      For tabs and notation, where the layout is the chart. Stored exactly as you
+                      uploaded it, up to 25 MB, and opened page by page for playing from. Nothing
+                      is extracted, so nothing is reformatted.
+                    </p>
+                    <Button
+                      variant="secondary"
+                      disabled={!hasProfile || fileLoading || tabStoring}
+                      onClick={() => tabPdfInputRef.current?.click()}
+                    >
+                      {tabStoring ? <><Spinner size="sm" className="mr-1.5" /> Storing...</> : 'Store a tab PDF'}
+                    </Button>
                     {replaceNotice}
                   </div>
                 </TabsContent>

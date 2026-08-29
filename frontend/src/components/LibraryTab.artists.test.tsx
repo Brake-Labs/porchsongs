@@ -452,4 +452,30 @@ describe('LibraryTab artist browsing', () => {
     expect(screen.queryByText('Miss Ohio')).not.toBeInTheDocument();
     expect(screen.getByTestId('folder-pill-Setlist')).toBeInTheDocument();
   });
+
+  // The switch used to lead the folder row, where an active "Songs" and an
+  // active "All" were the same brown pill side by side, so a mode switch and a
+  // folder filter read as one set of options with two of them chosen.
+  it('keeps the browse switch out of the folder filter row', async () => {
+    vi.mocked(api.listSongs).mockResolvedValue([
+      makeSong({ id: 1, title: 'Old Man', artist: 'Neil Young', folder: 'Setlist' }),
+    ]);
+
+    renderWithRouter(<LibraryTab />, { route: '/app/library' });
+    await waitFor(() => expect(screen.getByText('Old Man')).toBeInTheDocument());
+
+    const folderRow = screen.getByTestId('folder-pill-Setlist').parentElement!;
+    expect(folderRow).not.toContainElement(screen.getByTestId('browse-mode-songs'));
+  });
+
+  it('drops the folder filter row entirely in the artist picker', async () => {
+    await renderInArtistMode([
+      makeSong({ id: 1, title: 'Old Man', artist: 'Neil Young', folder: 'Setlist' }),
+    ]);
+
+    // Nothing in that row applies to a list of artists, and an empty strip of
+    // controls between the search box and the grid is just a gap with a border.
+    expect(screen.queryByTestId('folder-pill-Setlist')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create new folder' })).not.toBeInTheDocument();
+  });
 });
