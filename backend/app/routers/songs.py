@@ -3,8 +3,9 @@ import json
 import re
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
+from sqlalchemy import func
 from sqlalchemy.orm import Session, undefer
 
 from ..auth.dependencies import get_current_user
@@ -16,21 +17,24 @@ from ..models import (
     SongBlob,
     SongFile,
     SongRevision,
+    SongTag,
     User,
 )
 from ..schemas import (
     ChatMessageCreate,
     ChatMessageOut,
-    FolderRename,
     OkResponse,
     SongCreate,
     SongOut,
     SongRevisionOut,
     SongStatusUpdate,
     SongUpdate,
+    TagOut,
+    TagRename,
 )
 from ..services.blob_store import hashes_for_songs, prune_orphan_blobs, put_blob
 from ..services.pdf_service import generate_song_pdf
+from ..services.tags import normalise, set_tags, user_tags
 
 router = APIRouter(tags=["songs"])
 
@@ -83,11 +87,15 @@ def _resolve_song(db: Session, user: User, song_ref: str) -> Song:
         return get_user_song_by_uuid(db, user, song_ref)
 
 
+# What the library sends to mean "songs carrying no tags at all".
+UNTAGGED = "__untagged__"
+
+
 @router.get("/songs", response_model=list[SongOut])
 async def list_songs(
     profile_id: int | None = None,
     search: str | None = None,
-    folder: str | None = None,
+    tags: list[str] | None = Query(default=None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[Song]:
@@ -97,52 +105,99 @@ async def list_songs(
     if search:
         pattern = f"%{search}%"
         query = query.filter((Song.title.ilike(pattern)) | (Song.artist.ilike(pattern)))
-    if folder is not None:
-        if folder == "__unfiled__":
-            query = query.filter(Song.folder.is_(None))
+
+    if tags:
+        if UNTAGGED in tags:
+            # Untagged is not a tag, so it cannot be combined with one: no song is
+            # both untagged and tagged, and returning nothing would look broken.
+            # It wins, and the rest are ignored.
+            query = query.filter(~Song.tag_rows.any())
         else:
-            query = query.filter(Song.folder == folder)
+            # Every selected tag, not any: each one you add narrows the list, which
+            # is what a tag row is for once a library is big enough to need one.
+            # One EXISTS per tag rather than a join and a count, so the planner can
+            # use ix_song_tags_tag for each and stop at the first miss.
+            for tag in tags:
+                cleaned = normalise(tag)
+                if not cleaned:
+                    continue
+                query = query.filter(Song.tag_rows.any(func.lower(SongTag.tag) == cleaned.lower()))
+
     return query.order_by(Song.created_at.desc()).all()
 
 
-@router.get("/songs/folders", response_model=list[str])
-async def list_folders(
+@router.get("/songs/tags", response_model=list[TagOut])
+async def list_tags(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> list[str]:
-    rows = (
-        db.query(Song.folder)
-        .filter(Song.user_id == current_user.id, Song.folder.isnot(None), Song.folder != "")
-        .distinct()
-        .all()
-    )
-    return sorted(row[0] for row in rows)
+) -> list[TagOut]:
+    """Every tag this user has, with how many songs carry it.
+
+    The count is what lets the library show "Fiddle Tunes 12" and what tells a
+    tag editor whether a tag it is about to create is new.
+    """
+    return [TagOut(tag=tag, count=count) for tag, count in user_tags(db, current_user.id)]
 
 
-@router.put("/songs/folders/{folder_name}", response_model=OkResponse)
-async def rename_folder(
-    folder_name: str,
-    data: FolderRename,
+@router.put("/songs/tags/{tag_name}", response_model=OkResponse)
+async def rename_tag(
+    tag_name: str,
+    data: TagRename,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> OkResponse:
-    db.query(Song).filter(Song.user_id == current_user.id, Song.folder == folder_name).update(
-        {Song.folder: data.name}
+    """Rename a tag everywhere it appears."""
+    new_name = normalise(data.name)
+    if not new_name:
+        raise HTTPException(status_code=422, detail="A tag needs a name.")
+
+    rows = (
+        db.query(SongTag)
+        .join(Song, Song.id == SongTag.song_id)
+        .filter(Song.user_id == current_user.id, func.lower(SongTag.tag) == tag_name.lower())
+        .all()
     )
+    # A song already carrying the destination would end up with it twice, which
+    # the unique constraint refuses. Drop the duplicate rather than fail the
+    # rename: merging two tags is a reasonable thing to have meant.
+    already = {
+        row.song_id
+        for row in db.query(SongTag)
+        .join(Song, Song.id == SongTag.song_id)
+        .filter(Song.user_id == current_user.id, func.lower(SongTag.tag) == new_name.lower())
+        .all()
+    }
+    for row in rows:
+        if row.song_id in already:
+            db.delete(row)
+        else:
+            row.tag = new_name
     db.commit()
     return OkResponse(ok=True)
 
 
-@router.delete("/songs/folders/{folder_name}", response_model=OkResponse)
-async def delete_folder(
-    folder_name: str,
+@router.delete("/songs/tags/{tag_name}", response_model=OkResponse)
+async def delete_tag(
+    tag_name: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> OkResponse:
-    db.query(Song).filter(Song.user_id == current_user.id, Song.folder == folder_name).update(
-        {Song.folder: None}
-    )
-    db.commit()
+    """Remove a tag from every song that carries it.
+
+    Never touches a song. That is a property of the shape rather than a promise
+    this endpoint makes: the tag lives in its own table, so deleting it is a
+    delete of those rows and nothing else.
+    """
+    ids = [
+        row.id
+        for row in db.query(SongTag.id)
+        .join(Song, Song.id == SongTag.song_id)
+        .filter(Song.user_id == current_user.id, func.lower(SongTag.tag) == tag_name.lower())
+        .all()
+    ]
+    if ids:
+        db.query(SongTag).filter(SongTag.id.in_(ids)).delete(synchronize_session=False)
+        db.commit()
     return OkResponse(ok=True)
 
 
@@ -151,7 +206,7 @@ async def upload_document(
     profile_id: int = Form(...),
     title: str | None = Form(None),
     artist: str | None = Form(None),
-    folder: str | None = Form(None),
+    tags: str | None = Form(None),
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -201,7 +256,6 @@ async def upload_document(
         kind="document",
         title=resolved_title[:500],
         artist=(artist or "").strip()[:500] or None,
-        folder=(folder or "").strip()[:100] or None,
         # A document has no chart text. Empty rather than null keeps the columns
         # non-nullable for the charts, where blank content really would be a bug.
         original_content="",
@@ -211,6 +265,10 @@ async def upload_document(
     )
     db.add(song)
     db.flush()
+    if tags:
+        # Comma separated, because this is a multipart form and a repeated field
+        # is awkward to build from a FormData in the browser.
+        set_tags(db, song, tags.split(","))
 
     # Content-addressed, so uploading a file somebody already holds costs a row
     # rather than another copy of the bytes. That is the common case once tabs are
@@ -338,8 +396,15 @@ async def create_song(
     # Verify the profile belongs to this user
     get_user_profile(db, current_user, data.profile_id)
 
-    song = Song(**data.model_dump(), user_id=current_user.id, status="draft", current_version=1)
+    payload = data.model_dump()
+    # `tags` is a read-only view over the join rows, so it cannot be passed to the
+    # constructor. Pulled out and applied through the service, which is also what
+    # normalises and de-duplicates it.
+    tags = payload.pop("tags", [])
+    song = Song(**payload, user_id=current_user.id, status="draft", current_version=1)
     db.add(song)
+    db.flush()
+    set_tags(db, song, tags)
     db.commit()
     db.refresh(song)
 
@@ -365,10 +430,10 @@ async def update_song(
     db: Session = Depends(get_db),
 ) -> Song:
     song = _resolve_song(db, current_user, song_ref)
-    # Renaming and filing a document is ordinary library housekeeping, so those
+    # Renaming and tagging a document is ordinary library housekeeping, so those
     # fields stay open. Only the text is refused, and only when text was actually
-    # sent: a frontend that PUTs the whole song back to change a folder should not
-    # be told no because the payload carried two empty strings.
+    # sent: a frontend that PUTs the whole song back to change a tag should not be
+    # told no because the payload carried two empty strings.
     if song.kind == "document" and (
         data.original_content is not None or data.rewritten_content is not None
     ):
@@ -383,8 +448,8 @@ async def update_song(
         song.rewritten_content = data.rewritten_content
     if data.font_size is not None:
         song.font_size = data.font_size if data.font_size > 0 else None
-    if data.folder is not None:
-        song.folder = data.folder if data.folder != "" else None
+    if data.tags is not None:
+        set_tags(db, song, data.tags)
     db.commit()
     db.refresh(song)
     return song

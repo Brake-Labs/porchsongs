@@ -68,8 +68,8 @@ cd backend && uv run uvicorn app.main:app --reload
 Importing charts, storing tab PDFs, the library, the performance view, the tuner,
 hands-free scrolling, the chord dictionary, and PDF export all work with no gateway
 configured. Only three things need one: tidying up a chart's formatting, rewriting
-lyrics, and suggesting a folder for a chart. Those actions disable themselves and say why. Folders themselves
-are entirely manual and always work; the AI suggestion is one opt-in tap on one chart.
+lyrics, and suggesting tags for a chart. Those actions disable themselves and say why. Tagging
+itself is entirely manual and always works; the AI suggestion is one opt-in tap on one chart.
 
 This used to be impossible. Saving a chart went through the LLM parse endpoint and the
 save button was gated on having a model selected, so an instance with no gateway could

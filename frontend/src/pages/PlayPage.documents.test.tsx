@@ -54,7 +54,7 @@ function makeDocument(overrides: Partial<Song> = {}): Song {
     original_content: '',
     rewritten_content: '',
     font_size: null,
-    folder: null,
+    tags: [],
     status: 'ready',
     current_version: 1,
     file: {

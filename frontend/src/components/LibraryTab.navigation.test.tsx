@@ -5,6 +5,7 @@ import type { Song } from '@/types';
 
 const MOCK_SONG = vi.hoisted<Song>(() => ({
   id: 42,
+  tags: [],
   uuid: 'test-uuid-123',
   user_id: 1,
   profile_id: 1,

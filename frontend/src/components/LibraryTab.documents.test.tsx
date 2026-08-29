@@ -137,7 +137,7 @@ describe('documents in the library list', () => {
     expect(screen.queryByText(/v1/)).not.toBeInTheDocument();
   });
 
-  it('offers rename but not rewrite or AI folder suggestion on a stored tab', async () => {
+  it('offers rename but not rewrite or AI tag suggestion on a stored tab', async () => {
     mockListSongs.mockResolvedValue([DOCUMENT]);
     renderLibrary();
     await screen.findByText('Blackberry Blossom');
@@ -145,7 +145,7 @@ describe('documents in the library list', () => {
 
     expect(await screen.findByText('Rename')).toBeInTheDocument();
     expect(screen.queryByText('Rewrite')).not.toBeInTheDocument();
-    expect(screen.queryByText(/Suggest a folder with AI/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Suggest tags with AI/)).not.toBeInTheDocument();
   });
 
   it('still offers rewrite on a chart', async () => {
@@ -176,7 +176,7 @@ describe('adding a tab', () => {
 
   it('keeps the uploads that worked and names only the ones that failed', async () => {
     // The common shape of a multi-file drop. Discarding the successes because one
-    // file was bad would mean re-picking the whole folder.
+    // file was bad would mean re-picking the whole batch.
     mockListSongs.mockResolvedValue([]);
     mockUpload
       .mockResolvedValueOnce(DOCUMENT)

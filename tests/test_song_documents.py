@@ -61,8 +61,13 @@ def test_upload_creates_a_document_song(client: TestClient, profile_id: int) -> 
 
 
 def test_upload_honours_supplied_metadata(client: TestClient, profile_id: int) -> None:
-    song = _upload(client, profile_id, title="Salt Creek", artist="Trad", folder="Fiddle Tunes")
-    assert (song["title"], song["artist"], song["folder"]) == ("Salt Creek", "Trad", "Fiddle Tunes")
+    song = _upload(
+        client, profile_id, title="Salt Creek", artist="Trad", tags="Fiddle Tunes, Reels"
+    )
+    assert (song["title"], song["artist"]) == ("Salt Creek", "Trad")
+    # Comma-separated on the form, because a multipart upload has no JSON body
+    # to put a list in.
+    assert sorted(song["tags"]) == ["Fiddle Tunes", "Reels"]
 
 
 def test_upload_rejects_a_non_pdf(client: TestClient, profile_id: int) -> None:
@@ -223,17 +228,17 @@ def test_document_cannot_be_edited_as_text(client: TestClient, profile_id: int) 
     assert resp.status_code == 409
 
 
-def test_document_can_still_be_renamed_and_filed(client: TestClient, profile_id: int) -> None:
-    """Housekeeping is not editing. Renaming a tab and putting it in a folder is
-    the main thing you do with a stored file."""
+def test_document_can_still_be_renamed_and_tagged(client: TestClient, profile_id: int) -> None:
+    """Housekeeping is not editing. Renaming a tab and tagging it is the main
+    thing you do with a stored file."""
     song = _upload(client, profile_id)
     resp = client.put(
         f"/api/songs/{song['uuid']}",
-        json={"title": "Salt Creek", "artist": "Trad", "folder": "Fiddle Tunes"},
+        json={"title": "Salt Creek", "artist": "Trad", "tags": ["Fiddle Tunes"]},
     )
     assert resp.status_code == 200
     assert resp.json()["title"] == "Salt Creek"
-    assert resp.json()["folder"] == "Fiddle Tunes"
+    assert resp.json()["tags"] == ["Fiddle Tunes"]
     assert resp.json()["file"]["page_count"] == 2
 
 
@@ -264,9 +269,9 @@ def test_document_cannot_be_sent_to_the_model(client: TestClient, profile_id: in
     assert resp.status_code == 409
 
 
-def test_document_cannot_be_sent_to_folder_suggest(client: TestClient, profile_id: int) -> None:
+def test_document_cannot_be_sent_to_tag_suggest(client: TestClient, profile_id: int) -> None:
     song = _upload(client, profile_id)
-    resp = client.post("/api/folders/suggest", json={"song_id": song["id"], "model": "x"})
+    resp = client.post("/api/tags/suggest", json={"song_id": song["id"], "model": "x"})
     assert resp.status_code == 409
 
 

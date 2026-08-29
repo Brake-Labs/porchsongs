@@ -11,7 +11,7 @@ import type { Song, ChatMessage } from '@/types';
  * These tests are written against the URL rather than against what is on
  * screen, because the URL is the part that is new and the part a link, a
  * reload, or the Back button actually carries. What each filter *does* to the
- * list is covered by the artist and folder suites; what is checked here is that
+ * list is covered by the artist and tag suites; what is checked here is that
  * the address says so.
  */
 
@@ -31,10 +31,10 @@ vi.mock('@/api', () => ({
     updateSong: vi.fn(),
     deleteSong: vi.fn(),
     getSongRevisions: vi.fn(),
-    renameFolder: vi.fn(),
-    deleteFolder: vi.fn(),
+    renameTag: vi.fn(),
+    deleteTag: vi.fn(),
     downloadSongPdf: vi.fn(),
-    suggestFolder: vi.fn(),
+    suggestTags: vi.fn(),
   },
   STORAGE_KEYS: {
     DRAFT_INPUT: 'test_draft_input',
@@ -70,7 +70,7 @@ function makeSong(overrides: Partial<Song> = {}): Song {
     llm_provider: null,
     llm_model: null,
     font_size: null,
-    folder: null,
+    tags: [],
     status: 'completed',
     current_version: 1,
     created_at: '2025-01-01T00:00:00Z',
@@ -121,7 +121,7 @@ function PlayProbe() {
 }
 
 const SONGS = [
-  makeSong({ id: 1, title: 'Old Man', artist: 'Neil Young', folder: 'Gigs' }),
+  makeSong({ id: 1, title: 'Old Man', artist: 'Neil Young', tags: ['Gigs'] }),
   makeSong({ id: 2, title: 'Harvest Moon', artist: 'Neil Young' }),
   makeSong({ id: 3, title: 'Miss Ohio', artist: 'Gillian Welch' }),
 ];
@@ -199,9 +199,9 @@ describe('LibraryTab filters in the URL', () => {
     expect(params()).toEqual({ view: 'artists' });
   });
 
-  it('restores a folder filter from a link, and writes one back when a pill is picked', async () => {
+  it('restores a tag filter from a link, and writes one back when a pill is picked', async () => {
     const user = userEvent.setup();
-    await renderLibrary('/app/library?folder=Gigs');
+    await renderLibrary('/app/library?tags=Gigs');
 
     expect(screen.getByText('Old Man')).toBeInTheDocument();
     expect(screen.queryByText('Miss Ohio')).not.toBeInTheDocument();
@@ -209,8 +209,8 @@ describe('LibraryTab filters in the URL', () => {
     await user.click(screen.getByText('All'));
     expect(params()).toEqual({});
 
-    await user.click(screen.getByTestId('folder-pill-Gigs'));
-    expect(params()).toEqual({ folder: 'Gigs' });
+    await user.click(screen.getByTestId('tag-pill-Gigs'));
+    expect(params()).toEqual({ tags: 'Gigs' });
   });
 
   it('restores the search box from a link, and follows what is typed into it', async () => {
@@ -294,26 +294,26 @@ describe('LibraryTab filters in the URL', () => {
     expect(screen.getByLabelText('Sort descending')).toBeInTheDocument();
   });
 
-  it('renames the folder in place rather than stacking the old name behind Back', async () => {
+  it('renames the tag in place rather than stacking the old name behind Back', async () => {
     // Reconciling the filter after a rename is not navigation. Pushing would
-    // leave Back on a folder that no longer exists, showing an empty list with
+    // leave Back on a tag that no longer exists, showing an empty list with
     // no pill to clear it.
     const user = userEvent.setup();
-    vi.mocked(api.renameFolder).mockResolvedValue(undefined as never);
+    vi.mocked(api.renameTag).mockResolvedValue(undefined as never);
     await renderLibrary();
 
     // One real entry to come back to, so a pushed rename would be visible here.
-    await user.click(screen.getByTestId('folder-pill-Gigs'));
-    expect(params()).toEqual({ folder: 'Gigs' });
+    await user.click(screen.getByTestId('tag-pill-Gigs'));
+    expect(params()).toEqual({ tags: 'Gigs' });
 
-    await user.pointer({ keys: '[MouseRight]', target: screen.getByTestId('folder-pill-Gigs') });
+    await user.click(screen.getByRole('button', { name: 'Actions for Gigs' }));
     await user.click(await screen.findByText('Rename'));
     const input = await screen.findByRole('textbox');
     await user.clear(input);
     await user.type(input, 'Shows');
     await user.click(screen.getByRole('button', { name: 'Rename' }));
 
-    await waitFor(() => expect(params()).toEqual({ folder: 'Shows' }));
+    await waitFor(() => expect(params()).toEqual({ tags: 'Shows' }));
 
     await user.click(screen.getByTestId('go-back'));
     expect(params()).toEqual({});
@@ -321,18 +321,18 @@ describe('LibraryTab filters in the URL', () => {
 
   it('clears the filters it is leaving behind in one step when the axis changes', async () => {
     const user = userEvent.setup();
-    await renderLibrary('/app/library?folder=Gigs&q=old&sort=title');
+    await renderLibrary('/app/library?tags=Gigs&q=old&sort=title');
 
     await user.click(screen.getByTestId('browse-mode-artists'));
 
-    // The folder and the query go; the sort is not a filter and stays.
+    // The tags and the query go; the sort is not a filter and stays.
     expect(params()).toEqual({ view: 'artists', sort: 'title' });
 
     // And all of it in one navigation. Back returns to the whole previous view
     // rather than unwinding a parameter at a time, which is what would happen
     // if each cleared filter were its own write.
     await user.click(screen.getByTestId('go-back'));
-    expect(params()).toEqual({ folder: 'Gigs', q: 'old', sort: 'title' });
+    expect(params()).toEqual({ tags: 'Gigs', q: 'old', sort: 'title' });
   });
 
   it('leaves Back able to escape, rather than one entry per keystroke', async () => {

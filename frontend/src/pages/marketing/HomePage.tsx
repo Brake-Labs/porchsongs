@@ -74,7 +74,7 @@ export default function HomePage() {
             </div>
             <h3 className="text-lg font-semibold mb-2">Your Songbook</h3>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              Organise charts into folders and export any of them as a printable PDF.
+              Tag charts however you like and export any of them as a printable PDF.
             </p>
           </div>
         </div>

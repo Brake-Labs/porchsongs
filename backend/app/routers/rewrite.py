@@ -33,19 +33,20 @@ from ..schemas import (
     DefaultPromptsResponse,
     FileExtractRequest,
     FileExtractResponse,
-    FolderSuggestion,
-    FolderSuggestRequest,
-    FolderSuggestResponse,
     ImageExtractRequest,
     ImageExtractResponse,
     ModelsResponse,
     ParseRequest,
     ParseResponse,
+    TagSuggestion,
+    TagSuggestRequest,
+    TagSuggestResponse,
     TokenUsage,
     UrlScrapeRequest,
     UrlScrapeResponse,
 )
 from ..services import llm_service, scrape_service
+from ..services.tags import user_tags
 from .songs import reject_documents
 
 router = APIRouter()
@@ -827,21 +828,24 @@ async def chat_stream(
     )
 
 
-@router.post("/folders/suggest", response_model=FolderSuggestResponse, tags=["songs"])
-async def suggest_folder(
-    req: FolderSuggestRequest,
+@router.post("/tags/suggest", response_model=TagSuggestResponse, tags=["songs"])
+async def suggest_tags(
+    req: TagSuggestRequest,
     request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> FolderSuggestResponse:
-    """Suggest where one chart belongs, ranking the user's own folders first.
+) -> TagSuggestResponse:
+    """Suggest tags for one chart, ranking the user's own tags first.
 
     Opt-in and per chart. Importing a chart stays free and makes no LLM call at
     all, so this is the only place organising can cost anything, and it costs it
     only when someone asks for it.
 
-    Nothing is filed here. The response is a proposal; the client writes the
-    folder through the ordinary ``PUT /api/songs/{ref}`` when the user taps one.
+    Several suggestions per call rather than one, because a song carries several
+    tags: one paid call now does the work that used to take one per tag.
+
+    Nothing is written here. The response is a proposal; the client writes the
+    tags through the ordinary ``PUT /api/songs/{ref}`` when the user taps them.
 
     Lives beside the other LLM endpoints rather than in ``songs.py`` because
     that is what makes it metered: the premium guard intercepts LLM traffic by
@@ -852,22 +856,17 @@ async def suggest_folder(
     song = get_user_song(db, current_user, req.song_id)
     reject_documents(song, "sent to the model")
 
-    folder_rows = (
-        db.query(Song.folder)
-        .filter(Song.user_id == current_user.id, Song.folder.isnot(None), Song.folder != "")
-        .distinct()
-        .all()
-    )
-    existing_folders = sorted(row[0] for row in folder_rows)
+    counts = dict(user_tags(db, current_user.id))
+    existing_tags = sorted(counts)
 
     try:
         result = await _cancellable(
             request,
-            llm_service.suggest_folder(
+            llm_service.suggest_tags(
                 title=song.title,
                 artist=song.artist,
                 content=song.rewritten_content or song.original_content,
-                existing_folders=existing_folders,
+                existing_tags=existing_tags,
                 provider=settings.llm_provider,
                 model=req.model,
                 api_base=settings.llm_api_base,
@@ -882,18 +881,24 @@ async def suggest_folder(
             status_code=502, detail=_format_llm_error(e, settings.llm_provider)
         ) from None
 
-    suggestions = [FolderSuggestion(**s) for s in result["suggestions"]]
+    # The service says whether a tag is new; the count is this router's to add,
+    # since it is the one holding the numbers. A tag the service marked new has
+    # no count by definition.
+    suggestions = [
+        TagSuggestion(tag=s["tag"], count=0 if s["is_new"] else counts.get(s["tag"], 0))
+        for s in result["suggestions"]
+    ]
 
     # A reply we could not read still has to leave the user with something to
     # tap, so fall back to the artist. Costs nothing extra: the call is already
     # paid for by the time we get here.
     if not suggestions:
-        artist = (song.artist or "").strip()[: llm_service.FOLDER_NAME_MAX_CHARS]
-        if artist and artist.casefold() not in {f.casefold() for f in existing_folders}:
-            suggestions = [FolderSuggestion(folder=artist, is_new=True)]
+        artist = (song.artist or "").strip()[: llm_service.TAG_NAME_MAX_CHARS]
+        if artist and artist.casefold() not in {f.casefold() for f in existing_tags}:
+            suggestions = [TagSuggestion(tag=artist, count=0)]
 
     usage_data = result.get("usage")
-    return FolderSuggestResponse(
+    return TagSuggestResponse(
         suggestions=suggestions,
         usage=TokenUsage(**usage_data) if usage_data else None,
     )

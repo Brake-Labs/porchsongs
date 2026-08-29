@@ -46,7 +46,7 @@ interface PlayNavState {
   artist?: string | null;
   /**
    * Where the back button goes, when the library sent us here. It carries the
-   * library's filter query so playing a chart out of an artist or a folder and
+   * library's filter query so playing a chart out of an artist or a tag and
    * coming back does not land in an unfiltered list. Absent on a deep link,
    * which is why there is still a fallback.
    */

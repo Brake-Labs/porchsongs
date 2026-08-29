@@ -82,15 +82,21 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/songs/folders": {
+    "/api/songs/tags": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List Folders */
-        get: operations["list_folders_api_songs_folders_get"];
+        /**
+         * List Tags
+         * @description Every tag this user has, with how many songs carry it.
+         *
+         *     The count is what lets the library show "Fiddle Tunes 12" and what tells a
+         *     tag editor whether a tag it is about to create is new.
+         */
+        get: operations["list_tags_api_songs_tags_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -99,7 +105,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/songs/folders/{folder_name}": {
+    "/api/songs/tags/{tag_name}": {
         parameters: {
             query?: never;
             header?: never;
@@ -107,11 +113,21 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Rename Folder */
-        put: operations["rename_folder_api_songs_folders__folder_name__put"];
+        /**
+         * Rename Tag
+         * @description Rename a tag everywhere it appears.
+         */
+        put: operations["rename_tag_api_songs_tags__tag_name__put"];
         post?: never;
-        /** Delete Folder */
-        delete: operations["delete_folder_api_songs_folders__folder_name__delete"];
+        /**
+         * Delete Tag
+         * @description Remove a tag from every song that carries it.
+         *
+         *     Never touches a song. That is a property of the shape rather than a promise
+         *     this endpoint makes: the tag lives in its own table, so deleting it is a
+         *     delete of those rows and nothing else.
+         */
+        delete: operations["delete_tag_api_songs_tags__tag_name__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -400,7 +416,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/folders/suggest": {
+    "/api/tags/suggest": {
         parameters: {
             query?: never;
             header?: never;
@@ -410,22 +426,25 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Suggest Folder
-         * @description Suggest where one chart belongs, ranking the user's own folders first.
+         * Suggest Tags
+         * @description Suggest tags for one chart, ranking the user's own tags first.
          *
          *     Opt-in and per chart. Importing a chart stays free and makes no LLM call at
          *     all, so this is the only place organising can cost anything, and it costs it
          *     only when someone asks for it.
          *
-         *     Nothing is filed here. The response is a proposal; the client writes the
-         *     folder through the ordinary ``PUT /api/songs/{ref}`` when the user taps one.
+         *     Several suggestions per call rather than one, because a song carries several
+         *     tags: one paid call now does the work that used to take one per tag.
+         *
+         *     Nothing is written here. The response is a proposal; the client writes the
+         *     tags through the ordinary ``PUT /api/songs/{ref}`` when the user taps them.
          *
          *     Lives beside the other LLM endpoints rather than in ``songs.py`` because
          *     that is what makes it metered: the premium guard intercepts LLM traffic by
          *     path, and an organising endpoint hidden among the CRUD routes would be an
          *     unmetered way onto the operator's gateway.
          */
-        post: operations["suggest_folder_api_folders_suggest_post"];
+        post: operations["suggest_tags_api_tags_suggest_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -624,8 +643,8 @@ export interface components {
             title?: string | null;
             /** Artist */
             artist?: string | null;
-            /** Folder */
-            folder?: string | null;
+            /** Tags */
+            tags?: string | null;
             /**
              * File
              * Format: binary
@@ -739,33 +758,6 @@ export interface components {
             /** Text */
             text: string;
             usage?: components["schemas"]["TokenUsage"] | null;
-        };
-        /** FolderRename */
-        FolderRename: {
-            /** Name */
-            name: string;
-        };
-        /** FolderSuggestRequest */
-        FolderSuggestRequest: {
-            /** Song Id */
-            song_id: number;
-            /** Model */
-            model: string;
-            /** Max Tokens */
-            max_tokens?: number | null;
-        };
-        /** FolderSuggestResponse */
-        FolderSuggestResponse: {
-            /** Suggestions */
-            suggestions: components["schemas"]["FolderSuggestion"][];
-            usage?: components["schemas"]["TokenUsage"] | null;
-        };
-        /** FolderSuggestion */
-        FolderSuggestion: {
-            /** Folder */
-            folder: string;
-            /** Is New */
-            is_new: boolean;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -909,8 +901,8 @@ export interface components {
             llm_provider?: string | null;
             /** Llm Model */
             llm_model?: string | null;
-            /** Folder */
-            folder?: string | null;
+            /** Tags */
+            tags?: string[];
         };
         /**
          * SongFileOut
@@ -963,8 +955,11 @@ export interface components {
             llm_model: string | null;
             /** Font Size */
             font_size?: number | null;
-            /** Folder */
-            folder?: string | null;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
             /** Status */
             status: string;
             /** Current Version */
@@ -1026,8 +1021,42 @@ export interface components {
             rewritten_content?: string | null;
             /** Font Size */
             font_size?: number | null;
-            /** Folder */
-            folder?: string | null;
+            /** Tags */
+            tags?: string[] | null;
+        };
+        /** TagOut */
+        TagOut: {
+            /** Tag */
+            tag: string;
+            /** Count */
+            count: number;
+        };
+        /** TagRename */
+        TagRename: {
+            /** Name */
+            name: string;
+        };
+        /** TagSuggestRequest */
+        TagSuggestRequest: {
+            /** Song Id */
+            song_id: number;
+            /** Model */
+            model: string;
+            /** Max Tokens */
+            max_tokens?: number | null;
+        };
+        /** TagSuggestResponse */
+        TagSuggestResponse: {
+            /** Suggestions */
+            suggestions: components["schemas"]["TagSuggestion"][];
+            usage?: components["schemas"]["TokenUsage"] | null;
+        };
+        /** TagSuggestion */
+        TagSuggestion: {
+            /** Tag */
+            tag: string;
+            /** Count */
+            count: number;
         };
         /** TokenUsage */
         TokenUsage: {
@@ -1259,7 +1288,7 @@ export interface operations {
             query?: {
                 profile_id?: number | null;
                 search?: string | null;
-                folder?: string | null;
+                tags?: string[] | null;
             };
             header?: never;
             path?: never;
@@ -1320,7 +1349,7 @@ export interface operations {
             };
         };
     };
-    list_folders_api_songs_folders_get: {
+    list_tags_api_songs_tags_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -1335,23 +1364,23 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": string[];
+                    "application/json": components["schemas"]["TagOut"][];
                 };
             };
         };
     };
-    rename_folder_api_songs_folders__folder_name__put: {
+    rename_tag_api_songs_tags__tag_name__put: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                folder_name: string;
+                tag_name: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["FolderRename"];
+                "application/json": components["schemas"]["TagRename"];
             };
         };
         responses: {
@@ -1375,12 +1404,12 @@ export interface operations {
             };
         };
     };
-    delete_folder_api_songs_folders__folder_name__delete: {
+    delete_tag_api_songs_tags__tag_name__delete: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                folder_name: string;
+                tag_name: string;
             };
             cookie?: never;
         };
@@ -1981,7 +2010,7 @@ export interface operations {
             };
         };
     };
-    suggest_folder_api_folders_suggest_post: {
+    suggest_tags_api_tags_suggest_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -1990,7 +2019,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["FolderSuggestRequest"];
+                "application/json": components["schemas"]["TagSuggestRequest"];
             };
         };
         responses: {
@@ -2000,7 +2029,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FolderSuggestResponse"];
+                    "application/json": components["schemas"]["TagSuggestResponse"];
                 };
             };
             /** @description Validation Error */

@@ -18,7 +18,8 @@ export type ParseResult = components['schemas']['ParseResponse'];
 export type UrlScrapeResult = components['schemas']['UrlScrapeResponse'];
 export type TokenUsage = components['schemas']['TokenUsage'];
 export type ChatResult = components['schemas']['ChatResponse'];
-export type FolderSuggestion = components['schemas']['FolderSuggestion'];
+export type TagSuggestion = components['schemas']['TagSuggestion'];
+export type TagWithCount = components['schemas']['TagOut'];
 
 // --- Frontend-only types (no backend equivalent, stay manual) ---
 

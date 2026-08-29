@@ -3,7 +3,8 @@ import type {
   AuthUser,
   ChatHistoryRow,
   ChatResult,
-  FolderSuggestion,
+  TagSuggestion,
+  TagWithCount,
   ParseResult,
   Profile,
   Song,
@@ -464,29 +465,40 @@ const api = {
       throw err;
     }
   },
-  renameFolder: async (oldName: string, newName: string) => {
-    const { error } = await client.PUT('/api/songs/folders/{folder_name}', {
-      params: { path: { folder_name: oldName } },
+  /** Every tag the user has, with how many songs carry each. */
+  listTags: async (): Promise<TagWithCount[]> => {
+    const { data, error } = await client.GET('/api/songs/tags');
+    if (error) _throwApiError(error, 'Failed to load tags');
+    return data as TagWithCount[];
+  },
+  renameTag: async (oldName: string, newName: string) => {
+    const { error } = await client.PUT('/api/songs/tags/{tag_name}', {
+      params: { path: { tag_name: oldName } },
       body: { name: newName },
     });
-    if (error) _throwApiError(error, 'Failed to rename folder');
-  },
-  deleteFolder: async (folderName: string) => {
-    const { error } = await client.DELETE('/api/songs/folders/{folder_name}', {
-      params: { path: { folder_name: folderName } },
-    });
-    if (error) _throwApiError(error, 'Failed to delete folder');
+    if (error) _throwApiError(error, 'Failed to rename tag');
   },
   /**
-   * Ask where one chart belongs. Costs an AI credit, so it is only ever called
-   * from an explicit tap, never on import or on load. Suggests; does not file.
+   * Remove a tag from every song carrying it. Never deletes a song: the tag
+   * lives in its own table, so this is a delete of those rows and nothing else.
    */
-  suggestFolder: async (songId: number, model: string) => {
-    const { data, error } = await client.POST('/api/folders/suggest', {
+  deleteTag: async (tagName: string) => {
+    const { error } = await client.DELETE('/api/songs/tags/{tag_name}', {
+      params: { path: { tag_name: tagName } },
+    });
+    if (error) _throwApiError(error, 'Failed to delete tag');
+  },
+  /**
+   * Ask what one chart should be tagged. Costs AI credits, so it is only ever
+   * called from an explicit tap, never on import or on load. Suggests several,
+   * and writes none of them.
+   */
+  suggestTags: async (songId: number, model: string) => {
+    const { data, error } = await client.POST('/api/tags/suggest', {
       body: { song_id: songId, model },
     });
-    if (error) _throwApiError(error, 'Failed to suggest a folder');
-    return (data as { suggestions: FolderSuggestion[] }).suggestions;
+    if (error) _throwApiError(error, 'Failed to suggest tags');
+    return (data as { suggestions: TagSuggestion[] }).suggestions;
   },
   getSong: async (ref: string) => {
     try {
@@ -577,7 +589,7 @@ const api = {
   uploadDocument: async (
     profileId: number,
     file: File,
-    meta: { title?: string; artist?: string; folder?: string } = {},
+    meta: { title?: string; artist?: string; tags?: string } = {},
   ): Promise<Song> => {
     const form = new FormData();
     form.append('profile_id', String(profileId));

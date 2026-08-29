@@ -77,7 +77,7 @@ function makeSong(overrides: Partial<Song> = {}): Song {
     original_content: CHART,
     rewritten_content: CHART,
     font_size: null,
-    folder: null,
+    tags: [],
     status: 'ready',
     current_version: 1,
     ...overrides,

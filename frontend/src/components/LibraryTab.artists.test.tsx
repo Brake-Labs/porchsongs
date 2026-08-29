@@ -21,10 +21,10 @@ vi.mock('@/api', () => ({
     updateSong: vi.fn(),
     deleteSong: vi.fn(),
     getSongRevisions: vi.fn(),
-    renameFolder: vi.fn(),
-    deleteFolder: vi.fn(),
+    renameTag: vi.fn(),
+    deleteTag: vi.fn(),
     downloadSongPdf: vi.fn(),
-    suggestFolder: vi.fn(),
+    suggestTags: vi.fn(),
     // The library asks which tabs are kept on the device to render its markers.
     keptSongFiles: vi.fn().mockResolvedValue(new Set()),
   },
@@ -62,7 +62,7 @@ function makeSong(overrides: Partial<Song> = {}): Song {
     llm_provider: null,
     llm_model: null,
     font_size: null,
-    folder: null,
+    tags: [],
     status: 'completed',
     current_version: 1,
     created_at: '2025-01-01T00:00:00Z',
@@ -312,25 +312,25 @@ describe('LibraryTab artist browsing', () => {
     await waitFor(() => expect(lastName()).toBe('Unknown artist'));
   });
 
-  it('clears the folder filter when switching to artists and back', async () => {
+  it('clears the tag filter when switching to artists and back', async () => {
     vi.mocked(api.listSongs).mockResolvedValue([
-      makeSong({ id: 1, title: 'Old Man', artist: 'Neil Young', folder: 'Setlist' }),
-      makeSong({ id: 2, title: 'Miss Ohio', artist: 'Gillian Welch', folder: null }),
+      makeSong({ id: 1, title: 'Old Man', artist: 'Neil Young', tags: ['Setlist'] }),
+      makeSong({ id: 2, title: 'Miss Ohio', artist: 'Gillian Welch', tags: [] }),
     ]);
 
     renderWithRouter(<LibraryTab />, { route: '/app/library' });
     await waitFor(() => expect(screen.getByText('Old Man')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByTestId('folder-pill-Setlist'));
+    fireEvent.click(screen.getByTestId('tag-pill-Setlist'));
     await waitFor(() => expect(screen.queryByText('Miss Ohio')).not.toBeInTheDocument());
 
     fireEvent.click(screen.getByTestId('browse-mode-artists'));
     await waitFor(() => expect(screen.getByTestId('artist-grid')).toBeInTheDocument());
-    // Both artists are offered, so the folder is not still narrowing the list.
+    // Both artists are offered, so the tag is not still narrowing the list.
     expect(screen.getByTestId('artist-card-gillian welch')).toBeInTheDocument();
 
-    // Folder pills belong to song mode only.
-    expect(screen.queryByTestId('folder-pill-Setlist')).not.toBeInTheDocument();
+    // Tag pills belong to song mode only.
+    expect(screen.queryByTestId('tag-pill-Setlist')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('browse-mode-songs'));
     await waitFor(() => expect(screen.getByText('Miss Ohio')).toBeInTheDocument());
@@ -431,16 +431,16 @@ describe('LibraryTab artist browsing', () => {
     expect(screen.queryByText('Old Man')).not.toBeInTheDocument();
   });
 
-  it('leaves the search box and folder filter alone when the current mode is tapped', async () => {
+  it('leaves the search box and tag filter alone when the current mode is tapped', async () => {
     vi.mocked(api.listSongs).mockResolvedValue([
-      makeSong({ id: 1, title: 'Old Man', artist: 'Neil Young', folder: 'Setlist' }),
-      makeSong({ id: 2, title: 'Miss Ohio', artist: 'Gillian Welch', folder: null }),
+      makeSong({ id: 1, title: 'Old Man', artist: 'Neil Young', tags: ['Setlist'] }),
+      makeSong({ id: 2, title: 'Miss Ohio', artist: 'Gillian Welch', tags: [] }),
     ]);
 
     renderWithRouter(<LibraryTab />, { route: '/app/library' });
     await waitFor(() => expect(screen.getByText('Old Man')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByTestId('folder-pill-Setlist'));
+    fireEvent.click(screen.getByTestId('tag-pill-Setlist'));
     const search = () => screen.getByPlaceholderText('Search songs by title or artist...');
     fireEvent.change(search(), { target: { value: 'Old' } });
     await waitFor(() => expect(search()).toHaveValue('Old'));
@@ -450,32 +450,32 @@ describe('LibraryTab artist browsing', () => {
 
     await waitFor(() => expect(search()).toHaveValue('Old'));
     expect(screen.queryByText('Miss Ohio')).not.toBeInTheDocument();
-    expect(screen.getByTestId('folder-pill-Setlist')).toBeInTheDocument();
+    expect(screen.getByTestId('tag-pill-Setlist')).toBeInTheDocument();
   });
 
-  // The switch used to lead the folder row, where an active "Songs" and an
+  // The switch used to lead the tag row, where an active "Songs" and an
   // active "All" were the same brown pill side by side, so a mode switch and a
-  // folder filter read as one set of options with two of them chosen.
-  it('keeps the browse switch out of the folder filter row', async () => {
+  // tag filter read as one set of options with two of them chosen.
+  it('keeps the browse switch out of the tag filter row', async () => {
     vi.mocked(api.listSongs).mockResolvedValue([
-      makeSong({ id: 1, title: 'Old Man', artist: 'Neil Young', folder: 'Setlist' }),
+      makeSong({ id: 1, title: 'Old Man', artist: 'Neil Young', tags: ['Setlist'] }),
     ]);
 
     renderWithRouter(<LibraryTab />, { route: '/app/library' });
     await waitFor(() => expect(screen.getByText('Old Man')).toBeInTheDocument());
 
-    const folderRow = screen.getByTestId('folder-pill-Setlist').parentElement!;
-    expect(folderRow).not.toContainElement(screen.getByTestId('browse-mode-songs'));
+    const tagRow = screen.getByTestId('tag-pill-Setlist').parentElement!;
+    expect(tagRow).not.toContainElement(screen.getByTestId('browse-mode-songs'));
   });
 
-  it('drops the folder filter row entirely in the artist picker', async () => {
+  it('drops the tag filter row entirely in the artist picker', async () => {
     await renderInArtistMode([
-      makeSong({ id: 1, title: 'Old Man', artist: 'Neil Young', folder: 'Setlist' }),
+      makeSong({ id: 1, title: 'Old Man', artist: 'Neil Young', tags: ['Setlist'] }),
     ]);
 
     // Nothing in that row applies to a list of artists, and an empty strip of
     // controls between the search box and the grid is just a gap with a border.
-    expect(screen.queryByTestId('folder-pill-Setlist')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Create new folder' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tag-pill-Setlist')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Make a new tag' })).not.toBeInTheDocument();
   });
 });
