@@ -17,6 +17,7 @@ import {
 import { generateVoicings } from '@/lib/chords/voicing';
 import useChordAudio from '@/hooks/useChordAudio';
 import ChordDiagram from './ChordDiagram';
+import { Select } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 
 /**
@@ -166,6 +167,7 @@ export default function ChordExplorer({
 }: ChordExplorerProps) {
   const { instrument, tuning, chord, capo } = selection;
   const audio = useChordAudio();
+  const tuningId = useId();
 
   // The capo is modelled as a retuning, so everything downstream (shapes, note
   // names, audio) is consistent without any of it knowing a capo exists.
@@ -189,25 +191,64 @@ export default function ChordExplorer({
       >
         {showInstrument && <InstrumentField instrument={instrument} onChange={onChange} />}
 
+        {/* Two controls for one choice, because the two places this renders want
+            different things from it.
+
+            On the chord pages there is room, and the tunings are part of what
+            those pages are for: a row of buttons shows at a glance that Open G
+            and DADGAD exist, and each one carries its notes.
+
+            In the panel beside a chart there is no room. Guitar has five
+            tunings, each button is a name plus six monospace letters, and on a
+            phone they wrapped to four rows, roughly two hundred pixels spent
+            above Root and Quality on a control almost nobody touches mid-song.
+            One select says the same thing in one row, and the heading under it
+            names the tuning anyway. */}
         {instrument.tunings.length > 1 && (
-          <Field label="Tuning">
-            {instrument.tunings.map(option => (
-              <PickerButton
-                key={option.slug}
-                active={option.slug === tuning.slug}
-                onClick={() => onChange({ tuning: option })}
-                title={option.description}
+          compact ? (
+            <div className="flex flex-col gap-2">
+              <label
+                htmlFor={tuningId}
+                className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
               >
-                {option.name}
-                {/* The one place monospace earns its keep: a tuning is read as
-                    six letters in a fixed order, and they line up between rows
-                    when every letter is the same width. */}
-                <span className="ml-2 font-mono text-xs font-normal opacity-70">
-                  {option.description}
-                </span>
-              </PickerButton>
-            ))}
-          </Field>
+                Tuning
+              </label>
+              <Select
+                id={tuningId}
+                className="py-1.5 text-sm"
+                value={tuning.slug}
+                onChange={e => {
+                  const next = instrument.tunings.find(t => t.slug === e.target.value);
+                  if (next) onChange({ tuning: next });
+                }}
+              >
+                {instrument.tunings.map(option => (
+                  <option key={option.slug} value={option.slug}>
+                    {option.name} · {option.description}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          ) : (
+            <Field label="Tuning">
+              {instrument.tunings.map(option => (
+                <PickerButton
+                  key={option.slug}
+                  active={option.slug === tuning.slug}
+                  onClick={() => onChange({ tuning: option })}
+                  title={option.description}
+                >
+                  {option.name}
+                  {/* The one place monospace earns its keep: a tuning is read as
+                      six letters in a fixed order, and they line up between rows
+                      when every letter is the same width. */}
+                  <span className="ml-2 font-mono text-xs font-normal opacity-70">
+                    {option.description}
+                  </span>
+                </PickerButton>
+              ))}
+            </Field>
+          )
         )}
 
         <Field label="Root">
