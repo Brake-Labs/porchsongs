@@ -39,6 +39,11 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
   const [pageCount, setPageCount] = useState(0);
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(1);
+  // Shown briefly after a gesture turns a page. With the page filling the
+  // screen, the number in the bar is the only thing that says where you are, and
+  // on a stand your eyes are not on the bar.
+  const [flash, setFlash] = useState(false);
+  const flashTimer = useRef<number | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
 
@@ -142,6 +147,104 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
     [pageCount],
   );
 
+  const showFlash = useCallback(() => {
+    setFlash(true);
+    if (flashTimer.current) window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setFlash(false), 1100);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (flashTimer.current) window.clearTimeout(flashTimer.current);
+    },
+    [],
+  );
+
+  /**
+   * Swipe sideways to turn a page, and double tap to zoom.
+   *
+   * The buttons stay. They are the only thing that works with a mouse, and
+   * somebody who has learned where they are should not have them move. This is
+   * about the hand that is holding an instrument: a swipe anywhere across the
+   * page is a target the size of the screen, and the buttons are 44px at the
+   * bottom edge, which is the far corner of a phone on a stand.
+   *
+   * The guard is what makes it usable when zoomed in. A zoomed page is wider
+   * than the viewport and has to pan, so a swipe cannot always mean "turn". It
+   * turns only when there is no more page to pan towards in that direction,
+   * which is the same rule a photo gallery uses and the reason panning to the
+   * edge and continuing feels like one gesture rather than two.
+   */
+  const touch = useRef<{ x: number; y: number; t: number; atStart: boolean; atEnd: boolean } | null>(
+    null,
+  );
+  const lastTap = useRef<{ t: number; x: number; y: number } | null>(null);
+
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length !== 1) {
+      // A second finger means a pinch, which is the browser's business.
+      touch.current = null;
+      return;
+    }
+    const el = containerRef.current;
+    const slack = el ? el.scrollWidth - el.clientWidth : 0;
+    const t = e.touches[0]!;
+    touch.current = {
+      x: t.clientX,
+      y: t.clientY,
+      t: Date.now(),
+      // A 1px tolerance: scrollLeft is fractional on a zoomed page and an exact
+      // comparison never quite reaches the end.
+      atStart: !el || el.scrollLeft <= 1,
+      atEnd: !el || slack <= 1 || el.scrollLeft >= slack - 1,
+    };
+  }, []);
+
+  const onTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      const start = touch.current;
+      touch.current = null;
+      const end = e.changedTouches[0];
+      if (!start || !end) return;
+
+      const dx = end.clientX - start.x;
+      const dy = end.clientY - start.y;
+      const dt = Date.now() - start.t;
+
+      // A tap, not a swipe. Two of them in quick succession toggles zoom, which
+      // beats hunting for a 44px minus button while holding a pick.
+      if (Math.abs(dx) < 12 && Math.abs(dy) < 12 && dt < 400) {
+        const prev = lastTap.current;
+        const now = Date.now();
+        if (
+          prev &&
+          now - prev.t < 320 &&
+          Math.abs(end.clientX - prev.x) < 40 &&
+          Math.abs(end.clientY - prev.y) < 40
+        ) {
+          lastTap.current = null;
+          setZoom((z) => (z > 1.01 ? 1 : 2));
+          return;
+        }
+        lastTap.current = { t: now, x: end.clientX, y: end.clientY };
+        return;
+      }
+
+      // Dominantly horizontal, far enough to be deliberate, quick enough to be a
+      // flick rather than a slow drag that was meant to pan.
+      if (dt > 700 || Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+
+      if (dx < 0 && start.atEnd && page < pageCount) {
+        goTo(page + 1);
+        showFlash();
+      } else if (dx > 0 && start.atStart && page > 1) {
+        goTo(page - 1);
+        showFlash();
+      }
+    },
+    [goTo, page, pageCount, showFlash],
+  );
+
   // Arrow keys and space, for a foot pedal or a bluetooth page turner. Both
   // present as a keyboard, which is why this is bound at the document rather
   // than on a focused element nobody will have tapped.
@@ -177,9 +280,22 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
     <div className={cn('flex flex-col min-h-0', className)}>
       <div
         ref={containerRef}
-        className="flex-1 min-h-0 overflow-auto flex justify-center p-2"
+        className="flex-1 min-h-0 overflow-auto flex justify-center p-2 relative"
         data-testid="document-scroll"
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
       >
+        {flash && pageCount > 0 && (
+          <div
+            // Deliberately not announced: `aria-label` on the canvas already
+            // changes with the page, so a screen reader has been told. This is
+            // for the eye that just glanced down mid-tune.
+            aria-hidden="true"
+            className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 rounded-full bg-foreground/80 px-3 py-1 text-xs font-semibold tabular-nums text-background"
+          >
+            {page} / {pageCount}
+          </div>
+        )}
         {status === 'loading' ? (
           <div className="flex items-center gap-3 text-muted-foreground self-center">
             <Spinner />
@@ -202,7 +318,10 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
           >
             &larr;
           </button>
-          <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap px-1">
+          <span
+            className="text-xs text-muted-foreground tabular-nums whitespace-nowrap px-1"
+            title="Swipe across the page to turn it. Double tap to zoom."
+          >
             {page} / {pageCount}
           </span>
           <button
