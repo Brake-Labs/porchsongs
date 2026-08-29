@@ -21,7 +21,7 @@
  *   `DropdownMenuItem` so it keyboard-navigates with its siblings rather than
  *   sitting inside them as a foreign element.
  * - `variant="bulk"` in the selection toolbar, where it renders a button next to
- *   "Move to folder".
+ *   the tag controls.
  *
  * `songUuids` is always a list, even for the single-song menu, so the send call
  * has one shape.

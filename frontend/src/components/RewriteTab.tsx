@@ -398,7 +398,8 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     setParseError(null);
     setTabStoring(true);
     // Sequential, matching the library's own uploader: these are megabytes each,
-    // and firing a folder of them at once on a phone connection times them all
+    // and firing a folder of them off a disk at once on a phone connection
+    // times them all
     // out together.
     let stored = 0;
     const failed: string[] = [];

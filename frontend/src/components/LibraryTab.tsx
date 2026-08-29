@@ -24,9 +24,9 @@ import { SongCapNotice, SongShareAction, SongShareNotice } from '@/extensions';
 import type { AppShellContext } from '@/layouts/AppShell';
 import type { Song } from '@/types';
 
-// shrink-0 because the folder row is a horizontal scroller below the sm
+// shrink-0 because the tag row is a horizontal scroller below the sm
 // breakpoint. Without it the pills compress to fit instead of scrolling, and a
-// long folder name arrives as a column of one word per line.
+// long tag name arrives as a column of one word per line.
 const TAG_PILL_CLASS = 'shrink-0 bg-card border border-border rounded-full px-3 py-1.5 text-xs cursor-pointer transition-all text-muted-foreground font-medium hover:border-primary hover:text-foreground whitespace-nowrap';
 const TAG_PILL_ACTIVE = 'bg-primary text-white border-primary';
 
@@ -623,7 +623,7 @@ export default function LibraryTab() {
    * Writes filter parameters, dropping any that are null or empty.
    *
    * `push` is for the changes that read as going somewhere: switching axis,
-   * opening an artist, picking a folder. Typing in the search box and changing
+   * opening an artist, picking a tag. Typing in the search box and changing
    * the sort stay on replace, because a history entry per keystroke would leave
    * Back unable to get out of the library.
    */
@@ -929,7 +929,7 @@ export default function LibraryTab() {
 
   // Measure the row height once the width and available height are in the DOM,
   // and again whenever either changes or the rendered set does. Which card is
-  // tallest moves with the search and folder filters: a long title wraps at a
+  // tallest moves with the search and tag filters: a long title wraps at a
   // narrow column width, and a chart with no lyrics preview is a line shorter.
   // This converges in one extra pass, because measureRowHeight does not feed
   // back into either colWidth or gridHeight.
@@ -962,7 +962,8 @@ export default function LibraryTab() {
     if (!files?.length || !profileId) return;
     setUploadError(null);
     setUploading(true);
-    // Sequential, not Promise.all. Somebody adding a folder of tabs is uploading
+    // Sequential, not Promise.all. Somebody adding a folder of tabs off their
+    // disk is uploading
     // megabytes per file, and firing twenty of those at once on a phone connection
     // is how they all time out together.
     const added: Song[] = [];
@@ -985,7 +986,7 @@ export default function LibraryTab() {
     navigate(`/app/play/${song.uuid}`, {
       // `from` is the same courtesy for the play route, which is full-screen and
       // has its own back button. Without it, playing a chart out of an artist or
-      // a folder and coming back drops the filter.
+      // a tag and coming back drops the filter.
       state: {
         title: song.title,
         artist: song.artist,
@@ -1167,12 +1168,12 @@ export default function LibraryTab() {
   const handleBrowseModeChange = useCallback((mode: BrowseMode) => {
     // Tapping the half that is already lit is a no-op, not a reset. Both halves
     // stay clickable so the pair reads as one control, and without this a tap on
-    // the current mode threw away the folder filter and the search query with it.
+    // the current mode threw away the tag filter and the search query with it.
     if (mode === browseMode) return;
     localStorage.setItem(STORAGE_KEYS.LIBRARY_BROWSE_MODE, mode);
     setSelectedUuids(new Set());
     // Both filters are cleared on every switch, not just the one being left.
-    // Carrying a folder into artist mode would silently narrow the artist list
+    // Carrying a tag into artist mode would silently narrow the artist list
     // with nothing on screen saying so, and carrying an artist back into song
     // mode would do the same to the songs. The search box is shared but the two
     // modes search different things: a query that found songs almost never
@@ -1408,9 +1409,9 @@ export default function LibraryTab() {
               layout controls because it changes the view rather than filtering it,
               and it is a segmented control rather than another pill.
 
-              It used to lead the folder row, which was the whole problem: an
+              It used to lead the tag row, which was the whole problem: an
               active "Songs" and an active "All" were the same brown pill sitting
-              side by side in one strip, so a mode switch and a folder filter read
+              side by side in one strip, so a mode switch and a tag filter read
               as one set of nine options with two of them chosen. */}
           <div
             className="inline-flex shrink-0 items-center rounded-md border border-border bg-panel p-0.5"
@@ -1482,7 +1483,8 @@ export default function LibraryTab() {
           </div>
           {/* Also reachable from the Import screen's File tab. This one is here
               because filing a tab you already have is library housekeeping, and
-              somebody adding a folder of them should not have to leave. */}
+              somebody adding a folder of them off their disk should not have
+              to leave. */}
           {!showingArtistPicker && (
             <Button
               variant="secondary"
@@ -1528,15 +1530,15 @@ export default function LibraryTab() {
             </Button>
           )}
         </div>
-        {/* Row two is what the list is narrowed to: folders, or the artist that
-            was drilled into. One kind of thing per row, so an active folder is
+        {/* Row two is what the list is narrowed to: tags, or the artist that
+            was drilled into. One kind of thing per row, so an active tag is
             the only brown pill on screen and means one thing.
 
             It scrolls sideways on a phone and wraps on a wider screen. Wrapping
-            at phone width pushed five folders plus "+ New Folder" onto three
+            at phone width pushed five tags plus "+ New Tag" onto three
             lines and cost a fifth of the viewport before the first song. Wrapping
-            is kept above the breakpoint because dragging a song onto a folder
-            needs every folder visible, and that gesture is mouse-only anyway. */}
+            is kept above the breakpoint because dragging a song onto a tag
+            needs every tag visible, and that gesture is mouse-only anyway. */}
         {(browseMode === 'songs' || selectedArtist) && (
         <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
           {browseMode === 'artists' && selectedArtist && (

@@ -893,7 +893,7 @@ async def suggest_tags(
     # tap, so fall back to the artist. Costs nothing extra: the call is already
     # paid for by the time we get here.
     if not suggestions:
-        artist = (song.artist or "").strip()[: llm_service.FOLDER_NAME_MAX_CHARS]
+        artist = (song.artist or "").strip()[: llm_service.TAG_NAME_MAX_CHARS]
         if artist and artist.casefold() not in {f.casefold() for f in existing_tags}:
             suggestions = [TagSuggestion(tag=artist, count=0)]
 

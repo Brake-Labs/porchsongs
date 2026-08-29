@@ -782,7 +782,7 @@ TAG_SUGGEST_MAX_NEW = 2
 # Mirrors the limit the write path enforces (``clean_tags``, and
 # ``TagRename.name`` for a rename). A longer name would be rejected by the
 # ``PUT`` the user's tap turns into, so proposing one would offer a dead button.
-FOLDER_NAME_MAX_CHARS = 100
+TAG_NAME_MAX_CHARS = 100
 
 TAG_SUGGEST_SYSTEM_PROMPT = """You help a musician tag a chord chart.
 
@@ -862,7 +862,7 @@ def _parse_tag_suggestions(
     for candidate in raw_new[:TAG_SUGGEST_MAX_NEW]:
         if not isinstance(candidate, str):
             continue
-        new_name = " ".join(candidate.split())[:FOLDER_NAME_MAX_CHARS].strip()
+        new_name = " ".join(candidate.split())[:TAG_NAME_MAX_CHARS].strip()
         if new_name and new_name.casefold() not in seen:
             # A "new" tag that already exists is an existing tag, and
             # offering it twice would let one tap look like two different
@@ -937,10 +937,10 @@ async def suggest_tags(
     choices = existing_tags[:TAG_SUGGEST_MAX_CHOICES]
     parts.append("")
     if choices:
-        parts.append("EXISTING FOLDERS")
+        parts.append("EXISTING TAGS")
         parts.extend(f"{i}. {name}" for i, name in enumerate(choices, start=1))
     else:
-        parts.append("EXISTING FOLDERS\n(none yet, so propose a new one)")
+        parts.append("EXISTING TAGS\n(none yet, so propose new ones)")
 
     params = LLMCallParams(
         model=model,

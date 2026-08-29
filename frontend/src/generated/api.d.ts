@@ -759,28 +759,6 @@ export interface components {
             text: string;
             usage?: components["schemas"]["TokenUsage"] | null;
         };
-        /** FolderSuggestRequest */
-        FolderSuggestRequest: {
-            /** Song Id */
-            song_id: number;
-            /** Model */
-            model: string;
-            /** Max Tokens */
-            max_tokens?: number | null;
-        };
-        /** FolderSuggestResponse */
-        FolderSuggestResponse: {
-            /** Suggestions */
-            suggestions: components["schemas"]["FolderSuggestion"][];
-            usage?: components["schemas"]["TokenUsage"] | null;
-        };
-        /** FolderSuggestion */
-        FolderSuggestion: {
-            /** Tag */
-            tag: string;
-            /** Count */
-            count: number;
-        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1057,6 +1035,28 @@ export interface components {
         TagRename: {
             /** Name */
             name: string;
+        };
+        /** TagSuggestRequest */
+        TagSuggestRequest: {
+            /** Song Id */
+            song_id: number;
+            /** Model */
+            model: string;
+            /** Max Tokens */
+            max_tokens?: number | null;
+        };
+        /** TagSuggestResponse */
+        TagSuggestResponse: {
+            /** Suggestions */
+            suggestions: components["schemas"]["TagSuggestion"][];
+            usage?: components["schemas"]["TokenUsage"] | null;
+        };
+        /** TagSuggestion */
+        TagSuggestion: {
+            /** Tag */
+            tag: string;
+            /** Count */
+            count: number;
         };
         /** TokenUsage */
         TokenUsage: {
@@ -2019,7 +2019,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["FolderSuggestRequest"];
+                "application/json": components["schemas"]["TagSuggestRequest"];
             };
         };
         responses: {
@@ -2029,7 +2029,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FolderSuggestResponse"];
+                    "application/json": components["schemas"]["TagSuggestResponse"];
                 };
             };
             /** @description Validation Error */
