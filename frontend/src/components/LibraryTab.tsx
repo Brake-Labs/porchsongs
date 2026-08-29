@@ -24,7 +24,10 @@ import { SongCapNotice } from '@/extensions';
 import type { AppShellContext } from '@/layouts/AppShell';
 import type { Song } from '@/types';
 
-const FOLDER_PILL_CLASS = 'bg-card border border-border rounded-full px-3 py-1.5 text-xs cursor-pointer transition-all text-muted-foreground font-medium hover:border-primary hover:text-foreground whitespace-nowrap';
+// shrink-0 because the folder row is a horizontal scroller below the sm
+// breakpoint. Without it the pills compress to fit instead of scrolling, and a
+// long folder name arrives as a column of one word per line.
+const FOLDER_PILL_CLASS = 'shrink-0 bg-card border border-border rounded-full px-3 py-1.5 text-xs cursor-pointer transition-all text-muted-foreground font-medium hover:border-primary hover:text-foreground whitespace-nowrap';
 const FOLDER_PILL_ACTIVE = 'bg-primary text-white border-primary';
 
 interface FolderPillProps {
@@ -1294,59 +1297,101 @@ export default function LibraryTab() {
         </p>
       )}
       <div className="flex flex-col gap-2">
-        <div className="flex gap-2">
+        {/* Row one is the view controls: what you are looking at, in what order,
+            and the two things you can add. Below the sm breakpoint the search box
+            takes the line to itself. Sharing it with the sort controls left it
+            about three words wide and cropped its own placeholder mid-word. */}
+        <div className="flex flex-wrap items-center gap-2">
           <Input
             placeholder={showingArtistPicker ? 'Search artists...' : 'Search songs by title or artist...'}
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="bg-card flex-1"
+            className="bg-card basis-full sm:basis-0 sm:flex-1 min-w-0"
           />
-          {/* The picker lists artists, so it gets the two orderings that mean
-              something for artists. The sort direction button is shared, because
-              it means the same thing in both. */}
-          {showingArtistPicker ? (
-            <Select
-              className="w-auto py-2 px-2 text-xs"
-              value={artistSortKey}
-              onChange={(e) => handleArtistSortKeyChange(e.target.value as ArtistSortKey)}
-              aria-label="Sort artists by"
-            >
-              <option value="name">Name</option>
-              <option value="count">Charts</option>
-            </Select>
-          ) : (
-            <Select
-              className="w-auto py-2 px-2 text-xs"
-              value={sortKey}
-              onChange={(e) => setSortKey(e.target.value as SortKey)}
-              aria-label="Sort songs by"
-            >
-              <option value="date">Created</option>
-              <option value="modified">Modified</option>
-              <option value="title">Title</option>
-              <option value="artist">Artist</option>
-            </Select>
-          )}
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => {
-              const next = activeSortDir === 'asc' ? 'desc' : 'asc';
-              if (showingArtistPicker) setArtistSortDir(next);
-              else setSortDir(next);
-            }}
-            title={activeSortDir === 'asc' ? 'Ascending' : 'Descending'}
-            aria-label={activeSortDir === 'asc' ? 'Sort ascending' : 'Sort descending'}
+          {/* Which axis the library is browsed along. It sits with the sort and
+              layout controls because it changes the view rather than filtering it,
+              and it is a segmented control rather than another pill.
+
+              It used to lead the folder row, which was the whole problem: an
+              active "Songs" and an active "All" were the same brown pill sitting
+              side by side in one strip, so a mode switch and a folder filter read
+              as one set of nine options with two of them chosen. */}
+          <div
+            className="inline-flex shrink-0 items-center rounded-md border border-border bg-panel p-0.5"
+            role="group"
+            aria-label="Browse by"
           >
-            {activeSortDir === 'asc' ? '\u2191' : '\u2193'}
-          </Button>
-          {/* Sits with the library controls rather than on the import path. A
-              stored tab is not parsed, rewritten, or priced, so routing it through
-              the import screen would put it behind a flow built for chart text. */}
+            {BROWSE_MODES.map(({ mode, label }) => (
+              <button
+                key={mode}
+                data-testid={`browse-mode-${mode}`}
+                aria-pressed={browseMode === mode}
+                className={cn(
+                  'rounded-sm px-3 py-1.5 text-xs font-medium cursor-pointer transition-colors whitespace-nowrap',
+                  browseMode === mode
+                    ? 'bg-primary text-white'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+                onClick={() => handleBrowseModeChange(mode)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {/* Key and direction are one control, so they are grouped: they stay
+              adjacent, and a wrap breaks before them rather than between them. */}
+          <div className="flex shrink-0 items-center gap-1">
+            {/* The picker lists artists, so it gets the two orderings that mean
+                something for artists. The sort direction button is shared, because
+                it means the same thing in both. */}
+            {showingArtistPicker ? (
+              <Select
+                className="w-auto py-2 px-2 text-xs"
+                value={artistSortKey}
+                onChange={(e) => handleArtistSortKeyChange(e.target.value as ArtistSortKey)}
+                aria-label="Sort artists by"
+              >
+                <option value="name">Name</option>
+                <option value="count">Charts</option>
+              </Select>
+            ) : (
+              <Select
+                className="w-auto py-2 px-2 text-xs"
+                value={sortKey}
+                onChange={(e) => setSortKey(e.target.value as SortKey)}
+                aria-label="Sort songs by"
+              >
+                <option value="date">Created</option>
+                <option value="modified">Modified</option>
+                <option value="title">Title</option>
+                <option value="artist">Artist</option>
+              </Select>
+            )}
+            {/* rounded-md, not the button default, so the row's corners agree with
+                the input and the select it sits against. */}
+            <Button
+              variant="secondary"
+              size="sm"
+              className="rounded-md"
+              onClick={() => {
+                const next = activeSortDir === 'asc' ? 'desc' : 'asc';
+                if (showingArtistPicker) setArtistSortDir(next);
+                else setSortDir(next);
+              }}
+              title={activeSortDir === 'asc' ? 'Ascending' : 'Descending'}
+              aria-label={activeSortDir === 'asc' ? 'Sort ascending' : 'Sort descending'}
+            >
+              {activeSortDir === 'asc' ? '\u2191' : '\u2193'}
+            </Button>
+          </div>
+          {/* Also reachable from the Import screen's File tab. This one is here
+              because filing a tab you already have is library housekeeping, and
+              somebody adding a folder of them should not have to leave. */}
           {!showingArtistPicker && (
             <Button
               variant="secondary"
               size="sm"
+              className="shrink-0 rounded-md"
               disabled={uploading || !ctx.profile}
               onClick={() => fileInputRef.current?.click()}
               title="Store a tab PDF in your library"
@@ -1387,33 +1432,19 @@ export default function LibraryTab() {
             </Button>
           )}
         </div>
-        <div className="flex flex-wrap gap-1.5 items-center overflow-x-auto">
-          {/* Which axis the library is browsed along. Sits ahead of the folder
-              pills because it decides whether they are the thing being shown. */}
-          <div
-            className="inline-flex items-center rounded-full border border-border bg-card p-0.5 mr-1 shrink-0"
-            role="group"
-            aria-label="Browse by"
-          >
-            {BROWSE_MODES.map(({ mode, label }) => (
-              <button
-                key={mode}
-                data-testid={`browse-mode-${mode}`}
-                aria-pressed={browseMode === mode}
-                className={cn(
-                  'rounded-full px-3 py-1 text-xs font-medium cursor-pointer transition-colors whitespace-nowrap',
-                  browseMode === mode
-                    ? 'bg-primary text-white'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-                onClick={() => handleBrowseModeChange(mode)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+        {/* Row two is what the list is narrowed to: folders, or the artist that
+            was drilled into. One kind of thing per row, so an active folder is
+            the only brown pill on screen and means one thing.
+
+            It scrolls sideways on a phone and wraps on a wider screen. Wrapping
+            at phone width pushed five folders plus "+ New Folder" onto three
+            lines and cost a fifth of the viewport before the first song. Wrapping
+            is kept above the breakpoint because dragging a song onto a folder
+            needs every folder visible, and that gesture is mouse-only anyway. */}
+        {(browseMode === 'songs' || selectedArtist) && (
+        <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
           {browseMode === 'artists' && selectedArtist && (
-            <div className="flex items-center gap-1.5 text-xs">
+            <div className="flex shrink-0 items-center gap-1.5 text-xs whitespace-nowrap">
               <button
                 data-testid="artist-back"
                 className={FOLDER_PILL_CLASS}
@@ -1470,9 +1501,15 @@ export default function LibraryTab() {
               Unfiled
             </button>
           )}
+          {/* Divides making a folder from choosing one. Both are pills in the same
+              row, and dashed alone was not enough to stop "+ New Folder" reading
+              as the last folder in the list. */}
+          {browseMode === 'songs' && hasFolders && (
+            <span aria-hidden="true" className="shrink-0 w-px h-5 bg-border mx-0.5" />
+          )}
           {browseMode === 'songs' && (
           <button
-            className="bg-card border border-dashed border-border rounded-full px-3 py-1.5 text-xs cursor-pointer font-semibold text-muted-foreground hover:border-primary hover:text-foreground whitespace-nowrap"
+            className="shrink-0 bg-card border border-dashed border-border rounded-full px-3 py-1.5 text-xs cursor-pointer font-semibold text-muted-foreground hover:border-primary hover:text-foreground whitespace-nowrap"
             onClick={handleCreateFolder}
             onDragOver={(e: DragEvent<HTMLButtonElement>) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
             onDrop={(e: DragEvent<HTMLButtonElement>) => {
@@ -1489,6 +1526,7 @@ export default function LibraryTab() {
           </button>
           )}
         </div>
+        )}
       </div>
 
       {selectMode && (

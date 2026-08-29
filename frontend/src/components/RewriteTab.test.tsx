@@ -21,6 +21,7 @@ vi.mock('@/api', () => ({
     listSongs: vi.fn().mockResolvedValue([]),
     updateSong: vi.fn().mockResolvedValue({}),
     saveSong: vi.fn().mockResolvedValue({ id: 99, uuid: 'uuid-99', profile_id: 1 }),
+    uploadDocument: vi.fn().mockResolvedValue({ id: 7, uuid: 'uuid-doc', kind: 'document' }),
   },
   STORAGE_KEYS: {
     DRAFT_INPUT: 'test_draft_input',
@@ -1046,6 +1047,100 @@ describe('RewriteTab', () => {
       expect(docInput).toBeTruthy();
       expect(docInput!.accept).toContain('.pdf');
       expect(docInput!.accept).toContain('.txt');
+    });
+  });
+
+  describe('Store a tab PDF from the File tab', () => {
+    const pdf = (name: string) =>
+      new File([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d])], name, { type: 'application/pdf' });
+
+    it('offers keeping the PDF alongside extracting its text', () => {
+      render(<RewriteTab {...makeProps()} />);
+      selectImportTab('File');
+
+      expect(screen.getByRole('button', { name: 'Choose file' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Store a tab PDF' })).toBeInTheDocument();
+    });
+
+    it('is disabled when no profile exists', () => {
+      render(<RewriteTab {...makeProps({ profile: null })} />);
+      selectImportTab('File');
+
+      expect(screen.getByRole('button', { name: 'Store a tab PDF' })).toBeDisabled();
+    });
+
+    it('takes PDFs only, and more than one at a time', () => {
+      render(<RewriteTab {...makeProps()} />);
+      const input = screen.getByTestId('import-tab-pdf-input') as HTMLInputElement;
+
+      expect(input.accept).toBe('application/pdf,.pdf');
+      expect(input.multiple).toBe(true);
+      // The text path takes .txt too; this one must not, because there is no
+      // point storing a text file you cannot read as a page.
+      expect(input.accept).not.toContain('.txt');
+    });
+
+    it('uploads the file and sends the user to the library', async () => {
+      render(<RewriteTab {...makeProps()} />);
+      const input = screen.getByTestId('import-tab-pdf-input');
+
+      await act(async () => {
+        fireEvent.change(input, { target: { files: [pdf('reel.pdf')] } });
+      });
+
+      await waitFor(() => {
+        expect(api.uploadDocument).toHaveBeenCalledWith(1, expect.objectContaining({ name: 'reel.pdf' }));
+      });
+      expect(mockNavigate).toHaveBeenCalledWith('/app/library');
+      // Storing keeps the file as it is, so nothing is extracted and nothing
+      // lands in the paste box for review.
+      expect(api.extractFile).not.toHaveBeenCalled();
+    });
+
+    it('uploads several files one at a time', async () => {
+      render(<RewriteTab {...makeProps()} />);
+      const input = screen.getByTestId('import-tab-pdf-input');
+
+      await act(async () => {
+        fireEvent.change(input, { target: { files: [pdf('a.pdf'), pdf('b.pdf')] } });
+      });
+
+      await waitFor(() => expect(api.uploadDocument).toHaveBeenCalledTimes(2));
+      expect(mockNavigate).toHaveBeenCalledWith('/app/library');
+    });
+
+    it('names the failures but still goes to the library when some worked', async () => {
+      vi.mocked(api.uploadDocument)
+        .mockRejectedValueOnce(new Error('File too large. Maximum size is 25 MB.'))
+        .mockResolvedValueOnce({ id: 8, uuid: 'uuid-ok' } as never);
+
+      const props = makeProps();
+      render(<RewriteTab {...props} />);
+      const input = screen.getByTestId('import-tab-pdf-input');
+
+      await act(async () => {
+        fireEvent.change(input, { target: { files: [pdf('huge.pdf'), pdf('fine.pdf')] } });
+      });
+
+      await waitFor(() => expect(api.uploadDocument).toHaveBeenCalledTimes(2));
+      expect(props.setParseError).toHaveBeenCalledWith(
+        expect.stringContaining('huge.pdf: File too large. Maximum size is 25 MB.'),
+      );
+      expect(mockNavigate).toHaveBeenCalledWith('/app/library');
+    });
+
+    it('stays put when every upload failed', async () => {
+      vi.mocked(api.uploadDocument).mockRejectedValue(new Error('nope'));
+
+      render(<RewriteTab {...makeProps()} />);
+      const input = screen.getByTestId('import-tab-pdf-input');
+
+      await act(async () => {
+        fireEvent.change(input, { target: { files: [pdf('bad.pdf')] } });
+      });
+
+      await waitFor(() => expect(api.uploadDocument).toHaveBeenCalledTimes(1));
+      expect(mockNavigate).not.toHaveBeenCalledWith('/app/library');
     });
   });
 
