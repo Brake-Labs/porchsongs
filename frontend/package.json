@@ -1,7 +1,7 @@
 {
   "name": "porchsongs-frontend",
   "private": true,
-  "version": "0.3.15",
+  "version": "0.4.0",
   "type": "module",
   "scripts": {
     "generate:api": "openapi-typescript openapi.json -o src/generated/api.d.ts",
