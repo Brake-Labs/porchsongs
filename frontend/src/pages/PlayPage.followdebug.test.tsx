@@ -50,7 +50,7 @@ function makeSong(): Song {
     original_content: '[G]Amazing grace',
     rewritten_content: '[G]Amazing grace',
     font_size: null,
-    folder: null,
+    tags: [],
     status: 'ready',
     current_version: 1,
   } as unknown as Song;

@@ -49,7 +49,7 @@ function makeSong(overrides: Partial<Song> = {}): Song {
     original_content: 'C   F   C\nOriginal words',
     rewritten_content: 'C   F   C\nMy words',
     font_size: null,
-    folder: null,
+    tags: [],
     status: 'draft',
     ...overrides,
   } as unknown as Song;
@@ -97,7 +97,7 @@ describe('PlayPage', () => {
   it('goes back to the library view the chart was opened from', async () => {
     // The library keeps its filters in the query string, and hands the whole
     // address over as `from`. Without it, playing a chart out of an artist or a
-    // folder and pressing back drops you into an unfiltered list.
+    // tag and pressing back drops you into an unfiltered list.
     mockGetSong.mockResolvedValue(makeSong());
     const user = userEvent.setup();
     renderAt('abc-123', {}, { from: '/app/library?view=artists&artist=neil+young' });

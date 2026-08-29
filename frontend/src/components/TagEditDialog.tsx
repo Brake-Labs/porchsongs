@@ -49,6 +49,10 @@ export default function TagEditDialog({
       setTags(song?.tags ?? []);
       setDraft('');
     }
+    // Deliberately keyed on the song, not its tags. Re-seeding whenever
+    // `song.tags` changes would throw away edits in progress the moment a save
+    // elsewhere refreshed the list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, song?.uuid]);
 
   const has = (tag: string) => tags.some(t => t.toLowerCase() === tag.toLowerCase());

@@ -55,7 +55,7 @@ function makeSong(): Song {
     original_content: SONG_TEXT,
     rewritten_content: SONG_TEXT,
     font_size: null,
-    folder: null,
+    tags: [],
     status: 'draft',
   } as unknown as Song;
 }

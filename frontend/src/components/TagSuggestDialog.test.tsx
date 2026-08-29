@@ -1,15 +1,15 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import FolderSuggestDialog from '@/components/FolderSuggestDialog';
+import TagSuggestDialog from '@/components/TagSuggestDialog';
 import type { Song } from '@/types';
 
 vi.mock('@/api', () => ({
-  default: { suggestFolder: vi.fn() },
+  default: { suggestTags: vi.fn() },
 }));
 
 import api from '@/api';
 
-const mockSuggestFolder = vi.mocked(api.suggestFolder);
+const mockSuggestTags = vi.mocked(api.suggestTags);
 
 function makeSong(overrides: Partial<Song> = {}): Song {
   return {
@@ -26,7 +26,7 @@ function makeSong(overrides: Partial<Song> = {}): Song {
     llm_provider: null,
     llm_model: null,
     font_size: null,
-    folder: null,
+    tags: [],
     status: 'completed',
     current_version: 1,
     created_at: '2025-01-01T00:00:00Z',
@@ -35,28 +35,28 @@ function makeSong(overrides: Partial<Song> = {}): Song {
   } as Song;
 }
 
-function renderDialog(props: Partial<React.ComponentProps<typeof FolderSuggestDialog>> = {}) {
-  const onPick = vi.fn();
+function renderDialog(props: Partial<React.ComponentProps<typeof TagSuggestDialog>> = {}) {
+  const onApply = vi.fn();
   const onOpenChange = vi.fn();
   render(
-    <FolderSuggestDialog
+    <TagSuggestDialog
       open
       onOpenChange={onOpenChange}
       song={makeSong()}
       model="gpt-4o"
       canUseAi
-      onPick={onPick}
+      onApply={onApply}
       onOpenSettings={vi.fn()}
       {...props}
     />,
   );
-  return { onPick, onOpenChange };
+  return { onApply, onOpenChange };
 }
 
-describe('FolderSuggestDialog', () => {
+describe('TagSuggestDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSuggestFolder.mockResolvedValue([]);
+    mockSuggestTags.mockResolvedValue([]);
   });
 
   it('names the price before it spends anything', async () => {
@@ -65,75 +65,109 @@ describe('FolderSuggestDialog', () => {
     // The cost is on screen, and no call has happened yet: opening the dialog
     // must never be what charges you.
     expect(screen.getByText('Uses 1 AI credit.')).toBeInTheDocument();
-    expect(mockSuggestFolder).not.toHaveBeenCalled();
+    expect(mockSuggestTags).not.toHaveBeenCalled();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Suggest a folder' }));
-    await waitFor(() => expect(mockSuggestFolder).toHaveBeenCalledTimes(1));
-    expect(mockSuggestFolder).toHaveBeenCalledWith(7, 'gpt-4o');
+    await userEvent.click(screen.getByRole('button', { name: 'Suggest tags' }));
+    await waitFor(() => expect(mockSuggestTags).toHaveBeenCalledTimes(1));
+    expect(mockSuggestTags).toHaveBeenCalledWith(7, 'gpt-4o');
   });
 
-  it('ranks existing folders above the proposed new one and marks the new one', async () => {
-    mockSuggestFolder.mockResolvedValue([
-      { folder: 'Hymns', is_new: false },
-      { folder: 'Campfire', is_new: false },
-      { folder: 'Carter Family', is_new: true },
+  it('ranks tags you already use above a proposed new one and marks the new one', async () => {
+    mockSuggestTags.mockResolvedValue([
+      { tag: 'Hymns', count: 12 },
+      { tag: 'Campfire', count: 3 },
+      { tag: 'Carter Family', count: 0 },
     ]);
     renderDialog();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Suggest a folder' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Suggest tags' }));
 
-    const options = await screen.findAllByRole('button', { name: /Hymns|Campfire|Carter Family/ });
-    expect(options.map((b) => b.textContent)).toEqual([
+    const boxes = await screen.findAllByRole('checkbox');
+    expect(boxes.map((b) => b.closest('label')!.textContent)).toEqual([
       'Hymns',
       'Campfire',
-      'Carter FamilyNew folder',
+      'Carter FamilyNew tag',
     ]);
   });
 
-  it('files nothing until a suggestion is tapped', async () => {
-    mockSuggestFolder.mockResolvedValue([{ folder: 'Hymns', is_new: false }]);
-    const { onPick } = renderDialog();
+  it('saves nothing until the tags are applied', async () => {
+    mockSuggestTags.mockResolvedValue([{ tag: 'Hymns', count: 12 }]);
+    const { onApply } = renderDialog();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Suggest a folder' }));
-    await screen.findByRole('button', { name: 'Hymns' });
-    // The suggestion is on screen and the chart is still unfiled.
-    expect(onPick).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Suggest tags' }));
+    await screen.findByRole('checkbox');
+    // The suggestion is on screen and the chart is still untagged.
+    expect(onApply).not.toHaveBeenCalled();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Hymns' }));
-    expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ uuid: 'abc-123' }), 'Hymns');
+    await userEvent.click(screen.getByRole('button', { name: 'Add 1 tag' }));
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ uuid: 'abc-123' }), ['Hymns']);
   });
 
-  it('gives a user with no folders a new one to accept', async () => {
-    mockSuggestFolder.mockResolvedValue([{ folder: 'Carter Family', is_new: true }]);
-    const { onPick } = renderDialog();
+  it('applies everything still ticked in one save', async () => {
+    // A credit has already been spent, so ticked-by-default is the right
+    // starting point. Unticking one must not cost a second run.
+    mockSuggestTags.mockResolvedValue([
+      { tag: 'Hymns', count: 12 },
+      { tag: 'Waltz', count: 4 },
+      { tag: 'Carter Family', count: 0 },
+    ]);
+    const { onApply } = renderDialog();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Suggest a folder' }));
-    await userEvent.click(await screen.findByRole('button', { name: /Carter Family/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Suggest tags' }));
+    await screen.findAllByRole('checkbox');
 
-    expect(onPick).toHaveBeenCalledWith(expect.anything(), 'Carter Family');
+    await userEvent.click(screen.getByRole('checkbox', { name: /Waltz/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add 2 tags' }));
+
+    expect(onApply).toHaveBeenCalledWith(expect.anything(), ['Hymns', 'Carter Family']);
+  });
+
+  it('keeps the tags a song already has when it adds the new ones', async () => {
+    mockSuggestTags.mockResolvedValue([
+      { tag: 'Hymns', count: 12 },
+      // Already on the song. Applying must not list it twice.
+      { tag: 'Waltz', count: 4 },
+    ]);
+    const { onApply } = renderDialog({ song: makeSong({ tags: ['Waltz'] }) });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Suggest tags' }));
+    await screen.findAllByRole('checkbox');
+    await userEvent.click(screen.getByRole('button', { name: 'Add 2 tags' }));
+
+    expect(onApply).toHaveBeenCalledWith(expect.anything(), ['Waltz', 'Hymns']);
+  });
+
+  it('has nothing to apply once everything is unticked', async () => {
+    mockSuggestTags.mockResolvedValue([{ tag: 'Hymns', count: 12 }]);
+    renderDialog();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Suggest tags' }));
+    await userEvent.click(await screen.findByRole('checkbox'));
+
+    expect(screen.getByRole('button', { name: 'Add 0 tags' })).toBeDisabled();
   });
 
   it('offers nothing to spend when no model is configured', async () => {
     renderDialog({ canUseAi: false });
 
     // A self-hoster with no gateway gets an explanation, not a dead button, and
-    // the rest of filing keeps working by hand.
+    // the rest of tagging keeps working by hand.
     expect(
       screen.getByText(/Select a model to use the AI options/),
     ).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Suggest a folder' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Suggest tags' })).not.toBeInTheDocument();
     expect(screen.queryByText('Uses 1 AI credit.')).not.toBeInTheDocument();
   });
 
   it('surfaces a failure and offers a retry rather than an empty list', async () => {
-    mockSuggestFolder.mockRejectedValue(
+    mockSuggestTags.mockRejectedValue(
       Object.assign(new Error('The AI provider is having issues.'), {
         errorType: 'provider_error',
       }),
     );
     renderDialog();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Suggest a folder' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Suggest tags' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('The AI provider is having issues.');
     expect(screen.getByText('Issue with the AI provider')).toBeInTheDocument();
@@ -141,10 +175,10 @@ describe('FolderSuggestDialog', () => {
   });
 
   it('says so plainly when nothing usable came back', async () => {
-    mockSuggestFolder.mockResolvedValue([]);
+    mockSuggestTags.mockResolvedValue([]);
     renderDialog();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Suggest a folder' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Suggest tags' }));
 
     expect(await screen.findByText(/No suggestion this time/)).toBeInTheDocument();
   });

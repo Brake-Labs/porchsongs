@@ -27,8 +27,8 @@ import type { Song } from '@/types';
 // shrink-0 because the folder row is a horizontal scroller below the sm
 // breakpoint. Without it the pills compress to fit instead of scrolling, and a
 // long folder name arrives as a column of one word per line.
-const FOLDER_PILL_CLASS = 'shrink-0 bg-card border border-border rounded-full px-3 py-1.5 text-xs cursor-pointer transition-all text-muted-foreground font-medium hover:border-primary hover:text-foreground whitespace-nowrap';
-const FOLDER_PILL_ACTIVE = 'bg-primary text-white border-primary';
+const TAG_PILL_CLASS = 'shrink-0 bg-card border border-border rounded-full px-3 py-1.5 text-xs cursor-pointer transition-all text-muted-foreground font-medium hover:border-primary hover:text-foreground whitespace-nowrap';
+const TAG_PILL_ACTIVE = 'bg-primary text-white border-primary';
 
 /** What the library sends to mean "songs carrying no tags at all". */
 const UNTAGGED = '__untagged__';
@@ -1543,7 +1543,7 @@ export default function LibraryTab() {
             <div className="flex shrink-0 items-center gap-1.5 text-xs whitespace-nowrap">
               <button
                 data-testid="artist-back"
-                className={FOLDER_PILL_CLASS}
+                className={TAG_PILL_CLASS}
                 onClick={handleClearArtist}
               >
                 &larr; All artists
@@ -1559,7 +1559,7 @@ export default function LibraryTab() {
           )}
           {browseMode === 'songs' && hasTags && (
             <button
-              className={cn(FOLDER_PILL_CLASS, activeTags.length === 0 && FOLDER_PILL_ACTIVE)}
+              className={cn(TAG_PILL_CLASS, activeTags.length === 0 && TAG_PILL_ACTIVE)}
               onClick={clearTags}
             >
               All
@@ -1582,7 +1582,7 @@ export default function LibraryTab() {
           ))}
           {browseMode === 'songs' && hasTags && hasUntagged && (
             <button
-              className={cn(FOLDER_PILL_CLASS, activeTags.includes(UNTAGGED) && FOLDER_PILL_ACTIVE)}
+              className={cn(TAG_PILL_CLASS, activeTags.includes(UNTAGGED) && TAG_PILL_ACTIVE)}
               onClick={() => toggleTag(UNTAGGED)}
             >
               Untagged
