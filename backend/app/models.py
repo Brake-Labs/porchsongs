@@ -1,7 +1,17 @@
 import uuid as _uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -91,6 +101,9 @@ class Song(Base):
     changes_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     llm_provider: Mapped[str | None] = mapped_column(String, nullable=True)
     llm_model: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Kept until migration 009 drops it. 008 backfills `song_tags` from it and
+    # leaves it alone, so the database reads correctly under both the old code and
+    # the new; see the migration.
     folder: Mapped[str | None] = mapped_column(String, nullable=True)
     font_size: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String, default="draft")
@@ -119,6 +132,55 @@ class Song(Base):
         cascade="all, delete-orphan",
         uselist=False,
         lazy="selectin",
+    )
+    # selectin for the same reason as `file`: a library listing shows every song's
+    # tags, and lazy loading them would be one query per row.
+    tag_rows: Mapped[list["SongTag"]] = relationship(
+        "SongTag",
+        back_populates="song",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="SongTag.tag",
+    )
+
+    @property
+    def tags(self) -> list[str]:
+        """The tag names, sorted. What the API serialises and the UI renders."""
+        return [row.tag for row in self.tag_rows]
+
+
+class SongTag(Base):
+    """One tag on one song.
+
+    Replaces `songs.folder`, and the join table is the whole point: a folder held
+    a song in one place at a time, so filing a tune that is both a fiddle tune and
+    in Sunday's set meant choosing. A song can carry as many of these as it likes.
+
+    The tag is text on this row rather than a foreign key to a `tags` table. There
+    is no other fact about a tag: it has no colour, no description, no ordering,
+    and no identity beyond its name, so a second table would exist only to hold
+    the same string once. Renaming is one UPDATE either way, and "what tags does
+    this user have" is a DISTINCT over the rows they own.
+
+    Deleting a tag cannot touch a song, which is a property of the shape rather
+    than a promise the delete endpoint makes. That was not true of folders: the
+    column lived on `songs`, so clearing it was a write to the song itself.
+    """
+
+    __tablename__ = "song_tags"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    song_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("songs.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    tag: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+
+    song: Mapped["Song"] = relationship("Song", back_populates="tag_rows")
+
+    __table_args__ = (
+        # The same tag twice on one song is not a state anything should have to
+        # cope with downstream.
+        UniqueConstraint("song_id", "tag", name="ux_song_tags_song_tag"),
     )
 
 

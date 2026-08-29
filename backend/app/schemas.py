@@ -115,7 +115,7 @@ class SongCreate(BaseModel):
     changes_summary: str | None = None
     llm_provider: str | None = None
     llm_model: str | None = None
-    folder: str | None = Field(default=None, max_length=100)
+    tags: list[str] = Field(default_factory=list, max_length=20)
 
 
 class SongFileOut(BaseModel):
@@ -151,7 +151,9 @@ class SongOut(BaseModel):
     llm_provider: str | None
     llm_model: str | None
     font_size: float | None = None
-    folder: str | None = None
+    # Sorted, and read from the `tags` property on the model rather than the join
+    # rows, so a client never has to know the table exists.
+    tags: list[str] = []
     status: str
     current_version: int
     created_at: datetime
@@ -183,14 +185,24 @@ class SongUpdate(BaseModel):
     original_content: str | None = Field(default=None, max_length=100_000)
     rewritten_content: str | None = Field(default=None, max_length=100_000)
     font_size: float | None = Field(default=None, ge=0, le=100)
-    folder: str | None = Field(default=None, max_length=100)
+    # The whole set, not a delta. A PUT that omits this leaves tags alone; one
+    # that sends [] clears them. A delta API would need add and remove and an
+    # ordering rule between them for no gain: the editor knows the whole set.
+    tags: list[str] | None = Field(default=None, max_length=20)
 
 
-class FolderRename(BaseModel):
+class TagOut(BaseModel):
+    tag: str
+    # How many of this user's songs carry it. Drives the count in the library and
+    # tells a tag editor whether it is about to invent a new one.
+    count: int
+
+
+class TagRename(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
 
-# --- Folder suggestion (AI, opt-in, per chart) ---
+# --- Tag suggestion (AI, opt-in, per chart) ---
 class FolderSuggestRequest(BaseModel):
     song_id: int
     model: str
@@ -198,17 +210,19 @@ class FolderSuggestRequest(BaseModel):
     # request is validated, so hosted users are clamped either way, but a
     # self-hoster pointing at a shared gateway was previously able to ask for any
     # number of output tokens on an endpoint documented as costing one credit.
-    # 64 is llm_service.FOLDER_SUGGEST_MAX_OUTPUT_TOKENS, repeated rather than
-    # imported so this module keeps out of the LLM dependency graph.
+    # 96 is llm_service.FOLDER_SUGGEST_MAX_OUTPUT_TOKENS, repeated rather than
+    # imported so this module keeps out of the LLM dependency graph. Raised from
+    # 64 with the move to tags: one call now proposes several, so the answer is
+    # several short strings rather than one.
     # test_folder_suggest_schema_bound_matches_the_service_cap pins them together.
-    max_tokens: int | None = Field(default=None, ge=1, le=64)
+    max_tokens: int | None = Field(default=None, ge=1, le=96)
 
 
 class FolderSuggestion(BaseModel):
-    folder: str
-    # True when this folder does not exist yet, so the UI can say so before the
-    # user taps and one more folder quietly appears in their library.
-    is_new: bool
+    tag: str
+    # How many songs already carry it, so the UI can say "new" before the user
+    # taps and one more tag quietly appears in their library.
+    count: int
 
 
 class FolderSuggestResponse(BaseModel):

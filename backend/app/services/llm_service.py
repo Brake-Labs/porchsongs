@@ -764,35 +764,40 @@ async def disambiguate_position(
 # the way through, which covers every hosted request whatever the client asked
 # for; ``FolderSuggestRequest`` bounds the field so a self-hosted install without
 # that guard cannot be talked into a larger answer either.
-FOLDER_SUGGEST_MAX_OUTPUT_TOKENS = 64
+FOLDER_SUGGEST_MAX_OUTPUT_TOKENS = 96
 
 # How much of the chart the model sees. The opening lines carry the title,
 # artist and mood; the remaining verses add tokens without adding signal.
 FOLDER_SUGGEST_CONTENT_CHARS = 1200
 
-# Upper bound on how many of the user's folders are offered as choices.
+# Upper bound on how many of the user's tags are offered as choices.
 FOLDER_SUGGEST_MAX_CHOICES = 20
 
-# Upper bound on how many existing folders come back ranked.
-FOLDER_SUGGEST_MAX_PICKS = 3
+# Upper bound on how many existing tags come back ranked.
+FOLDER_SUGGEST_MAX_PICKS = 4
+
+# Upper bound on how many tags the model may invent in one reply.
+FOLDER_SUGGEST_MAX_NEW = 2
 
 # Mirrors the limit the write path enforces (``SongUpdate.folder``, and
 # ``FolderRename.name`` for a rename). A longer name would be rejected by the
 # ``PUT`` the user's tap turns into, so proposing one would offer a dead button.
 FOLDER_NAME_MAX_CHARS = 100
 
-FOLDER_SUGGEST_SYSTEM_PROMPT = """You help a musician file a chord chart into a folder.
+FOLDER_SUGGEST_SYSTEM_PROMPT = """You help a musician tag a chord chart.
 
-You are given a chart and the numbered list of folders the musician already has. Rank the existing \
-folders that fit, and optionally propose one new folder name.
+You are given a chart and the numbered list of tags the musician already uses. A song carries as \
+many tags as suit it, so pick every existing tag that fits and propose new ones where a good tag \
+is missing.
 
 Reply with ONE line of JSON and nothing else:
-{"existing": [2, 1], "new": "Carter Family"}
+{"existing": [2, 1], "new": ["Carter Family", "waltz"]}
 
-- "existing": up to 3 numbers from the list, best fit first. Use [] when none of them fit.
-- "new": one short folder name, at most three words, that would suit this chart. Use "" only when \
-an existing folder is clearly the right home.
-- Never use a number that is not in the list, and never invent a folder that is already listed.
+- "existing": up to 4 numbers from the list, best fit first. Use [] when none of them fit.
+- "new": up to 2 short tag names, at most three words each, that would suit this chart. Use [] \
+when the existing tags already cover it.
+- Never use a number that is not in the list, and never invent a tag that is already listed.
+- Prefer what the song *is* over what it is about: instrument, genre, feel, key, who wrote it.
 
 Say nothing else. No explanation, no code fences."""
 
@@ -816,8 +821,8 @@ def _parse_folder_suggestions(
     proposed name has to be checked against the whole library or a folder the
     user already has would come back badged "New folder".
 
-    Returns ``[{"folder": str, "is_new": bool}, ...]`` with existing folders
-    first, or ``[]`` when nothing usable came back.
+    Returns ``[{"tag": str, "is_new": bool}, ...]`` with existing tags first,
+    or ``[]`` when nothing usable came back.
     """
     if all_folders is None:
         all_folders = offered_folders
@@ -844,11 +849,20 @@ def _parse_folder_suggestions(
             if name is None or name.casefold() in seen:
                 continue
             seen.add(name.casefold())
-            suggestions.append({"folder": name, "is_new": False})
+            suggestions.append({"tag": name, "is_new": False})
 
     raw_new = parsed.get("new")
+    # A list now, because a song carries several tags. A bare string is still
+    # accepted: it is what the old prompt asked for, and a model that has seen
+    # this shape before will sometimes answer that way regardless.
     if isinstance(raw_new, str):
-        new_name = " ".join(raw_new.split())[:FOLDER_NAME_MAX_CHARS].strip()
+        raw_new = [raw_new]
+    if not isinstance(raw_new, list):
+        raw_new = []
+    for candidate in raw_new[:FOLDER_SUGGEST_MAX_NEW]:
+        if not isinstance(candidate, str):
+            continue
+        new_name = " ".join(candidate.split())[:FOLDER_NAME_MAX_CHARS].strip()
         if new_name and new_name.casefold() not in seen:
             # A "new" folder that already exists is an existing folder, and
             # offering it twice would let one tap look like two different
@@ -860,10 +874,11 @@ def _parse_folder_suggestions(
             # is not.
             match = next((f for f in all_folders if f.casefold() == new_name.casefold()), None)
             if match is None:
-                suggestions.append({"folder": new_name, "is_new": True})
+                seen.add(new_name.casefold())
+                suggestions.append({"tag": new_name, "is_new": True})
             else:
                 seen.add(match.casefold())
-                suggestions.append({"folder": match, "is_new": False})
+                suggestions.append({"tag": match, "is_new": False})
 
     return suggestions
 
