@@ -1,6 +1,6 @@
 [project]
 name = "porchsongs"
-version = "0.4.0"
+version = "0.4.1"
 description = "Personal song lyric rewriter — make every song yours"
 requires-python = ">=3.11"
 dependencies = [
