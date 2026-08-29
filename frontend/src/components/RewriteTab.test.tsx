@@ -29,6 +29,8 @@ vi.mock('@/api', () => ({
     SPLIT_PERCENT: 'test_split_pct',
     CURRENT_SONG_ID: 'test_current_song_id',
     HAS_REWRITTEN: 'test_has_rewritten',
+    LAST_SURFACE: 'test_last_surface',
+    WORKSHOP_TOUCHED: 'test_workshop_touched',
   },
 }));
 
@@ -1141,6 +1143,105 @@ describe('RewriteTab', () => {
 
       await waitFor(() => expect(api.uploadDocument).toHaveBeenCalledTimes(1));
       expect(mockNavigate).not.toHaveBeenCalledWith('/app/library');
+    });
+  });
+
+  /**
+   * Which surface a PWA relaunch reopens on.
+   *
+   * AppShell restores the current song's rewrite result into memory on every
+   * launch, so this tab is "workshopping" the moment it mounts whether the user
+   * chose to come here or was dropped here by the previous relaunch. Recording
+   * the surface off that alone latched: the app reopened on the workshop, the
+   * workshop recorded itself again, and the only way out was to remember to
+   * visit the library before quitting.
+   */
+  describe('recording the launch surface', () => {
+    const RESTORED = {
+      original_content: '[C]Hello [G]World',
+      rewritten_content: '[C]Hello [G]World',
+      changes_summary: 'No changes',
+    };
+    const surface = () => localStorage.getItem('test_last_surface');
+
+    it('does not claim the surface for a song it merely had restored into it', () => {
+      render(<RewriteTab {...makeProps({ rewriteResult: RESTORED })} />);
+
+      expect(surface()).toBeNull();
+    });
+
+    it('releases a stale workshop surface on a passive landing', () => {
+      // The launch that reopened here already consumed the value. Leaving it set
+      // is what made the app reopen on the editor forever.
+      localStorage.setItem('test_last_surface', 'workshop');
+
+      render(<RewriteTab {...makeProps({ rewriteResult: RESTORED })} />);
+
+      expect(surface()).toBeNull();
+    });
+
+    it('leaves another surface alone when it has nothing to claim', () => {
+      localStorage.setItem('test_last_surface', 'play');
+
+      render(<RewriteTab {...makeProps({ rewriteResult: RESTORED })} />);
+
+      expect(surface()).toBe('play');
+    });
+
+    it('claims the surface once the user edits the restored song', async () => {
+      render(<RewriteTab {...makeProps({ rewriteResult: RESTORED })} />);
+      expect(surface()).toBeNull();
+
+      fireEvent.change(screen.getAllByLabelText('Song title')[0]!, {
+        target: { value: 'Hello World (capo 2)' },
+      });
+
+      await waitFor(() => expect(surface()).toBe('workshop'));
+    });
+
+    it('claims the surface for an unsaved parse result', async () => {
+      render(<RewriteTab {...makeProps({
+        parseResult: { title: 'Test', artist: 'Test', original_content: 'content' } as ParseResult,
+      })} />);
+
+      await waitFor(() => expect(surface()).toBe('workshop'));
+    });
+
+    it('claims the surface for a draft left in the paste box', async () => {
+      render(<RewriteTab {...makeProps()} />);
+
+      fireEvent.change(screen.getByPlaceholderText(/Paste lyrics/), {
+        target: { value: 'G  C  G' },
+      });
+
+      await waitFor(() => expect(surface()).toBe('workshop'));
+    });
+
+    it('remembers the user worked here across a trip to the library', async () => {
+      const { unmount } = render(<RewriteTab {...makeProps()} />);
+      fireEvent.change(screen.getByPlaceholderText(/Paste lyrics/), {
+        target: { value: 'G  C  G' },
+      });
+      await waitFor(() => expect(surface()).toBe('workshop'));
+      unmount();
+
+      // Navigating away and back remounts this tab. A component-local flag would
+      // reset here and hand the surface back while the draft is still sitting in
+      // the box, which is why the flag lives in sessionStorage.
+      localStorage.removeItem('test_last_surface');
+      render(<RewriteTab {...makeProps()} />);
+
+      await waitFor(() => expect(surface()).toBe('workshop'));
+    });
+
+    it('forgets across a cold start, because sessionStorage does', () => {
+      sessionStorage.setItem('test_workshop_touched', '1');
+      sessionStorage.clear(); // what a relaunch does
+      localStorage.setItem('test_last_surface', 'workshop');
+
+      render(<RewriteTab {...makeProps({ rewriteResult: RESTORED })} />);
+
+      expect(surface()).toBeNull();
     });
   });
 

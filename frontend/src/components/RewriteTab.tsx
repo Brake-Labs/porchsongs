@@ -495,14 +495,44 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const isParsed = !!parseResult && !rewriteResult;
   const isWorkshopping = !!rewriteResult;
 
+  // Whether the user has worked in here during this run of the app, as opposed to
+  // arriving with a song restored underneath them.
+  //
+  // `isWorkshopping` cannot answer that on its own, which is what made the launch
+  // surface latch. AppShell restores the current song's rewrite result into memory
+  // on every launch, so `isWorkshopping` is true the moment this tab mounts,
+  // whether the user chose to come here or was merely dropped here by the previous
+  // relaunch. Recording the surface off that meant the app reopened on the
+  // workshop, the workshop recorded itself again, and the only way out was to
+  // remember to visit the library before quitting, which nobody does.
+  //
+  // All three signals below are gone on a cold start: draft text lives in
+  // sessionStorage, and a parse result and the dirty flag live in memory. So a
+  // true value can only have come from something the user did this time.
+  const [workshopTouched, setWorkshopTouched] = useState(
+    () => !!sessionStorage.getItem(STORAGE_KEYS.WORKSHOP_TOUCHED),
+  );
+  useEffect(() => {
+    if (workshopTouched) return;
+    if (!input.trim() && !isParsed && !isDirty) return;
+    sessionStorage.setItem(STORAGE_KEYS.WORKSHOP_TOUCHED, '1');
+    setWorkshopTouched(true);
+  }, [workshopTouched, input, isParsed, isDirty]);
+
   // Records which surface a PWA relaunch should return to. Set here rather than on
   // navigation because the workshop is also reachable by restoring state, not only
   // by clicking through to it.
+  //
+  // The release matters as much as the claim. Landing here passively has to hand
+  // the surface back, or a stale 'workshop' written in some earlier session keeps
+  // reopening the editor even though this one no longer claims it.
   useEffect(() => {
-    if (isWorkshopping || isParsed) {
+    if (workshopTouched) {
       localStorage.setItem(STORAGE_KEYS.LAST_SURFACE, 'workshop');
+    } else if (localStorage.getItem(STORAGE_KEYS.LAST_SURFACE) === 'workshop') {
+      localStorage.removeItem(STORAGE_KEYS.LAST_SURFACE);
     }
-  }, [isWorkshopping, isParsed]);
+  }, [workshopTouched]);
 
   /**
    * Save the pasted chart exactly as typed, with no LLM call.
