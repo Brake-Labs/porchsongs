@@ -198,17 +198,17 @@ test.describe('OSS Library', () => {
     await expect(page.getByText('Song To Delete')).not.toBeVisible({ timeout: 3_000 });
   });
 
-  test('move song to folder and filter by folder', async ({ page, baseURL }) => {
+  test('tag a song and filter by tag', async ({ page, baseURL }) => {
     const profileId = await getDefaultProfileId(baseURL!);
-    // Create songs with unique titles and folder assignment
+    // Two tags on one song, because that is the thing folders could not do.
     await createSongViaApi(baseURL!, {
       ...makeSongCreatePayload(profileId),
-      title: 'Folder Test Hymn',
-      folder: 'TestFolder',
+      title: 'Tag Test Hymn',
+      tags: ['TestTag', 'Waltz'],
     });
     await createSongViaApi(baseURL!, {
       ...makeSecondSongPayload(profileId),
-      title: 'Folder Test Pop',
+      title: 'Tag Test Pop',
     });
 
     await page.goto('/');
@@ -217,22 +217,29 @@ test.describe('OSS Library', () => {
 
     // Search for our test songs to isolate from other test data
     const searchInput = page.getByPlaceholder(/search/i);
-    await searchInput.fill('Folder Test');
+    await searchInput.fill('Tag Test');
 
     // Wait for both songs to appear
-    await expect(page.getByText('Folder Test Hymn').first()).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText('Folder Test Pop').first()).toBeVisible();
-    await expect(page.getByRole('button', { name: 'TestFolder' })).toBeVisible();
+    await expect(page.getByText('Tag Test Hymn').first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('Tag Test Pop').first()).toBeVisible();
+    await expect(page.getByTestId('tag-pill-TestTag')).toBeVisible();
 
-    // Click "Unfiled" — only the unfoldered song should be visible
-    await page.getByRole('button', { name: 'Unfiled' }).click();
-    await expect(page.getByText('Folder Test Pop').first()).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText('Folder Test Hymn')).not.toBeVisible();
+    // Click "Untagged" — only the untagged song should be visible
+    await page.getByRole('button', { name: 'Untagged' }).click();
+    await expect(page.getByText('Tag Test Pop').first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('Tag Test Hymn')).not.toBeVisible();
 
     // Click "All" to clear filter — both songs should be visible again
     await page.getByRole('button', { name: /^All$/ }).click();
-    await expect(page.getByText('Folder Test Hymn').first()).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText('Folder Test Pop').first()).toBeVisible();
+    await expect(page.getByText('Tag Test Hymn').first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('Tag Test Pop').first()).toBeVisible();
+
+    // Both tags together still find it; the filter is an AND, so a tag the song
+    // does not carry empties the list rather than widening it.
+    await page.getByTestId('tag-pill-TestTag').click();
+    await page.getByTestId('tag-pill-Waltz').click();
+    await expect(page.getByText('Tag Test Hymn').first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('Tag Test Pop')).not.toBeVisible();
   });
 
   test('a filtered view survives a reload and can be walked back out of', async ({ page, baseURL }) => {
@@ -244,7 +251,7 @@ test.describe('OSS Library', () => {
     await createSongViaApi(baseURL!, {
       ...makeSongCreatePayload(profileId),
       title: 'Url Test Hymn',
-      folder: 'UrlFolder',
+      tags: ['UrlTag'],
     });
     await createSongViaApi(baseURL!, {
       ...makeSecondSongPayload(profileId),
@@ -257,11 +264,11 @@ test.describe('OSS Library', () => {
     await page.getByPlaceholder(/search/i).fill('Url Test');
     await expect(page.getByText('Url Test Hymn').first()).toBeVisible({ timeout: 5_000 });
 
-    await page.getByRole('button', { name: 'UrlFolder' }).click();
-    await expect(page).toHaveURL(/[?&]folder=UrlFolder/);
+    await page.getByTestId('tag-pill-UrlTag').click();
+    await expect(page).toHaveURL(/[?&]tags=UrlTag/);
     await expect(page.getByText('Url Test Pop')).not.toBeVisible();
 
-    // Reload: the folder and the query come back from the address, not from
+    // Reload: the tag and the query come back from the address, not from
     // anything the previous page left in memory.
     await page.reload();
     await waitForAppReady(page);
@@ -269,9 +276,9 @@ test.describe('OSS Library', () => {
     await expect(page.getByText('Url Test Pop')).not.toBeVisible();
     await expect(page.getByPlaceholder(/search/i)).toHaveValue('Url Test');
 
-    // Back leaves the folder behind rather than leaving the library.
+    // Back leaves the tag behind rather than leaving the library.
     await page.goBack();
-    await expect(page).not.toHaveURL(/folder=/);
+    await expect(page).not.toHaveURL(/tags=/);
     await expect(page.getByText('Url Test Pop').first()).toBeVisible({ timeout: 5_000 });
   });
 
