@@ -66,7 +66,7 @@ Always add `Cache-Control: no-cache` and `X-Accel-Buffering: no` headers. Never 
 
 ### Data Model
 
-PostgreSQL everywhere (production and tests). Alembic migrations in `alembic/`. Song lifecycle: paste → parse → auto-save draft → iterate via chat → completed. Songs organized into folders. PDF export via `fpdf2`.
+PostgreSQL everywhere (production and tests). Alembic migrations in `alembic/`. Song lifecycle: paste → parse → auto-save draft → iterate via chat → completed. Songs carry any number of tags (`song_tags`), and the library filters on all of them at once. PDF export via `fpdf2`.
 
 ## Frontend Development
 
