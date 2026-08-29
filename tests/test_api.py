@@ -157,9 +157,8 @@ def test_delete_song(client: TestClient) -> None:
     assert resp.status_code == 404
 
 
-def test_rename_folder(client: TestClient) -> None:
+def test_rename_tag(client: TestClient) -> None:
     profile = client.post("/api/profiles", json={}).json()
-    # Create two songs in "Rock" folder
     for title in ("Song A", "Song B"):
         client.post(
             "/api/songs",
@@ -168,10 +167,9 @@ def test_rename_folder(client: TestClient) -> None:
                 "title": title,
                 "original_content": "orig",
                 "rewritten_content": "rw",
-                "folder": "Rock",
+                "tags": ["Rock", "Live"],
             },
         )
-    # And one song in a different folder
     client.post(
         "/api/songs",
         json={
@@ -179,21 +177,62 @@ def test_rename_folder(client: TestClient) -> None:
             "title": "Song C",
             "original_content": "orig",
             "rewritten_content": "rw",
-            "folder": "Jazz",
+            "tags": ["Jazz"],
         },
     )
 
-    resp = client.put("/api/songs/folders/Rock", json={"name": "Classic Rock"})
+    resp = client.put("/api/songs/tags/Rock", json={"name": "Classic Rock"})
     assert resp.status_code == 200
 
     songs = client.get("/api/songs").json()
-    rock_songs = [s for s in songs if s["folder"] == "Classic Rock"]
-    jazz_songs = [s for s in songs if s["folder"] == "Jazz"]
-    assert len(rock_songs) == 2
-    assert len(jazz_songs) == 1  # unchanged
+    by_title = {s["title"]: s for s in songs}
+    # Renamed in place, and the song's other tags are untouched.
+    assert sorted(by_title["Song A"]["tags"]) == ["Classic Rock", "Live"]
+    assert sorted(by_title["Song B"]["tags"]) == ["Classic Rock", "Live"]
+    assert by_title["Song C"]["tags"] == ["Jazz"]
 
 
-def test_delete_folder(client: TestClient) -> None:
+def test_rename_tag_onto_an_existing_one_merges(client: TestClient) -> None:
+    # A rename that collides is a merge, not an error and not a duplicate row.
+    # The unique constraint would refuse the second insert, so the endpoint has
+    # to fold them together itself.
+    profile = client.post("/api/profiles", json={}).json()
+    client.post(
+        "/api/songs",
+        json={
+            "profile_id": profile["id"],
+            "title": "Both",
+            "original_content": "orig",
+            "rewritten_content": "rw",
+            "tags": ["Gigs", "Shows"],
+        },
+    )
+    client.post(
+        "/api/songs",
+        json={
+            "profile_id": profile["id"],
+            "title": "One",
+            "original_content": "orig",
+            "rewritten_content": "rw",
+            "tags": ["Gigs"],
+        },
+    )
+
+    resp = client.put("/api/songs/tags/Gigs", json={"name": "Shows"})
+    assert resp.status_code == 200
+
+    by_title = {s["title"]: s for s in client.get("/api/songs").json()}
+    assert by_title["Both"]["tags"] == ["Shows"]
+    assert by_title["One"]["tags"] == ["Shows"]
+
+    tags = {t["tag"]: t["count"] for t in client.get("/api/songs/tags").json()}
+    assert tags == {"Shows": 2}
+
+
+def test_delete_tag_keeps_the_songs(client: TestClient) -> None:
+    # The whole reason tags replaced folders. Deleting a folder had to decide
+    # what happened to its contents; deleting a tag does not, because a tag was
+    # never a container.
     profile = client.post("/api/profiles", json={}).json()
     client.post(
         "/api/songs",
@@ -202,18 +241,55 @@ def test_delete_folder(client: TestClient) -> None:
             "title": "Song A",
             "original_content": "orig",
             "rewritten_content": "rw",
-            "folder": "Temp",
+            "tags": ["Temp", "Keep"],
         },
     )
 
-    resp = client.delete("/api/songs/folders/Temp")
+    resp = client.delete("/api/songs/tags/Temp")
     assert resp.status_code == 200
 
     songs = client.get("/api/songs").json()
-    assert songs[0]["folder"] is None
+    assert len(songs) == 1
+    assert songs[0]["tags"] == ["Keep"]
 
-    folders = client.get("/api/songs/folders").json()
-    assert "Temp" not in folders
+    tags = [t["tag"] for t in client.get("/api/songs/tags").json()]
+    assert tags == ["Keep"]
+
+
+def test_list_songs_filters_by_every_tag_given(client: TestClient) -> None:
+    profile = client.post("/api/profiles", json={}).json()
+    for title, tags in (
+        ("Both", ["Setlist", "Waltz"]),
+        ("Only setlist", ["Setlist"]),
+        ("Only waltz", ["Waltz"]),
+    ):
+        client.post(
+            "/api/songs",
+            json={
+                "profile_id": profile["id"],
+                "title": title,
+                "original_content": "orig",
+                "rewritten_content": "rw",
+                "tags": tags,
+            },
+        )
+
+    resp = client.get("/api/songs", params=[("tags", "Setlist"), ("tags", "Waltz")])
+    assert resp.status_code == 200
+    assert [s["title"] for s in resp.json()] == ["Both"]
+
+    # And the untagged sentinel, which is not a tag anybody can create.
+    client.post(
+        "/api/songs",
+        json={
+            "profile_id": profile["id"],
+            "title": "Bare",
+            "original_content": "orig",
+            "rewritten_content": "rw",
+        },
+    )
+    resp = client.get("/api/songs", params={"tags": "__untagged__"})
+    assert [s["title"] for s in resp.json()] == ["Bare"]
 
 
 def test_update_song_status(client: TestClient) -> None:

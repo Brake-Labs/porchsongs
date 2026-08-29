@@ -1627,10 +1627,10 @@ def test_parse_stream_rate_limit_error(mock_amessages: AsyncMock, client: TestCl
         raise AssertionError("No error event with error_type found in SSE stream")
 
 
-# --- POST /api/folders/suggest ---
+# --- POST /api/tags/suggest ---
 
 
-def _make_song_in_folder(client: TestClient, profile_id: int, title: str, folder: str) -> None:
+def _make_song_with_tag(client: TestClient, profile_id: int, title: str, tag: str) -> None:
     client.post(
         "/api/songs",
         json={
@@ -1638,7 +1638,7 @@ def _make_song_in_folder(client: TestClient, profile_id: int, title: str, folder
             "title": title,
             "original_content": "G\nla la",
             "rewritten_content": "G\nla la",
-            "folder": folder,
+            "tags": [tag],
         },
     )
 
@@ -1648,36 +1648,40 @@ def test_suggest_tags_ranks_existing_tags_first(
     mock_amessages: MagicMock, client: TestClient
 ) -> None:
     profile, song = _make_profile_and_song(client)
-    _make_song_in_folder(client, profile["id"], "A hymn", "Hymns")
-    _make_song_in_folder(client, profile["id"], "A shanty", "Sea Shanties")
+    _make_song_with_tag(client, profile["id"], "A hymn", "Hymns")
+    _make_song_with_tag(client, profile["id"], "A shanty", "Sea Shanties")
 
     mock_amessages.return_value = _fake_message_response(
-        '{"existing": [2, 1], "new": "Carter Family"}'
+        '{"existing": [2, 1], "new": ["Carter Family"]}'
     )
-    resp = client.post("/api/folders/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
+    resp = client.post("/api/tags/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
 
     assert resp.status_code == 200
     body = resp.json()
+    # Several at once, ranked the way the model ranked them, and each carries how
+    # many songs already have it so the UI can say which one is new.
     assert body["suggestions"] == [
-        {"folder": "Sea Shanties", "is_new": False},
-        {"folder": "Hymns", "is_new": False},
-        {"folder": "Carter Family", "is_new": True},
+        {"tag": "Sea Shanties", "count": 1},
+        {"tag": "Hymns", "count": 1},
+        {"tag": "Carter Family", "count": 0},
     ]
     # Usage is reported so the premium guard can price the call from the response.
     assert body["usage"]["output_tokens"] == 20
 
 
 @patch("app.services.llm_service.amessages")
-def test_suggest_tags_proposes_a_new_one_for_a_user_with_no_folders(
+def test_suggest_tags_proposes_a_new_one_for_a_user_with_no_tags(
     mock_amessages: MagicMock, client: TestClient
 ) -> None:
     _, song = _make_profile_and_song(client)
-    mock_amessages.return_value = _fake_message_response('{"existing": [], "new": "Test Artist"}')
+    mock_amessages.return_value = _fake_message_response(
+        '{"existing": [], "new": ["Test Artist"]}'
+    )
 
-    resp = client.post("/api/folders/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
+    resp = client.post("/api/tags/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
 
     assert resp.status_code == 200
-    assert resp.json()["suggestions"] == [{"folder": "Test Artist", "is_new": True}]
+    assert resp.json()["suggestions"] == [{"tag": "Test Artist", "count": 0}]
 
 
 @patch("app.services.llm_service.amessages")
@@ -1692,34 +1696,34 @@ def test_suggest_tags_falls_back_to_the_artist_when_the_reply_is_unusable(
     _, song = _make_profile_and_song(client)
     mock_amessages.return_value = _fake_message_response("I'm not sure, sorry!")
 
-    resp = client.post("/api/folders/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
+    resp = client.post("/api/tags/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
 
     assert resp.status_code == 200
-    assert resp.json()["suggestions"] == [{"folder": "Test Artist", "is_new": True}]
+    assert resp.json()["suggestions"] == [{"tag": "Test Artist", "count": 0}]
 
 
 @patch("app.services.llm_service.amessages")
-def test_suggest_tags_does_not_file_the_chart(
+def test_suggest_tags_does_not_tag_the_chart(
     mock_amessages: MagicMock, client: TestClient
 ) -> None:
-    """Suggesting is not filing. Only an explicit tap (a PUT) moves a chart."""
+    """Suggesting is not tagging. Only an explicit apply (a PUT) changes a chart."""
     _, song = _make_profile_and_song(client)
-    mock_amessages.return_value = _fake_message_response('{"existing": [], "new": "Campfire"}')
+    mock_amessages.return_value = _fake_message_response('{"existing": [], "new": ["Campfire"]}')
 
-    client.post("/api/folders/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
+    client.post("/api/tags/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
 
-    assert client.get(f"/api/songs/{song['id']}").json()["folder"] is None
+    assert client.get(f"/api/songs/{song['id']}").json()["tags"] == []
 
 
 @patch("app.services.llm_service.amessages")
-def test_suggest_tags_only_sees_the_callers_own_folders(
+def test_suggest_tags_only_sees_the_callers_own_tags(
     mock_amessages: MagicMock, client: TestClient, db_session: Session
 ) -> None:
-    """Another account's folder names must never reach the prompt or the reply."""
+    """Another account's tag names must never reach the prompt or the reply."""
     profile, song = _make_profile_and_song(client)
-    _make_song_in_folder(client, profile["id"], "Mine", "Mine")
+    _make_song_with_tag(client, profile["id"], "Mine", "Mine")
 
-    from app.models import Profile, User
+    from app.models import Profile, SongTag, User
 
     other = User(email="other@porchsongs.local", name="Other", role="user", is_active=True)
     db_session.add(other)
@@ -1727,27 +1731,26 @@ def test_suggest_tags_only_sees_the_callers_own_folders(
     other_profile = Profile(user_id=other.id, is_default=True)
     db_session.add(other_profile)
     db_session.commit()
-    db_session.add(
-        Song(
-            user_id=other.id,
-            profile_id=other_profile.id,
-            title="Theirs",
-            original_content="x",
-            rewritten_content="x",
-            folder="Theirs",
-            status="draft",
-            current_version=1,
-        )
+    theirs = Song(
+        user_id=other.id,
+        profile_id=other_profile.id,
+        title="Theirs",
+        original_content="x",
+        rewritten_content="x",
+        status="draft",
+        current_version=1,
     )
+    theirs.tag_rows.append(SongTag(tag="Theirs"))
+    db_session.add(theirs)
     db_session.commit()
 
-    mock_amessages.return_value = _fake_message_response('{"existing": [1], "new": ""}')
-    resp = client.post("/api/folders/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
+    mock_amessages.return_value = _fake_message_response('{"existing": [1], "new": []}')
+    resp = client.post("/api/tags/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
 
     prompt = mock_amessages.call_args.kwargs["messages"][0]["content"]
     assert "Theirs" not in prompt
     assert "1. Mine" in prompt
-    assert resp.json()["suggestions"] == [{"folder": "Mine", "is_new": False}]
+    assert resp.json()["suggestions"] == [{"tag": "Mine", "count": 1}]
 
 
 def test_suggest_tags_rejects_another_users_song(client: TestClient, db_session: Session) -> None:
@@ -1771,7 +1774,7 @@ def test_suggest_tags_rejects_another_users_song(client: TestClient, db_session:
     db_session.add(other_song)
     db_session.commit()
 
-    resp = client.post("/api/folders/suggest", json={"song_id": other_song.id, **LLM_SETTINGS})
+    resp = client.post("/api/tags/suggest", json={"song_id": other_song.id, **LLM_SETTINGS})
     assert resp.status_code == 404
 
 
@@ -1783,7 +1786,7 @@ def test_suggest_tags_requires_gateway(client: TestClient) -> None:
     orig = settings.llm_api_base
     settings.llm_api_base = None
     try:
-        resp = client.post("/api/folders/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
+        resp = client.post("/api/tags/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
     finally:
         settings.llm_api_base = orig
 
@@ -1800,7 +1803,7 @@ def test_suggest_tags_reports_provider_failures(
     _, song = _make_profile_and_song(client)
     mock_amessages.side_effect = RateLimitError("Rate limit exceeded")
 
-    resp = client.post("/api/folders/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
+    resp = client.post("/api/tags/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
 
     assert resp.status_code == 502
     assert resp.json()["detail"]["error_type"] == "provider_rate_limit"

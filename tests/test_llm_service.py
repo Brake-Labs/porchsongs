@@ -8,7 +8,8 @@ from unittest.mock import AsyncMock, patch
 from app.services.llm_service import (
     CHAT_SYSTEM_PROMPT,
     CLEAN_SYSTEM_PROMPT,
-    FOLDER_NAME_MAX_CHARS,
+    TAG_NAME_MAX_CHARS,
+    TAG_SUGGEST_MAX_NEW,
     TAG_SUGGEST_CONTENT_CHARS,
     TAG_SUGGEST_MAX_CHOICES,
     TAG_SUGGEST_MAX_OUTPUT_TOKENS,
@@ -668,7 +669,7 @@ def test_disambiguate_position_rejects_out_of_set_and_unsure(mock_amessages: Asy
     )
 
 
-# --- Folder suggestion ---
+# --- Tag suggestion ---
 
 
 def test_tag_suggest_output_cap_is_one_credits_worth() -> None:
@@ -687,17 +688,17 @@ def test_parse_tag_suggestions_ranks_existing_then_new() -> None:
         ["Campfire", "Hymns"],
     )
     assert result == [
-        {"folder": "Hymns", "is_new": False},
-        {"folder": "Campfire", "is_new": False},
-        {"folder": "Carter Family", "is_new": True},
+        {"tag": "Hymns", "is_new": False},
+        {"tag": "Campfire", "is_new": False},
+        {"tag": "Carter Family", "is_new": True},
     ]
 
 
-def test_parse_tag_suggestions_drops_folders_the_user_does_not_have() -> None:
+def test_parse_tag_suggestions_drops_tags_the_user_does_not_have() -> None:
     """An index outside the offered list must never become a suggestion.
 
     The model is asked for numbers precisely so a creative reply cannot name a
-    folder of its own; if that guard slipped, one tap would file the chart
+    tag of its own; if that guard slipped, one tap would file the chart
     somewhere the user never chose.
     """
     result = _parse_tag_suggestions(
@@ -707,46 +708,49 @@ def test_parse_tag_suggestions_drops_folders_the_user_does_not_have() -> None:
     assert result == []
 
 
-def test_parse_tag_suggestions_accepts_an_echoed_folder_name() -> None:
+def test_parse_tag_suggestions_accepts_an_echoed_tag_name() -> None:
     result = _parse_tag_suggestions(
         '{"existing": ["hymns"], "new": ""}',
         ["Campfire", "Hymns"],
     )
-    assert result == [{"folder": "Hymns", "is_new": False}]
+    assert result == [{"tag": "Hymns", "is_new": False}]
 
 
-def test_parse_tag_suggestions_never_offers_an_existing_folder_as_new() -> None:
+def test_parse_tag_suggestions_never_offers_an_existing_tag_as_new() -> None:
     result = _parse_tag_suggestions(
         '{"existing": [1], "new": "campfire"}',
         ["Campfire", "Hymns"],
     )
-    assert result == [{"folder": "Campfire", "is_new": False}]
+    assert result == [{"tag": "Campfire", "is_new": False}]
 
 
-def test_parse_tag_suggestions_does_not_badge_an_unoffered_folder_as_new() -> None:
-    """A folder the user has, but which was never offered, is not a new folder.
+def test_parse_tag_suggestions_does_not_badge_an_unoffered_tag_as_new() -> None:
+    """A tag the user has, but which was never offered, is not a new tag.
 
-    Only TAG_SUGGEST_MAX_CHOICES folders go into the prompt, so a library
+    Only TAG_SUGGEST_MAX_CHOICES tags go into the prompt, so a library
     past that has tags the model never saw and can propose from scratch.
     Checking ``new`` against the offered slice alone would badge one of the
-    user's own folders "New tag".
+    user's own tags "New tag".
     """
     result = _parse_tag_suggestions(
         '{"existing": [], "new": "Zydeco"}',
         ["Campfire", "Hymns"],
         ["Campfire", "Hymns", "Zydeco"],
     )
-    assert result == [{"folder": "Zydeco", "is_new": False}]
+    assert result == [{"tag": "Zydeco", "is_new": False}]
 
 
 def test_parse_tag_suggestions_caps_the_ranking_and_the_name() -> None:
     result = _parse_tag_suggestions(
-        json.dumps({"existing": [1, 2, 3, 4, 5], "new": "x" * 200}),
-        ["A", "B", "C", "D", "E"],
+        json.dumps({"existing": [1, 2, 3, 4, 5, 6], "new": ["x" * 200, "y", "z"]}),
+        ["A", "B", "C", "D", "E", "F"],
     )
-    assert [s["folder"] for s in result if not s["is_new"]] == ["A", "B", "C"]
+    assert [s["tag"] for s in result if not s["is_new"]] == ["A", "B", "C", "D"]
     new = [s for s in result if s["is_new"]]
-    assert len(new[0]["folder"]) == FOLDER_NAME_MAX_CHARS
+    # A chart is allowed several tags, but not a screenful: two proposed names,
+    # each no longer than the write path would accept.
+    assert len(new) == TAG_SUGGEST_MAX_NEW
+    assert len(new[0]["tag"]) == TAG_NAME_MAX_CHARS
 
 
 def test_parse_tag_suggestions_survives_prose_and_garbage() -> None:
@@ -754,7 +758,7 @@ def test_parse_tag_suggestions_survives_prose_and_garbage() -> None:
     assert _parse_tag_suggestions(
         'Sure! {"existing": [], "new": "Sea Shanties"} Hope that helps.',
         ["Hymns"],
-    ) == [{"folder": "Sea Shanties", "is_new": True}]
+    ) == [{"tag": "Sea Shanties", "is_new": True}]
     # Truncated or not JSON at all: no suggestions rather than an exception.
     assert _parse_tag_suggestions('{"existing": [1], "new": "Sea', ["Hymns"]) == []
     assert _parse_tag_suggestions("no idea", ["Hymns"]) == []
@@ -763,11 +767,11 @@ def test_parse_tag_suggestions_survives_prose_and_garbage() -> None:
 
 def test_parse_tag_suggestions_squeezes_a_multiline_name_onto_one_line() -> None:
     result = _parse_tag_suggestions('{"existing": [], "new": "  Sunday\\n  Morning  "}', [])
-    assert result == [{"folder": "Sunday Morning", "is_new": True}]
+    assert result == [{"tag": "Sunday Morning", "is_new": True}]
 
 
 @patch("app.services.llm_service.amessages", new_callable=AsyncMock)
-def test_suggest_tags_offers_a_new_name_when_there_are_no_folders_yet(
+def test_suggest_tags_offers_a_new_name_when_there_are_no_tags_yet(
     mock_amessages: AsyncMock,
 ) -> None:
     mock_amessages.return_value = _arbiter_response('{"existing": [], "new": "Carter Family"}')
@@ -781,7 +785,7 @@ def test_suggest_tags_offers_a_new_name_when_there_are_no_folders_yet(
             model="fast",
         )
     )
-    assert result["suggestions"] == [{"folder": "Carter Family", "is_new": True}]
+    assert result["suggestions"] == [{"tag": "Carter Family", "is_new": True}]
     # A first-time user has nothing to rank, and the prompt has to say so or the
     # reply comes back as an empty ranking with no new name either.
     prompt = mock_amessages.call_args.kwargs["messages"][0]["content"]
@@ -799,7 +803,7 @@ def test_suggest_tags_bounds_what_it_sends_and_what_it_asks_for(
             title="Long One",
             artist=None,
             content="x" * 9000,
-            existing_tags=[f"Folder {i}" for i in range(50)],
+            existing_tags=[f"Tag {i}" for i in range(50)],
             provider="otari",
             model="fast",
         )
@@ -809,10 +813,10 @@ def test_suggest_tags_bounds_what_it_sends_and_what_it_asks_for(
     prompt = kwargs["messages"][0]["content"]
     assert "x" * TAG_SUGGEST_CONTENT_CHARS in prompt
     assert "x" * (TAG_SUGGEST_CONTENT_CHARS + 1) not in prompt
-    assert f"{TAG_SUGGEST_MAX_CHOICES}. Folder {TAG_SUGGEST_MAX_CHOICES - 1}" in prompt
-    assert f"{TAG_SUGGEST_MAX_CHOICES + 1}. Folder" not in prompt
-    # Only folders that were actually offered can come back.
-    assert result["suggestions"] == [{"folder": "Folder 0", "is_new": False}]
+    assert f"{TAG_SUGGEST_MAX_CHOICES}. Tag {TAG_SUGGEST_MAX_CHOICES - 1}" in prompt
+    assert f"{TAG_SUGGEST_MAX_CHOICES + 1}. Tag" not in prompt
+    # Only tags that were actually offered can come back.
+    assert result["suggestions"] == [{"tag": "Tag 0", "is_new": False}]
 
 
 def test_tag_suggest_schema_bound_matches_the_service_cap():
