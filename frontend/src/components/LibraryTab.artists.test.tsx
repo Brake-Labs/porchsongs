@@ -377,6 +377,52 @@ describe('LibraryTab artist browsing', () => {
     expect(screen.getByTestId('artist-back')).toBeInTheDocument();
   });
 
+  describe('the tidy banner', () => {
+    it('appears only inside the Unknown artist bucket', async () => {
+      await renderInArtistMode([
+        makeSong({ id: 1, title: 'Caleb Meyer', artist: null }),
+        makeSong({ id: 2, title: 'Old Man', artist: 'Neil Young' }),
+      ]);
+
+      expect(screen.queryByRole('button', { name: 'Name these' })).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByText('Neil Young'));
+      await waitFor(() => expect(screen.getByText('Old Man')).toBeInTheDocument());
+      expect(screen.queryByRole('button', { name: 'Name these' })).not.toBeInTheDocument();
+    });
+
+    it('counts what the free pass could name from the library itself', async () => {
+      await renderInArtistMode([
+        makeSong({ id: 1, title: 'Old Man', artist: 'Neil Young' }),
+        // The title carries an artist the library already knows.
+        makeSong({ id: 2, title: 'Powderfinger Neil Young', artist: null }),
+        makeSong({ id: 3, title: 'Caleb Meyer', artist: null }),
+      ]);
+
+      fireEvent.click(screen.getByText('Unknown artist'));
+
+      await waitFor(() =>
+        expect(
+          screen.getByText('1 of these can be named from what is already here, for free.'),
+        ).toBeInTheDocument(),
+      );
+      expect(screen.getByRole('button', { name: 'Name these' })).toBeInTheDocument();
+    });
+
+    it('still offers the screen when the free pass found nothing', async () => {
+      await renderInArtistMode([makeSong({ id: 1, title: 'Caleb Meyer', artist: null })]);
+
+      fireEvent.click(screen.getByText('Unknown artist'));
+
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Name these' })).toBeInTheDocument(),
+      );
+      expect(
+        screen.getByText('Give these an artist, one screen, without opening each one.'),
+      ).toBeInTheDocument();
+    });
+  });
+
   it('clears the search box when an artist is picked', async () => {
     await renderInArtistMode([
       makeSong({ id: 1, title: 'Old Man', artist: 'Neil Young' }),

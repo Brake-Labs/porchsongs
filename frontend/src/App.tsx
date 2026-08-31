@@ -8,6 +8,7 @@ import RewriteTab from '@/components/RewriteTab';
 import LibraryTab from '@/components/LibraryTab';
 import PlayPage from '@/pages/PlayPage';
 import ChordsPage from '@/pages/ChordsPage';
+import TidyPage from '@/pages/TidyPage';
 import SettingsPage from '@/components/SettingsPage';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -69,6 +70,10 @@ export default function App() {
         <Route index element={<Navigate to="/app/library" replace />} />
         <Route path="rewrite" element={<ErrorBoundary fallbackLabel="Rewrite"><RewriteTab /></ErrorBoundary>} />
         <Route path="library" element={<ErrorBoundary fallbackLabel="Library"><LibraryTab /></ErrorBoundary>} />
+        {/* The free pass over the songs with no artist. A static segment, so it
+            outranks the `library/:id` redirect below whichever order they are
+            declared in. */}
+        <Route path="library/tidy" element={<ErrorBoundary fallbackLabel="Tidy"><TidyPage /></ErrorBoundary>} />
         {/* Playing a chart has one home. This path used to mount a second copy
             of the performance surface inside the library, which is why the
             chord panel and stored tabs only ever worked on one of them. Kept as

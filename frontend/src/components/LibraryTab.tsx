@@ -7,6 +7,8 @@ import Spinner from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
+import { UNKNOWN_ARTIST_KEY, artistKeyOf, tidyArtist } from '@/lib/artists';
+import { buildProposals } from '@/lib/tidy';
 import { Select } from '@/components/ui/select';
 import {
   DropdownMenu,
@@ -199,12 +201,6 @@ type SortDir = 'asc' | 'desc';
 type BrowseMode = 'songs' | 'artists';
 type ArtistSortKey = 'name' | 'count';
 
-/** Grouping key for charts with no artist. The leading space is load-bearing: a
- *  real key is a `tidyArtist` result, so it is always trimmed, and no artist a
- *  user can type will collide with this one. Without it, someone who titled an
- *  artist "__unknown__" would have their charts swallowed by the bucket. */
-const UNKNOWN_ARTIST_KEY = ' __unknown__';
-
 const BROWSE_MODES: ReadonlyArray<{ mode: BrowseMode; label: string }> = [
   { mode: 'songs', label: 'Songs' },
   { mode: 'artists', label: 'Artists' },
@@ -259,20 +255,6 @@ export interface ArtistGroup {
   count: number;
 }
 
-/** Trimmed, with every run of internal whitespace collapsed to one space. */
-function tidyArtist(artist: string | null | undefined): string {
-  return (artist || '').trim().replace(/\s+/g, ' ');
-}
-
-/** Case-and-whitespace-insensitive grouping key for a song's artist. */
-function artistKeyOf(song: Song): string {
-  // Internal runs of whitespace collapse as well as leading and trailing ones,
-  // so a double space or a stray tab from a pasted chart does not split one
-  // artist across two cards.
-  const tidy = tidyArtist(song.artist);
-  return tidy ? tidy.toLowerCase() : UNKNOWN_ARTIST_KEY;
-}
-
 /**
  * Buckets songs by artist.
  *
@@ -295,7 +277,7 @@ function artistKeyOf(song: Song): string {
 export function groupSongsByArtist(songs: Song[]): ArtistGroup[] {
   const buckets = new Map<string, { spellings: Map<string, number>; count: number }>();
   for (const song of songs) {
-    const key = artistKeyOf(song);
+    const key = artistKeyOf(song.artist);
     let bucket = buckets.get(key);
     if (!bucket) {
       bucket = { spellings: new Map(), count: 0 };
@@ -821,6 +803,14 @@ export default function LibraryTab() {
 
   const artistGroups = useMemo(() => groupSongsByArtist(songs), [songs]);
 
+  // Gated on the bucket being open, not just memoised: this walks every song
+  // against every artist name in the library, and the answer is only ever shown
+  // on one screen.
+  const namableCount = useMemo(() => {
+    if (selectedArtist !== UNKNOWN_ARTIST_KEY) return 0;
+    return buildProposals(songs).filter(p => p.artistSource !== null).length;
+  }, [selectedArtist, songs]);
+
   const artistLookup = useMemo(
     () => new Map(artistGroups.map(g => [g.key, g])),
     [artistGroups],
@@ -870,7 +860,7 @@ export default function LibraryTab() {
     // Artist and tags are either/or: only one of them is reachable at a time,
     // because only one of the two is ever on screen to explain an empty list.
     if (browseMode === 'artists') {
-      if (selectedArtist) result = result.filter(s => artistKeyOf(s) === selectedArtist);
+      if (selectedArtist) result = result.filter(s => artistKeyOf(s.artist) === selectedArtist);
     } else if (activeTags.includes(UNTAGGED)) {
       result = result.filter(s => (s.tags ?? []).length === 0);
     } else if (activeTags.length) {
@@ -1617,6 +1607,19 @@ export default function LibraryTab() {
         </div>
         )}
       </div>
+
+      {selectedArtist === UNKNOWN_ARTIST_KEY && (
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 px-4 py-2.5 bg-primary-light border border-primary rounded-md">
+          <p className="flex-1 text-sm text-primary">
+            {namableCount > 0
+              ? `${namableCount} of these can be named from what is already here, for free.`
+              : 'Give these an artist, one screen, without opening each one.'}
+          </p>
+          <Button size="sm" className="shrink-0" onClick={() => navigate('/app/library/tidy')}>
+            Name these
+          </Button>
+        </div>
+      )}
 
       {selectMode && (
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 px-4 py-2.5 bg-primary-light border border-primary rounded-md flex-wrap">
