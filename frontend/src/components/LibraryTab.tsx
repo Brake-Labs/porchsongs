@@ -23,7 +23,7 @@ import PromptDialog, { type PromptField } from '@/components/ui/prompt-dialog';
 import TagSuggestDialog from '@/components/TagSuggestDialog';
 import TagEditDialog from '@/components/TagEditDialog';
 import { cn } from '@/lib/utils';
-import { SongCapNotice, SongShareAction, SongShareNotice } from '@/extensions';
+import { SongCapNotice, SongShareAction, SongShareNotice, SongProvenanceTag } from '@/extensions';
 import type { AppShellContext } from '@/layouts/AppShell';
 import type { Song } from '@/types';
 
@@ -481,6 +481,8 @@ function SongCard({
           {preview && (
             <p className="text-xs text-muted-foreground truncate mt-0.5">{preview}</p>
           )}
+          {/* Inert in OSS, where there is nobody to have passed a song to you. */}
+          <SongProvenanceTag songUuid={song.uuid} />
           {/* The last line in the card, so the first thing to disappear if a row
               is ever shorter than its card again. The e2e suite asserts on it. */}
           <span

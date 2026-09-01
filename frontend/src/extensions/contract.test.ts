@@ -56,7 +56,7 @@ const MANIFEST: Record<string, string[]> = {
     'uploadFollowLog',
   ],
   feedback: ['FeedbackButton'],
-  sharing: ['SongShareAction', 'SongShareNotice'],
+  sharing: ['SongProvenanceTag', 'SongShareAction', 'SongShareNotice'],
 };
 
 /** Everything the barrel must re-export, flattened from the manifest. */

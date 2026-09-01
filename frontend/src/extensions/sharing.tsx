@@ -53,3 +53,19 @@ export function SongShareNotice(_props: {
 }): null {
   return null;
 }
+
+/**
+ * Where a song came from, or who took a copy of it.
+ *
+ * A third seam alongside the send action and the arrival notice, and the only
+ * one that is purely informational: it renders a line on a song card and has
+ * nothing to click. It exists because "who gave me this" is a property of the
+ * song rather than of a queue, and neither the inbox nor the friends page can
+ * answer it once the song is in the library.
+ *
+ * Renders nothing for a song nobody has passed around, which is nearly all of
+ * them, so it costs an empty component per card rather than a line of furniture.
+ */
+export function SongProvenanceTag(_props: { songUuid: string }): null {
+  return null;
+}
