@@ -6,7 +6,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import func
-from sqlalchemy.orm import Session, undefer
+from sqlalchemy.orm import Session, load_only, undefer
 
 from ..auth.dependencies import get_current_user
 from ..auth.scoping import get_user_profile, get_user_song, get_user_song_by_uuid
@@ -21,6 +21,8 @@ from ..models import (
     User,
 )
 from ..schemas import (
+    ArtistRename,
+    ArtistRenameResult,
     ChatMessageCreate,
     ChatMessageOut,
     OkResponse,
@@ -34,7 +36,7 @@ from ..schemas import (
 )
 from ..services.blob_store import hashes_for_songs, prune_orphan_blobs, put_blob
 from ..services.pdf_service import generate_song_pdf
-from ..services.tags import normalise, set_tags, user_tags
+from ..services.tags import artist_key, normalise, normalise_artist, set_tags, user_tags
 
 router = APIRouter(tags=["songs"])
 
@@ -174,6 +176,62 @@ async def rename_tag(
             row.tag = new_name
     db.commit()
     return OkResponse(ok=True)
+
+
+@router.put("/songs/artists", response_model=ArtistRenameResult)
+async def rename_artist(
+    data: ArtistRename,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ArtistRenameResult:
+    """Rename an artist across every song of theirs.
+
+    The counterpart to `rename_tag`, but writing a column on `songs` rather than
+    rows in a join table: an artist is a property of the song, not a label
+    attached to it.
+
+    Both names travel in the body, where `rename_tag` takes the old one as a path
+    segment. An artist called "AC/DC" cannot survive a path: ASGI decodes %2F
+    before routing, so the request arrives with an extra segment and is answered
+    405 before this function sees it.
+
+    Renaming onto a name already in use merges the two. The counts come back so
+    the client can say which happened. Matching folds case and collapses inner
+    whitespace; see `artist_key`.
+    """
+    new_name = normalise_artist(data.name)
+    if not new_name:
+        raise HTTPException(status_code=422, detail="An artist needs a name.")
+
+    wanted = artist_key(data.from_name)
+    if not wanted:
+        # The library's Unknown bucket is not an artist and has no name to change.
+        # Giving those songs an artist is what the tidy screen is for.
+        raise HTTPException(status_code=422, detail="That is not an artist you can rename.")
+
+    # Only the two columns this reads and writes. The default load drags every
+    # chart's full text along to compare one string.
+    songs = (
+        db.query(Song)
+        .options(load_only(Song.id, Song.artist))
+        .filter(Song.user_id == current_user.id)
+        .all()
+    )
+    renamed = 0
+    merged_into = 0
+    for song in songs:
+        key = artist_key(song.artist)
+        if key == wanted:
+            song.artist = new_name
+            renamed += 1
+        elif key == artist_key(new_name):
+            merged_into += 1
+
+    if renamed == 0:
+        raise HTTPException(status_code=404, detail="No songs by that artist.")
+
+    db.commit()
+    return ArtistRenameResult(name=new_name, renamed=renamed, merged_into=merged_into)
 
 
 @router.delete("/songs/tags/{tag_name}", response_model=OkResponse)

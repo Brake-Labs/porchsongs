@@ -56,7 +56,7 @@ const MANIFEST: Record<string, string[]> = {
     'uploadFollowLog',
   ],
   feedback: ['FeedbackButton'],
-  sharing: ['SongShareAction', 'SongShareNotice'],
+  sharing: ['SongProvenanceTag', 'SongShareAction', 'SongShareNotice'],
 };
 
 /** Everything the barrel must re-export, flattened from the manifest. */
@@ -78,6 +78,10 @@ const BARREL_EXPORTS = Object.values(MANIFEST).flat().sort();
 const PREMIUM_ONLY = [
   'getCatchAllRedirect',
   'notifyQuotaChanged',
+  // Drops the provenance cache when accepting a share changes a song's history.
+  // Same shape as `notifyQuotaChanged`: premium's own components call it, and
+  // OSS has no cache to drop because it has nobody to receive a song from.
+  'invalidateProvenance',
   'deleteAccount',
   'verifyCheckoutSession',
 ];
@@ -158,6 +162,7 @@ describe('extensions seam contract', () => {
       expect(quota.SongCapNotice({ count: 0 })).toBeNull();
       expect(sharing.SongShareAction({ songUuids: [], variant: 'menu' })).toBeNull();
       expect(sharing.SongShareNotice({})).toBeNull();
+      expect(sharing.SongProvenanceTag({ songUuid: 'any' })).toBeNull();
       expect(feedback.FeedbackButton()).toBeNull();
     });
 

@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
 import { openPdf, closePdf, renderPage, cancelRender } from '@/lib/pdfViewer';
+import { STORAGE_KEYS } from '@/api';
 import { cn } from '@/lib/utils';
 import Spinner from '@/components/ui/spinner';
 
@@ -11,10 +12,39 @@ import Spinner from '@/components/ui/spinner';
  * Neither offers any way to edit, because a stored document has nothing to edit,
  * and a chart on this screen is being read from six feet away.
  *
- * Pages render one at a time to a canvas rather than all of them into a scroller.
- * A tab is read a page at a time on a music stand, and rasterising twenty pages
+ * Renders the pages you are looking at and no others. That is the rule the
+ * original one-page-at-a-time version was protecting: rasterising twenty pages
  * of a scan at device pixel ratio is how a phone runs out of memory mid-tune.
+ * Showing two or three across does not break it, because the count is capped and
+ * bounded by the width available; scrolling the whole document would.
  */
+
+/** The most pages that may be shown at once. */
+const MAX_PER_VIEW = 4;
+
+/** Gap between pages in a multi-page view, in CSS pixels. Matches `gap-2`. */
+const PAGE_GAP_PX = 8;
+
+/**
+ * The width one page needs before another will fit beside it.
+ *
+ * A portrait page squeezed below this is not a page you can read fret numbers
+ * off at arm's length, which is the whole job. So the picker offers only the
+ * counts the screen can actually carry, and a phone is offered one.
+ */
+const MIN_PAGE_WIDTH_PX = 320;
+
+function storedPerView(): number {
+  if (typeof window === 'undefined') return 1;
+  try {
+    const raw = Number(window.localStorage.getItem(STORAGE_KEYS.DOCUMENT_PAGES));
+    if (Number.isInteger(raw) && raw >= 1 && raw <= MAX_PER_VIEW) return raw;
+  } catch {
+    // A private window, or storage the browser refuses. One page is the default
+    // everywhere else, so it is the right answer here too.
+  }
+  return 1;
+}
 
 interface DocumentSheetProps {
   /** The PDF bytes. Fetched by the caller, which owns the auth and the cache. */
@@ -25,20 +55,27 @@ interface DocumentSheetProps {
 }
 
 export default function DocumentSheet({ data, onPageCount, className }: DocumentSheetProps) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const pdfRef = useRef<PDFDocumentProxy | null>(null);
   // Renders are async and a fast tap can start a second before the first
   // finishes. Only the newest may paint, or pages arrive out of order.
   const renderToken = useRef(0);
-  // pdf.js refuses to run two renders against one canvas, so the previous one is
-  // cancelled and awaited rather than merely ignored. A discarded-but-running
-  // render still owns the canvas.
-  const renderTask = useRef<RenderTask | null>(null);
+  // pdf.js refuses to run two renders against one canvas, so the previous ones
+  // are cancelled and awaited rather than merely ignored. A discarded-but-running
+  // render still owns its canvas. One entry per visible page.
+  const renderTasks = useRef<(RenderTask | null)[]>([]);
 
   const [pageCount, setPageCount] = useState(0);
+  // The first page of the visible run. With one page across this is the page.
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(1);
+  const [perView, setPerView] = useState(storedPerView);
+  // Starts at one and widens only once the container has been measured. Starting
+  // at the cap meant a phone rendered the picker for a frame and then took it
+  // away again, which is a worse flicker than a wide screen briefly showing one
+  // page before it settles.
+  const [maxFit, setMaxFit] = useState(1);
   // Shown briefly after a gesture turns a page. With the page filling the
   // screen, the number in the bar is the only thing that says where you are, and
   // on a stand your eyes are not on the bar.
@@ -46,6 +83,16 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
   const flashTimer = useRef<number | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
+
+  // What is actually on screen: never more than the screen can carry, and never
+  // more than the document has left. A two-page document does not get four
+  // slots, three of them blank.
+  const spread = useMemo(() => {
+    const wanted = Math.min(perView, maxFit, pageCount || 1);
+    const pages: number[] = [];
+    for (let i = 0; i < wanted && page + i <= (pageCount || 1); i += 1) pages.push(page + i);
+    return pages;
+  }, [perView, maxFit, page, pageCount]);
 
   // Parse the document once per set of bytes.
   useEffect(() => {
@@ -78,45 +125,53 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
 
   const draw = useCallback(async () => {
     const pdf = pdfRef.current;
-    const canvas = canvasRef.current;
     const container = containerRef.current;
-    if (!pdf || !canvas || !container) return;
+    if (!pdf || !container || spread.length === 0) return;
 
     const token = ++renderToken.current;
-    const pending = renderTask.current;
-    renderTask.current = null;
-    await cancelRender(pending);
+    const pending = renderTasks.current;
+    renderTasks.current = [];
+    await Promise.all(pending.map((task) => cancelRender(task)));
     if (token !== renderToken.current) return;
 
     // Subtracting the padding keeps a fitted page from triggering a scrollbar
-    // that then narrows the container, which oscillates.
+    // that then narrows the container, which oscillates. The gaps come off too,
+    // or the last page in a row is the one that overflows.
+    const gaps = PAGE_GAP_PX * (spread.length - 1);
     const box = {
-      width: Math.max(120, container.clientWidth - 16),
+      width: Math.max(120, (container.clientWidth - 16 - gaps) / spread.length),
       height: Math.max(120, container.clientHeight - 16),
     };
+
     try {
-      const task = await renderPage(pdf, page, canvas, box, zoom);
+      const tasks = await Promise.all(
+        spread.map((pageNumber, index) => {
+          const canvas = canvasRefs.current[index];
+          if (!canvas) return null;
+          return renderPage(pdf, pageNumber, canvas, box, zoom);
+        }),
+      );
       if (token !== renderToken.current) {
-        await cancelRender(task);
+        await Promise.all(tasks.map((task) => cancelRender(task)));
         return;
       }
-      renderTask.current = task;
-      await task.promise;
-      if (token === renderToken.current) renderTask.current = null;
+      renderTasks.current = tasks;
+      await Promise.all(tasks.map((task) => task?.promise));
+      if (token === renderToken.current) renderTasks.current = [];
     } catch (err) {
       if (token !== renderToken.current) return;
       setError((err as Error)?.message ?? 'Could not render this page.');
       setStatus('error');
     }
-  }, [page, zoom]);
+  }, [spread, zoom]);
 
   // Stop any render still running when the sheet goes away, so it does not
   // settle against a canvas React has already detached.
   useEffect(
     () => () => {
       renderToken.current++;
-      void cancelRender(renderTask.current);
-      renderTask.current = null;
+      void Promise.all(renderTasks.current.map((task) => cancelRender(task)));
+      renderTasks.current = [];
     },
     [],
   );
@@ -126,14 +181,28 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
   }, [status, draw]);
 
   // Re-render on resize: rotating a tablet on a stand changes the fitted width,
-  // and a canvas rasterised for the old one is visibly soft.
-  useEffect(() => {
+  // and a canvas rasterised for the old one is visibly soft. The same measurement
+  // decides how many pages will fit, so a rotation can change the count as well
+  // as the size.
+  useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container || status !== 'ready') return;
     let frame = 0;
+    // A layout effect, so the first painted frame already knows how wide the
+    // container is. As a passive effect there was a frame where the count was
+    // still the initial one, and a phone rendered the picker and then took it
+    // away again.
+    const measure = () => {
+      const usable = container.clientWidth - 16;
+      setMaxFit(Math.max(1, Math.min(MAX_PER_VIEW, Math.floor(usable / MIN_PAGE_WIDTH_PX))));
+    };
+    measure();
     const observer = new ResizeObserver(() => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => void draw());
+      frame = requestAnimationFrame(() => {
+        measure();
+        void draw();
+      });
     });
     observer.observe(container);
     return () => {
@@ -142,9 +211,29 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
     };
   }, [status, draw]);
 
+  const step = spread.length || 1;
+
+  /**
+   * Move by whole spreads, and land on a run that is actually full.
+   *
+   * Paging forward by the step is what makes two-up read like a book rather than
+   * a window sliding one page at a time over the same content. Clamping the last
+   * run back from the end keeps the final turn from showing one page next to a
+   * gap where the previous one already was.
+   *
+   * The target is clamped rather than rejected. `page - step` is 0 whenever that
+   * clamp has already pulled the run back onto its own step (three pages two-up
+   * lands on 2, four-up on seven lands on 4), and treating 0 as no target left
+   * Previous enabled and inert with no way back to the first page.
+   */
   const goTo = useCallback(
-    (next: number) => setPage((p) => Math.min(pageCount || 1, Math.max(1, next || p))),
-    [pageCount],
+    (next: number) =>
+      setPage(() => {
+        const total = pageCount || 1;
+        const last = Math.max(1, total - step + 1);
+        return Math.min(last, Math.max(1, next));
+      }),
+    [pageCount, step],
   );
 
   const showFlash = useCallback(() => {
@@ -159,6 +248,15 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
     },
     [],
   );
+
+  const choosePerView = useCallback((next: number) => {
+    setPerView(next);
+    try {
+      window.localStorage.setItem(STORAGE_KEYS.DOCUMENT_PAGES, String(next));
+    } catch {
+      // Not worth failing a page turn over.
+    }
+  }, []);
 
   /**
    * Swipe sideways to turn a page, and double tap to zoom.
@@ -234,15 +332,15 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
       // flick rather than a slow drag that was meant to pan.
       if (dt > 700 || Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
 
-      if (dx < 0 && start.atEnd && page < pageCount) {
-        goTo(page + 1);
+      if (dx < 0 && start.atEnd && page + step <= pageCount) {
+        goTo(page + step);
         showFlash();
       } else if (dx > 0 && start.atStart && page > 1) {
-        goTo(page - 1);
+        goTo(page - step);
         showFlash();
       }
     },
-    [goTo, page, pageCount, showFlash],
+    [goTo, page, pageCount, showFlash, step],
   );
 
   // Arrow keys and space, for a foot pedal or a bluetooth page turner. Both
@@ -255,15 +353,19 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
       if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
       if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
         e.preventDefault();
-        goTo(page + 1);
+        goTo(page + step);
       } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
         e.preventDefault();
-        goTo(page - 1);
+        goTo(page - step);
       }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [status, page, goTo]);
+  }, [status, page, goTo, step]);
+
+  /** "3" for one page, "3-5" for a run of them. */
+  const shown =
+    spread.length > 1 ? `${spread[0]}-${spread[spread.length - 1]}` : String(spread[0] ?? page);
 
   if (status === 'error') {
     return (
@@ -280,7 +382,7 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
     <div className={cn('flex flex-col min-h-0', className)}>
       <div
         ref={containerRef}
-        className="flex-1 min-h-0 overflow-auto flex justify-center p-2 relative"
+        className="flex-1 min-h-0 overflow-auto flex justify-center items-start gap-2 p-2 relative"
         data-testid="document-scroll"
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
@@ -293,7 +395,7 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
             aria-hidden="true"
             className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 rounded-full bg-foreground/80 px-3 py-1 text-xs font-semibold tabular-nums text-background"
           >
-            {page} / {pageCount}
+            {shown} / {pageCount}
           </div>
         )}
         {status === 'loading' ? (
@@ -302,16 +404,33 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
             <span className="text-sm">Loading tab...</span>
           </div>
         ) : (
-          <canvas ref={canvasRef} className="shadow-sm bg-white h-fit" aria-label={`Page ${page}`} />
+          spread.map((pageNumber, index) => (
+            <canvas
+              // Keyed by slot, not by page number. Keying by the page remounts
+              // every canvas on every turn, and a fitted portrait page at device
+              // pixel ratio is around 20MB of backing store: paging through a
+              // long scan detaches hundreds of megabytes waiting on GC, which on
+              // iOS Safari hits a hard canvas-memory ceiling and blanks the page
+              // mid-tune. That is the failure this file's header exists to
+              // prevent. The cost is that a page which survives a turn in a
+              // spread repaints instead of keeping its pixels, which is a frame.
+              key={index}
+              ref={(el) => {
+                canvasRefs.current[index] = el;
+              }}
+              className="shadow-sm bg-white h-fit"
+              aria-label={`Page ${pageNumber}`}
+            />
+          ))
         )}
       </div>
 
       {status === 'ready' && pageCount > 0 && (
-        <div className="shrink-0 flex items-center justify-center gap-2 py-1">
+        <div className="shrink-0 flex items-center justify-center gap-2 py-1 flex-wrap">
           {/* 44px targets throughout: these are hit while holding an instrument. */}
           <button
             type="button"
-            onClick={() => goTo(page - 1)}
+            onClick={() => goTo(page - step)}
             disabled={page <= 1}
             className="min-w-[2.75rem] min-h-[2.75rem] inline-flex items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-panel hover:text-foreground disabled:opacity-40 cursor-pointer"
             aria-label="Previous page"
@@ -322,17 +441,56 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
             className="text-xs text-muted-foreground tabular-nums whitespace-nowrap px-1"
             title="Swipe across the page to turn it. Double tap to zoom."
           >
-            {page} / {pageCount}
+            {shown} / {pageCount}
           </span>
           <button
             type="button"
-            onClick={() => goTo(page + 1)}
-            disabled={page >= pageCount}
+            onClick={() => goTo(page + step)}
+            disabled={page + step > pageCount}
             className="min-w-[2.75rem] min-h-[2.75rem] inline-flex items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-panel hover:text-foreground disabled:opacity-40 cursor-pointer"
             aria-label="Next page"
           >
             &rarr;
           </button>
+
+          {/* Offered only when the screen can carry a second page. Below that the
+              picker would be three disabled buttons explaining themselves. */}
+          {maxFit > 1 && pageCount > 1 && (
+            <>
+              <div className="w-px h-6 bg-border mx-1" aria-hidden="true" />
+              <div
+                className="inline-flex rounded-md border border-border overflow-hidden"
+                role="group"
+                aria-label="Pages at a time"
+                data-testid="pages-per-view"
+              >
+                {Array.from({ length: Math.min(maxFit, MAX_PER_VIEW) }, (_, i) => i + 1).map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => choosePerView(n)}
+                    // Against what is actually shown, not what was stored: a
+                    // remembered 4 on a screen that fits 2, or on a two-page
+                    // document, otherwise leaves the picker with nothing
+                    // selected. `spread.length` is the count in use, and the
+                    // highlight below reads the same value so the two cannot
+                    // say different things.
+                    aria-pressed={spread.length === n}
+                    className={cn(
+                      'min-w-[2.25rem] min-h-[2.75rem] inline-flex items-center justify-center text-xs tabular-nums cursor-pointer border-r border-border last:border-r-0',
+                      spread.length === n
+                        ? 'bg-primary text-white'
+                        : 'text-muted-foreground hover:bg-panel hover:text-foreground',
+                    )}
+                    aria-label={n === 1 ? 'One page at a time' : `${n} pages at a time`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
           <div className="w-px h-6 bg-border mx-1" aria-hidden="true" />
           <button
             type="button"

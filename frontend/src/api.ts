@@ -42,6 +42,10 @@ const STORAGE_KEYS = {
   // question that has the same answer forever. The chord itself is not stored:
   // that one really does change per song, and the panel seeds it from the chart.
   CHORD_INSTRUMENT: 'porchsongs_chord_instrument',
+  // How many pages of a stored tab to show at once. Same reasoning as the chord
+  // instrument: it follows from the screen somebody plays from, which does not
+  // change between songs, so asking again every time asks a settled question.
+  DOCUMENT_PAGES: 'porchsongs_document_pages',
   CHORD_TUNING: 'porchsongs_chord_tuning',
   // How wide the chord panel is dragged to, in px. Its own key rather than the
   // rewrite view's SPLIT_PERCENT: that one is a percentage split between two
@@ -477,6 +481,19 @@ const api = {
       body: { name: newName },
     });
     if (error) _throwApiError(error, 'Failed to rename tag');
+  },
+  /**
+   * Rename an artist across every song of theirs.
+   *
+   * Returns what it did rather than an ok flag: renaming onto a name already in
+   * use merges two artists into one, and the caller has to be able to say so.
+   */
+  renameArtist: async (oldName: string, newName: string) => {
+    const { data, error } = await client.PUT('/api/songs/artists', {
+      body: { from_name: oldName, name: newName },
+    });
+    if (error) _throwApiError(error, 'Failed to rename artist');
+    return data;
   },
   /**
    * Remove a tag from every song carrying it. Never deletes a song: the tag

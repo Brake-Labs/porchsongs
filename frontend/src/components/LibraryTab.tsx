@@ -7,6 +7,7 @@ import Spinner from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
+import ArtistRenameDialog, { type ArtistRenameTarget } from '@/components/ArtistRenameDialog';
 import { UNKNOWN_ARTIST_KEY, artistKeyOf, tidyArtist } from '@/lib/artists';
 import { buildProposals } from '@/lib/tidy';
 import { Select } from '@/components/ui/select';
@@ -22,7 +23,7 @@ import PromptDialog, { type PromptField } from '@/components/ui/prompt-dialog';
 import TagSuggestDialog from '@/components/TagSuggestDialog';
 import TagEditDialog from '@/components/TagEditDialog';
 import { cn } from '@/lib/utils';
-import { SongCapNotice, SongShareAction, SongShareNotice } from '@/extensions';
+import { SongCapNotice, SongShareAction, SongShareNotice, SongProvenanceTag } from '@/extensions';
 import type { AppShellContext } from '@/layouts/AppShell';
 import type { Song } from '@/types';
 
@@ -316,7 +317,8 @@ type DialogState =
   | { kind: 'renameTag'; tag: string }
   | { kind: 'deleteTag'; tag: string }
   | { kind: 'editTags'; song: Song }
-  | { kind: 'suggestTags'; song: Song };
+  | { kind: 'suggestTags'; song: Song }
+  | { kind: 'renameArtist'; artist: ArtistRenameTarget };
 
 const SONGS_PER_PAGE = 20;
 
@@ -479,6 +481,8 @@ function SongCard({
           {preview && (
             <p className="text-xs text-muted-foreground truncate mt-0.5">{preview}</p>
           )}
+          {/* Inert in OSS, where there is nobody to have passed a song to you. */}
+          <SongProvenanceTag songUuid={song.uuid} />
           {/* The last line in the card, so the first thing to disappear if a row
               is ever shorter than its card again. The e2e suite asserts on it. */}
           <span
@@ -1091,6 +1095,29 @@ export default function LibraryTab() {
     });
   };
 
+  const handleRenameArtistConfirmed = async (from: string, to: string) => {
+    try {
+      const result = await api.renameArtist(from, to);
+      // Rewrite in place rather than refetching: the library already holds every
+      // song, and the endpoint changed one column on a known set of them.
+      const fromKey = artistKeyOf(from);
+      setSongs(prev =>
+        prev.map(s => (artistKeyOf(s.artist) === fromKey ? { ...s, artist: result?.name ?? to } : s)),
+      );
+      // Back to the picker. The card the view was drilled into no longer exists
+      // under that name, and after a merge it has absorbed another one, so the
+      // list of artists is the thing that changed and the thing worth seeing.
+      if (selectedArtist === fromKey) applyView({ artist: null });
+      toast.success(
+        result && result.merged_into > 0
+          ? `Merged into ${result.name}, ${result.renamed + result.merged_into} charts.`
+          : `Renamed to ${result?.name ?? to}.`,
+      );
+    } catch (err) {
+      toast.error('Failed to rename artist: ' + (err as Error).message);
+    }
+  };
+
   const handleRenameTagRequest = (tag: string) => setDialogState({ kind: 'renameTag', tag });
 
   const handleRenameTagConfirmed = async (oldName: string, values: Record<string, string>) => {
@@ -1547,6 +1574,26 @@ export default function LibraryTab() {
               <span className="text-muted-foreground tabular-nums">
                 ({artistLookup.get(selectedArtist)?.count ?? 0})
               </span>
+              {/* Here rather than on the card in the picker: the card is already
+                  a button, and a second one inside it is a nested control that
+                  neither the keyboard nor a screen reader handles well. */}
+              {selectedArtist !== UNKNOWN_ARTIST_KEY && (
+                <button
+                  data-testid="artist-rename"
+                  className={TAG_PILL_CLASS}
+                  onClick={() => {
+                    const group = artistLookup.get(selectedArtist);
+                    if (group) {
+                      setDialogState({
+                        kind: 'renameArtist',
+                        artist: { name: group.name, count: group.count },
+                      });
+                    }
+                  }}
+                >
+                  Rename
+                </button>
+              )}
             </div>
           )}
           {browseMode === 'songs' && hasTags && (
@@ -1814,6 +1861,20 @@ export default function LibraryTab() {
         confirmLabel="Delete"
         variant="destructive"
         onConfirm={handleBulkDeleteConfirmed}
+      />
+
+      <ArtistRenameDialog
+        open={dialogState.kind === 'renameArtist'}
+        onOpenChange={(open) => !open && setDialogState({ kind: 'none' })}
+        artist={dialogState.kind === 'renameArtist' ? dialogState.artist : null}
+        others={
+          dialogState.kind === 'renameArtist'
+            ? artistGroups
+                .filter(g => g.key !== UNKNOWN_ARTIST_KEY && g.name !== dialogState.artist.name)
+                .map(g => ({ name: g.name, count: g.count }))
+            : []
+        }
+        onConfirm={(from, to) => void handleRenameArtistConfirmed(from, to)}
       />
 
       <PromptDialog

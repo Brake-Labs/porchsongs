@@ -22,6 +22,7 @@ vi.mock('@/api', () => ({
     deleteSong: vi.fn(),
     getSongRevisions: vi.fn(),
     renameTag: vi.fn(),
+    renameArtist: vi.fn(),
     deleteTag: vi.fn(),
     downloadSongPdf: vi.fn(),
     suggestTags: vi.fn(),
@@ -420,6 +421,61 @@ describe('LibraryTab artist browsing', () => {
       expect(
         screen.getByText('Give these an artist, one screen, without opening each one.'),
       ).toBeInTheDocument();
+    });
+  });
+
+  describe('renaming an artist', () => {
+    it('is offered once you have drilled into one, but not for the unknown bucket', async () => {
+      await renderInArtistMode([
+        makeSong({ id: 1, title: 'Old Man', artist: 'Neil Young' }),
+        makeSong({ id: 2, title: 'Caleb Meyer', artist: null }),
+      ]);
+
+      // Not on the picker: the card is already a button and a second one inside
+      // it is a nested control.
+      expect(screen.queryByTestId('artist-rename')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByText('Unknown artist'));
+      await waitFor(() => expect(screen.getByText('Caleb Meyer')).toBeInTheDocument());
+      // Not a name, so there is nothing to rename.
+      expect(screen.queryByTestId('artist-rename')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('artist-back'));
+      await waitFor(() => expect(screen.getByTestId('artist-grid')).toBeInTheDocument());
+      fireEvent.click(screen.getByText('Neil Young'));
+
+      await waitFor(() => expect(screen.getByTestId('artist-rename')).toBeInTheDocument());
+    });
+
+    it('rewrites every song by that artist without refetching', async () => {
+      vi.mocked(api.renameArtist).mockResolvedValue({
+        name: 'Shakey',
+        renamed: 2,
+        merged_into: 0,
+      } as never);
+      await renderInArtistMode([
+        makeSong({ id: 1, title: 'Old Man', artist: 'Neil Young' }),
+        makeSong({ id: 2, title: 'Powderfinger', artist: 'neil young' }),
+        makeSong({ id: 3, title: 'Salt Creek', artist: 'Bill Monroe' }),
+      ]);
+      fireEvent.click(screen.getByText('Neil Young'));
+      await waitFor(() => expect(screen.getByTestId('artist-rename')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByTestId('artist-rename'));
+      const input = await screen.findByLabelText('Artist name');
+      fireEvent.change(input, { target: { value: 'Shakey' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+
+      await waitFor(() =>
+        expect(api.renameArtist).toHaveBeenCalledWith('Neil Young', 'Shakey'),
+      );
+      // Back to the picker, because the card that was open no longer exists. The
+      // listing is not refetched, so the songs are rewritten in place, including
+      // the spelling that only matched after folding.
+      await waitFor(() => expect(screen.getByTestId('artist-grid')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText('Shakey')).toBeInTheDocument());
+      expect(screen.queryByText('Neil Young')).not.toBeInTheDocument();
+      expect(screen.getByText('Bill Monroe')).toBeInTheDocument();
     });
   });
 

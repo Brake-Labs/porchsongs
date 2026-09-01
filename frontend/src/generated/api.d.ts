@@ -133,6 +133,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/songs/artists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Rename Artist
+         * @description Rename an artist across every song of theirs.
+         *
+         *     The counterpart to `rename_tag`, but writing a column on `songs` rather than
+         *     rows in a join table: an artist is a property of the song, not a label
+         *     attached to it.
+         *
+         *     Both names travel in the body, where `rename_tag` takes the old one as a path
+         *     segment. An artist called "AC/DC" cannot survive a path: ASGI decodes %2F
+         *     before routing, so the request arrives with an extra segment and is answered
+         *     405 before this function sees it.
+         *
+         *     Renaming onto a name already in use merges the two. The counts come back so
+         *     the client can say which happened. Matching folds case and collapses inner
+         *     whitespace; see `artist_key`.
+         */
+        put: operations["rename_artist_api_songs_artists_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/songs/documents": {
         parameters: {
             query?: never;
@@ -635,6 +668,25 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ArtistRename */
+        ArtistRename: {
+            /** From Name */
+            from_name: string;
+            /** Name */
+            name: string;
+        };
+        /**
+         * ArtistRenameResult
+         * @description What the rename did, so the client can say it plainly.
+         */
+        ArtistRenameResult: {
+            /** Name */
+            name: string;
+            /** Renamed */
+            renamed: number;
+            /** Merged Into */
+            merged_into: number;
+        };
         /** Body_upload_document_api_songs_documents_post */
         Body_upload_document_api_songs_documents_post: {
             /** Profile Id */
@@ -1422,6 +1474,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_artist_api_songs_artists_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArtistRename"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtistRenameResult"];
                 };
             };
             /** @description Validation Error */

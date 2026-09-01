@@ -6,6 +6,8 @@ same song. Spread across the endpoints, "Fiddle Tunes" and "fiddle tunes" become
 two tags in one library and nothing tells the user why.
 """
 
+import re
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -95,3 +97,56 @@ def user_tags(db: Session, user_id: int) -> list[tuple[str, int]]:
         else:
             folded[key] = (tag, count)
     return sorted(folded.values(), key=lambda pair: pair[0].casefold())
+
+
+# --- Artists -----------------------------------------------------------------
+#
+# An artist is a column on `songs` rather than a row here, but the matching rule
+# is the same one, and the library groups its artist cards by exactly this key.
+# Keeping the two in step is why this lives beside `same_tag` rather than in the
+# router: three different foldings of a name is how "Neil Young" ends up as two
+# cards that the rename endpoint says do not exist.
+
+MAX_ARTIST_LENGTH = 500
+
+
+# What counts as whitespace, spelled out to match JavaScript's `\s` exactly.
+#
+# The two places that fold an artist name have to agree, or they disagree about
+# which songs are one card, and both directions of disagreement are bugs:
+#
+# Under-folding, which `str.split()` alone did, misses U+FEFF. That arrives on
+# the front of the first field of any file saved with a BOM, so the library
+# groups the song under the plain card and a rename targeting that card skips it,
+# while the client's optimistic update shows a change the database never made.
+#
+# Over-folding is not the safe direction, which an earlier version of this
+# comment claimed. `str.split()` also folds U+001C to U+001F and U+0085, which JS
+# does not, so the backend would treat as one card what the library draws as two
+# and rewrite songs the user never selected, silently and outside the change the
+# client applied to its own copy.
+#
+# So: the JS set, no more and no less.
+_ARTIST_WHITESPACE = re.compile(
+    "[\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+"
+)
+
+
+def normalise_artist(artist: str) -> str:
+    """The stored form: trimmed, inner whitespace collapsed, length-capped.
+
+    Case is preserved, for the same reason a tag's is: the spelling somebody
+    typed is the spelling they should see.
+    """
+    collapsed = _ARTIST_WHITESPACE.sub(" ", artist).strip()
+    return collapsed[:MAX_ARTIST_LENGTH].strip()
+
+
+def artist_key(artist: str | None) -> str:
+    """Case-and-whitespace-insensitive key. Empty for a song with no artist.
+
+    Mirrors `artistKeyOf` in the frontend's `lib/artists.ts`. An empty result is
+    the library's "Unknown artist" bucket, which is not an artist and cannot be
+    renamed.
+    """
+    return normalise_artist(artist or "").lower()
