@@ -39,7 +39,7 @@ def test_renames_every_song_by_that_artist(client: TestClient, profile_id: int) 
     _song(client, profile_id, "Powderfinger", "Neil Young")
     _song(client, profile_id, "Salt Creek", "Bill Monroe")
 
-    resp = client.put("/api/songs/artists/Neil Young", json={"name": "Neil Young & Crazy Horse"})
+    resp = client.put("/api/songs/artists", json={"from_name": "Neil Young", "name": "Neil Young & Crazy Horse"})
 
     assert resp.status_code == 200, resp.text
     assert resp.json() == {"name": "Neil Young & Crazy Horse", "renamed": 2, "merged_into": 0}
@@ -51,7 +51,7 @@ def test_matching_folds_case_and_whitespace(client: TestClient, profile_id: int)
     _song(client, profile_id, "Old Man", "Neil Young")
     _song(client, profile_id, "Powderfinger", "neil  young")
 
-    resp = client.put("/api/songs/artists/NEIL YOUNG", json={"name": "Neil Young"})
+    resp = client.put("/api/songs/artists", json={"from_name": "NEIL YOUNG", "name": "Neil Young"})
 
     assert resp.json()["renamed"] == 2
     assert _artists(client) == ["Neil Young", "Neil Young"]
@@ -62,7 +62,7 @@ def test_renaming_onto_an_existing_artist_reports_the_merge(client: TestClient, 
     _song(client, profile_id, "Old Man", "Neil Young")
     _song(client, profile_id, "Cortez The Killer", "Neil Young & Crazy Horse")
 
-    resp = client.put("/api/songs/artists/Neil Young", json={"name": "Neil Young & Crazy Horse"})
+    resp = client.put("/api/songs/artists", json={"from_name": "Neil Young", "name": "Neil Young & Crazy Horse"})
 
     body = resp.json()
     assert body["renamed"] == 1
@@ -74,7 +74,7 @@ def test_renaming_onto_an_existing_artist_reports_the_merge(client: TestClient, 
 def test_the_new_name_keeps_the_spelling_that_was_typed(client: TestClient, profile_id: int) -> None:
     _song(client, profile_id, "Old Man", "neil young")
 
-    client.put("/api/songs/artists/neil young", json={"name": "  Neil   Young  "})
+    client.put("/api/songs/artists", json={"from_name": "neil young", "name": "  Neil   Young  "})
 
     assert _artists(client) == ["Neil Young"]
 
@@ -82,7 +82,7 @@ def test_the_new_name_keeps_the_spelling_that_was_typed(client: TestClient, prof
 def test_an_artist_with_no_songs_is_a_404(client: TestClient, profile_id: int) -> None:
     _song(client, profile_id, "Salt Creek", "Bill Monroe")
 
-    resp = client.put("/api/songs/artists/Nobody", json={"name": "Somebody"})
+    resp = client.put("/api/songs/artists", json={"from_name": "Nobody", "name": "Somebody"})
 
     assert resp.status_code == 404
 
@@ -91,15 +91,32 @@ def test_the_unknown_bucket_is_not_an_artist(client: TestClient, profile_id: int
     """It is not a name, and giving those songs one is the tidy screen's job."""
     _song(client, profile_id, "Shady Grove", None)
 
-    resp = client.put("/api/songs/artists/   ", json={"name": "Traditional"})
+    resp = client.put("/api/songs/artists", json={"from_name": "   ", "name": "Traditional"})
 
     assert resp.status_code == 422
+
+
+def test_an_artist_with_a_slash_in_their_name_can_be_renamed(
+    client: TestClient, profile_id: int
+) -> None:
+    """Both names travel in the body for exactly this.
+
+    As a path segment "AC/DC" is undeliverable: ASGI decodes %2F before routing,
+    so the request arrives with an extra segment and is answered 405 before the
+    endpoint sees it.
+    """
+    _song(client, profile_id, "Back In Black", "AC/DC")
+
+    resp = client.put("/api/songs/artists", json={"from_name": "AC/DC", "name": "ACDC"})
+
+    assert resp.status_code == 200, resp.text
+    assert _artists(client) == ["ACDC"]
 
 
 def test_an_empty_new_name_is_refused(client: TestClient, profile_id: int) -> None:
     _song(client, profile_id, "Old Man", "Neil Young")
 
-    resp = client.put("/api/songs/artists/Neil Young", json={"name": "   "})
+    resp = client.put("/api/songs/artists", json={"from_name": "Neil Young", "name": "   "})
 
     assert resp.status_code == 422
     assert _artists(client) == ["Neil Young"]
@@ -138,8 +155,26 @@ def test_one_persons_rename_leaves_another_persons_songs_alone(
     db_session.add(theirs)
     db_session.commit()
 
-    client.put("/api/songs/artists/Neil Young", json={"name": "Shakey"})
+    client.put("/api/songs/artists", json={"from_name": "Neil Young", "name": "Shakey"})
 
     assert _artists(client) == ["Shakey"]
     db_session.refresh(theirs)
     assert theirs.artist == "Neil Young"
+
+
+def test_a_name_carrying_a_byte_order_mark_is_still_one_artist(
+    client: TestClient, profile_id: int
+) -> None:
+    """The frontend folds U+FEFF as whitespace and Python does not.
+
+    A file saved with a BOM puts one on the front of its first field, so the
+    library groups the song under the plain card while a rename targeting that
+    card would miss it, and the UI would then show a change the database never
+    made.
+    """
+    _song(client, profile_id, "Old Man", "Neil﻿ Young")
+
+    resp = client.put("/api/songs/artists", json={"from_name": "Neil Young", "name": "Shakey"})
+
+    assert resp.status_code == 200, resp.text
+    assert _artists(client) == ["Shakey"]

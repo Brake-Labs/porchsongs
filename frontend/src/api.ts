@@ -483,23 +483,22 @@ const api = {
     if (error) _throwApiError(error, 'Failed to rename tag');
   },
   /**
-   * Remove a tag from every song carrying it. Never deletes a song: the tag
-   * lives in its own table, so this is a delete of those rows and nothing else.
-   */
-  /**
    * Rename an artist across every song of theirs.
    *
    * Returns what it did rather than an ok flag: renaming onto a name already in
    * use merges two artists into one, and the caller has to be able to say so.
    */
   renameArtist: async (oldName: string, newName: string) => {
-    const { data, error } = await client.PUT('/api/songs/artists/{artist_name}', {
-      params: { path: { artist_name: oldName } },
-      body: { name: newName },
+    const { data, error } = await client.PUT('/api/songs/artists', {
+      body: { from_name: oldName, name: newName },
     });
     if (error) _throwApiError(error, 'Failed to rename artist');
     return data;
   },
+  /**
+   * Remove a tag from every song carrying it. Never deletes a song: the tag
+   * lives in its own table, so this is a delete of those rows and nothing else.
+   */
   deleteTag: async (tagName: string) => {
     const { error } = await client.DELETE('/api/songs/tags/{tag_name}', {
       params: { path: { tag_name: tagName } },

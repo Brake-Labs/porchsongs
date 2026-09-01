@@ -6,7 +6,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import func
-from sqlalchemy.orm import Session, undefer
+from sqlalchemy.orm import Session, load_only, undefer
 
 from ..auth.dependencies import get_current_user
 from ..auth.scoping import get_user_profile, get_user_song, get_user_song_by_uuid
@@ -178,38 +178,45 @@ async def rename_tag(
     return OkResponse(ok=True)
 
 
-@router.put("/songs/artists/{artist_name}", response_model=ArtistRenameResult)
+@router.put("/songs/artists", response_model=ArtistRenameResult)
 async def rename_artist(
-    artist_name: str,
     data: ArtistRename,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ArtistRenameResult:
     """Rename an artist across every song of theirs.
 
-    The counterpart to `rename_tag`, and the same shape, but writing a column on
-    `songs` rather than rows in a join table: an artist is a property of the
-    song, not a label attached to it.
+    The counterpart to `rename_tag`, but writing a column on `songs` rather than
+    rows in a join table: an artist is a property of the song, not a label
+    attached to it.
 
-    Renaming onto a name already in use merges the two, which is the point as
-    often as it is an accident. "Neil Young" and "neil young" are two cards in
-    the library and one act, and this is the only way to say so. The client warns
-    before it happens; the counts come back so it can say what happened after.
+    Both names travel in the body, where `rename_tag` takes the old one as a path
+    segment. An artist called "AC/DC" cannot survive a path: ASGI decodes %2F
+    before routing, so the request arrives with an extra segment and is answered
+    405 before this function sees it.
 
-    Matching folds case and collapses inner whitespace, the same rule the library
-    groups by, so renaming "neil  young" also catches "Neil Young".
+    Renaming onto a name already in use merges the two. The counts come back so
+    the client can say which happened. Matching folds case and collapses inner
+    whitespace; see `artist_key`.
     """
     new_name = normalise_artist(data.name)
     if not new_name:
         raise HTTPException(status_code=422, detail="An artist needs a name.")
 
-    wanted = artist_key(artist_name)
+    wanted = artist_key(data.from_name)
     if not wanted:
         # The library's Unknown bucket is not an artist and has no name to change.
         # Giving those songs an artist is what the tidy screen is for.
         raise HTTPException(status_code=422, detail="That is not an artist you can rename.")
 
-    songs = db.query(Song).filter(Song.user_id == current_user.id).all()
+    # Only the two columns this reads and writes. The default load drags every
+    # chart's full text along to compare one string.
+    songs = (
+        db.query(Song)
+        .options(load_only(Song.id, Song.artist))
+        .filter(Song.user_id == current_user.id)
+        .all()
+    )
     renamed = 0
     merged_into = 0
     for song in songs:

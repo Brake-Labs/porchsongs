@@ -203,6 +203,11 @@ class TagRename(BaseModel):
 
 
 class ArtistRename(BaseModel):
+    # Both names in the body, unlike `TagRename`, which takes the old one as a
+    # path segment. A path cannot carry an artist called "AC/DC": ASGI decodes
+    # %2F before routing, so the request arrives at a path with an extra segment
+    # and is answered 405. Tags rarely contain a slash; band names do.
+    from_name: str = Field(min_length=1, max_length=500)
     # 500 to match `songs.artist`, which is Text with that cap applied on the
     # upload path. A tag is capped at 100 because it is a label; an artist name
     # is whatever the act is called.

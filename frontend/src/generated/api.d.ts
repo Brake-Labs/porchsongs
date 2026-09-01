@@ -133,7 +133,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/songs/artists/{artist_name}": {
+    "/api/songs/artists": {
         parameters: {
             query?: never;
             header?: never;
@@ -145,19 +145,20 @@ export interface paths {
          * Rename Artist
          * @description Rename an artist across every song of theirs.
          *
-         *     The counterpart to `rename_tag`, and the same shape, but writing a column on
-         *     `songs` rather than rows in a join table: an artist is a property of the
-         *     song, not a label attached to it.
+         *     The counterpart to `rename_tag`, but writing a column on `songs` rather than
+         *     rows in a join table: an artist is a property of the song, not a label
+         *     attached to it.
          *
-         *     Renaming onto a name already in use merges the two, which is the point as
-         *     often as it is an accident. "Neil Young" and "neil young" are two cards in
-         *     the library and one act, and this is the only way to say so. The client warns
-         *     before it happens; the counts come back so it can say what happened after.
+         *     Both names travel in the body, where `rename_tag` takes the old one as a path
+         *     segment. An artist called "AC/DC" cannot survive a path: ASGI decodes %2F
+         *     before routing, so the request arrives with an extra segment and is answered
+         *     405 before this function sees it.
          *
-         *     Matching folds case and collapses inner whitespace, the same rule the library
-         *     groups by, so renaming "neil  young" also catches "Neil Young".
+         *     Renaming onto a name already in use merges the two. The counts come back so
+         *     the client can say which happened. Matching folds case and collapses inner
+         *     whitespace; see `artist_key`.
          */
-        put: operations["rename_artist_api_songs_artists__artist_name__put"];
+        put: operations["rename_artist_api_songs_artists_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -669,6 +670,8 @@ export interface components {
     schemas: {
         /** ArtistRename */
         ArtistRename: {
+            /** From Name */
+            from_name: string;
             /** Name */
             name: string;
         };
@@ -1484,13 +1487,11 @@ export interface operations {
             };
         };
     };
-    rename_artist_api_songs_artists__artist_name__put: {
+    rename_artist_api_songs_artists_put: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                artist_name: string;
-            };
+            path?: never;
             cookie?: never;
         };
         requestBody: {

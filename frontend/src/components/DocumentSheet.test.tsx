@@ -292,34 +292,28 @@ describe('showing several pages at a time', () => {
    * makes the wide case reachable at all.
    */
   function widen(px: number) {
-    const spy = vi
-      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
-      .mockReturnValue(px);
-    const height = vi
-      .spyOn(HTMLElement.prototype, 'clientHeight', 'get')
-      .mockReturnValue(900);
-    return () => {
-      spy.mockRestore();
-      height.mockRestore();
-    };
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(px);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(900);
   }
 
+  // Restored here rather than by each test, so a failing assertion cannot leave
+  // the prototype stubbed and turn one failure into a cascade down the file.
   afterEach(() => {
+    vi.restoreAllMocks();
     window.localStorage.clear();
   });
 
   it('does not offer the picker on a screen that cannot carry two pages', async () => {
-    const restore = widen(400);
+    widen(400);
     openPdf.mockResolvedValue(fakePdf(6));
     render(<DocumentSheet data={BYTES} />);
 
     await screen.findByLabelText('Page 1');
     expect(screen.queryByTestId('pages-per-view')).not.toBeInTheDocument();
-    restore();
   });
 
   it('renders the chosen number of pages side by side', async () => {
-    const restore = widen(1400);
+    widen(1400);
     openPdf.mockResolvedValue(fakePdf(6));
     const user = userEvent.setup();
     render(<DocumentSheet data={BYTES} />);
@@ -330,11 +324,10 @@ describe('showing several pages at a time', () => {
     await waitFor(() => expect(screen.getByLabelText('Page 3')).toBeInTheDocument());
     expect(screen.getByLabelText('Page 2')).toBeInTheDocument();
     expect(screen.queryByLabelText('Page 4')).not.toBeInTheDocument();
-    restore();
   });
 
   it('fits each page into its share of the width, not the whole of it', async () => {
-    const restore = widen(1400);
+    widen(1400);
     openPdf.mockResolvedValue(fakePdf(6));
     const user = userEvent.setup();
     render(<DocumentSheet data={BYTES} />);
@@ -349,11 +342,10 @@ describe('showing several pages at a time', () => {
     const calls = renderPage.mock.calls;
     const box = calls[calls.length - 1]?.[3];
     expect(box.width).toBeCloseTo((1400 - 16 - 8) / 2, 5);
-    restore();
   });
 
   it('turns by the whole spread rather than one page', async () => {
-    const restore = widen(1400);
+    widen(1400);
     openPdf.mockResolvedValue(fakePdf(6));
     const user = userEvent.setup();
     render(<DocumentSheet data={BYTES} />);
@@ -366,11 +358,10 @@ describe('showing several pages at a time', () => {
     await waitFor(() => expect(screen.getByLabelText('Page 3')).toBeInTheDocument());
     expect(screen.getByLabelText('Page 4')).toBeInTheDocument();
     expect(screen.getByText('3-4 / 6')).toBeInTheDocument();
-    restore();
   });
 
   it('does not run off the end, and keeps the last spread full', async () => {
-    const restore = widen(1400);
+    widen(1400);
     openPdf.mockResolvedValue(fakePdf(5));
     const user = userEvent.setup();
     render(<DocumentSheet data={BYTES} />);
@@ -385,11 +376,31 @@ describe('showing several pages at a time', () => {
     // Not 5-6, and not a lone page 5 beside a gap where 4 already was.
     await waitFor(() => expect(screen.getByText('4-5 / 5')).toBeInTheDocument());
     expect(screen.getByLabelText('Next page')).toBeDisabled();
-    restore();
+  });
+
+  it('pages back off a last spread the clamp pulled onto its own step', async () => {
+    widen(1400);
+    openPdf.mockResolvedValue(fakePdf(3));
+    const user = userEvent.setup();
+    render(<DocumentSheet data={BYTES} />);
+    await screen.findByLabelText('Page 1');
+    await user.click(await screen.findByLabelText('2 pages at a time'));
+    await waitFor(() => expect(screen.getByText('1-2 / 3')).toBeInTheDocument());
+
+    // Three pages two-up: the forward turn clamps back to page 2, so the step
+    // back from there is 2 - 2. A Previous button that is enabled and does
+    // nothing is a run there is no way out of.
+    await user.click(screen.getByLabelText('Next page'));
+    await waitFor(() => expect(screen.getByText('2-3 / 3')).toBeInTheDocument());
+    expect(screen.getByLabelText('Previous page')).toBeEnabled();
+
+    await user.click(screen.getByLabelText('Previous page'));
+
+    await waitFor(() => expect(screen.getByText('1-2 / 3')).toBeInTheDocument());
   });
 
   it('never shows more pages than the document has', async () => {
-    const restore = widen(1400);
+    widen(1400);
     openPdf.mockResolvedValue(fakePdf(2));
     const user = userEvent.setup();
     render(<DocumentSheet data={BYTES} />);
@@ -399,11 +410,10 @@ describe('showing several pages at a time', () => {
 
     await waitFor(() => expect(screen.getByLabelText('Page 2')).toBeInTheDocument());
     expect(screen.queryByLabelText('Page 3')).not.toBeInTheDocument();
-    restore();
   });
 
   it('remembers the choice, because it follows from the screen not the song', async () => {
-    const restore = widen(1400);
+    widen(1400);
     openPdf.mockResolvedValue(fakePdf(6));
     const user = userEvent.setup();
     const first = render(<DocumentSheet data={BYTES} />);
@@ -415,11 +425,10 @@ describe('showing several pages at a time', () => {
     render(<DocumentSheet data={BYTES} />);
 
     await waitFor(() => expect(screen.getByLabelText('Page 2')).toBeInTheDocument());
-    restore();
   });
 
   it('keeps the arrow keys turning by the spread', async () => {
-    const restore = widen(1400);
+    widen(1400);
     openPdf.mockResolvedValue(fakePdf(6));
     const user = userEvent.setup();
     render(<DocumentSheet data={BYTES} />);
@@ -430,6 +439,30 @@ describe('showing several pages at a time', () => {
     fireEvent.keyDown(document, { key: 'ArrowRight' });
 
     await waitFor(() => expect(screen.getByText('3-4 / 6')).toBeInTheDocument());
-    restore();
+  });
+  it('does not offer the picker before the container has been measured', async () => {
+    // maxFit starts narrow and widens once measured. Starting at the cap made a
+    // phone render the picker for a frame and then take it away again.
+    widen(400);
+    openPdf.mockResolvedValue(fakePdf(6));
+    const { container } = render(<DocumentSheet data={BYTES} />);
+
+    // The very first committed paint, before any effect has measured anything.
+    expect(container.querySelector('[data-testid="pages-per-view"]')).toBeNull();
+    await screen.findByLabelText('Page 1');
+    expect(screen.queryByTestId('pages-per-view')).not.toBeInTheDocument();
+  });
+
+  it('marks the count actually in use when the remembered one will not fit', async () => {
+    window.localStorage.setItem('porchsongs_document_pages', '4');
+    widen(800);
+    openPdf.mockResolvedValue(fakePdf(6));
+    render(<DocumentSheet data={BYTES} />);
+    await screen.findByLabelText('Page 1');
+
+    // Two pages are shown, so two is what the picker should say is selected;
+    // otherwise it renders with nothing pressed at all.
+    const two = await screen.findByLabelText('2 pages at a time');
+    expect(two).toHaveAttribute('aria-pressed', 'true');
   });
 });

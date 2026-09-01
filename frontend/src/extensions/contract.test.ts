@@ -158,6 +158,7 @@ describe('extensions seam contract', () => {
       expect(quota.SongCapNotice({ count: 0 })).toBeNull();
       expect(sharing.SongShareAction({ songUuids: [], variant: 'menu' })).toBeNull();
       expect(sharing.SongShareNotice({})).toBeNull();
+      expect(sharing.SongProvenanceTag({ songUuid: 'any' })).toBeNull();
       expect(feedback.FeedbackButton()).toBeNull();
     });
 

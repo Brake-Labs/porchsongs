@@ -137,6 +137,10 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
     // Subtracting the padding keeps a fitted page from triggering a scrollbar
     // that then narrows the container, which oscillates. The gaps come off too,
     // or the last page in a row is the one that overflows.
+    // Drop refs for slots the spread no longer has, so a narrower view does not
+    // hold the previous one's canvases alive.
+    canvasRefs.current.length = spread.length;
+
     const gaps = PAGE_GAP_PX * (spread.length - 1);
     const box = {
       width: Math.max(120, (container.clientWidth - 16 - gaps) / spread.length),
@@ -216,13 +220,17 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
    * a window sliding one page at a time over the same content. Clamping the last
    * run back from the end keeps the final turn from showing one page next to a
    * gap where the previous one already was.
+   *
+   * The target is clamped rather than rejected. `page - step` is 0 whenever that
+   * clamp has already pulled the run back onto its own step (three pages two-up
+   * lands on 2, four-up on seven lands on 4), and treating 0 as no target left
+   * Previous enabled and inert with no way back to the first page.
    */
   const goTo = useCallback(
     (next: number) =>
-      setPage((current) => {
+      setPage(() => {
         const total = pageCount || 1;
         const last = Math.max(1, total - step + 1);
-        if (!next) return current;
         return Math.min(last, Math.max(1, next));
       }),
     [pageCount, step],
@@ -398,7 +406,15 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
         ) : (
           spread.map((pageNumber, index) => (
             <canvas
-              key={pageNumber}
+              // Keyed by slot, not by page number. Keying by the page remounts
+              // every canvas on every turn, and a fitted portrait page at device
+              // pixel ratio is around 20MB of backing store: paging through a
+              // long scan detaches hundreds of megabytes waiting on GC, which on
+              // iOS Safari hits a hard canvas-memory ceiling and blanks the page
+              // mid-tune. That is the failure this file's header exists to
+              // prevent. The cost is that a page which survives a turn in a
+              // spread repaints instead of keeping its pixels, which is a frame.
+              key={index}
               ref={(el) => {
                 canvasRefs.current[index] = el;
               }}
@@ -453,7 +469,10 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
                     key={n}
                     type="button"
                     onClick={() => choosePerView(n)}
-                    aria-pressed={perView === n}
+                    // Against what is actually shown, not what was stored. A
+                    // remembered 4 on a screen that fits 2 otherwise renders a
+                    // picker with nothing selected while showing two pages.
+                    aria-pressed={Math.min(perView, maxFit) === n}
                     className={cn(
                       'min-w-[2.25rem] min-h-[2.75rem] inline-flex items-center justify-center text-xs tabular-nums cursor-pointer border-r border-border last:border-r-0',
                       perView === n

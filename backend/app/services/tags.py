@@ -6,6 +6,8 @@ same song. Spread across the endpoints, "Fiddle Tunes" and "fiddle tunes" become
 two tags in one library and nothing tells the user why.
 """
 
+import re
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -108,13 +110,28 @@ def user_tags(db: Session, user_id: int) -> list[tuple[str, int]]:
 MAX_ARTIST_LENGTH = 500
 
 
+# What counts as whitespace, matched to the frontend rather than to Python.
+#
+# `str.split()` and JavaScript's `\s` very nearly agree, and the two places that
+# fold an artist name have to agree exactly or a name groups under one card and
+# is missed by the rename that targets that card. The difference that matters is
+# U+FEFF, which JS treats as whitespace and Python does not, and which arrives on
+# the front of the first field of any file saved with a BOM.
+#
+# Python also folds U+001C to U+001F and U+0085, which JS does not. Those are
+# control characters no artist name contains, and folding more is the safe
+# direction: the rename catches a name the library grouped, rather than missing
+# one.
+_ARTIST_WHITESPACE = re.compile(r"[\s\ufeff]+")
+
+
 def normalise_artist(artist: str) -> str:
     """The stored form: trimmed, inner whitespace collapsed, length-capped.
 
     Case is preserved, for the same reason a tag's is: the spelling somebody
     typed is the spelling they should see.
     """
-    return " ".join(artist.split())[:MAX_ARTIST_LENGTH]
+    return " ".join(_ARTIST_WHITESPACE.split(artist.strip()))[:MAX_ARTIST_LENGTH].strip()
 
 
 def artist_key(artist: str | None) -> str:
