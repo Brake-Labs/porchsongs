@@ -440,17 +440,32 @@ describe('showing several pages at a time', () => {
 
     await waitFor(() => expect(screen.getByText('3-4 / 6')).toBeInTheDocument());
   });
-  it('does not offer the picker before the container has been measured', async () => {
-    // maxFit starts narrow and widens once measured. Starting at the cap made a
-    // phone render the picker for a frame and then take it away again.
-    widen(400);
+  it('highlights the count in use, not the one that was remembered', async () => {
+    // The highlight and the accessible state read the same value, so a picker
+    // cannot announce "2, pressed" while showing nothing selected.
+    window.localStorage.setItem('porchsongs_document_pages', '4');
+    widen(800);
     openPdf.mockResolvedValue(fakePdf(6));
-    const { container } = render(<DocumentSheet data={BYTES} />);
-
-    // The very first committed paint, before any effect has measured anything.
-    expect(container.querySelector('[data-testid="pages-per-view"]')).toBeNull();
+    render(<DocumentSheet data={BYTES} />);
     await screen.findByLabelText('Page 1');
-    expect(screen.queryByTestId('pages-per-view')).not.toBeInTheDocument();
+
+    const two = await screen.findByLabelText('2 pages at a time');
+    expect(two).toHaveAttribute('aria-pressed', 'true');
+    expect(two.className).toContain('bg-primary');
+    expect(screen.getByLabelText('One page at a time').className).not.toContain('bg-primary');
+  });
+
+  it('marks the document, not the screen, when the tab is shorter than the picker', async () => {
+    window.localStorage.setItem('porchsongs_document_pages', '4');
+    widen(1400);
+    openPdf.mockResolvedValue(fakePdf(2));
+    render(<DocumentSheet data={BYTES} />);
+    await screen.findByLabelText('Page 1');
+
+    // Two pages are all there are, so four cannot be what is in use.
+    const two = await screen.findByLabelText('2 pages at a time');
+    expect(two).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByLabelText('4 pages at a time')).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('marks the count actually in use when the remembered one will not fit', async () => {

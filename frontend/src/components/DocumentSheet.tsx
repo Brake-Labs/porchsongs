@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
 import { openPdf, closePdf, renderPage, cancelRender } from '@/lib/pdfViewer';
 import { STORAGE_KEYS } from '@/api';
@@ -137,10 +137,6 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
     // Subtracting the padding keeps a fitted page from triggering a scrollbar
     // that then narrows the container, which oscillates. The gaps come off too,
     // or the last page in a row is the one that overflows.
-    // Drop refs for slots the spread no longer has, so a narrower view does not
-    // hold the previous one's canvases alive.
-    canvasRefs.current.length = spread.length;
-
     const gaps = PAGE_GAP_PX * (spread.length - 1);
     const box = {
       width: Math.max(120, (container.clientWidth - 16 - gaps) / spread.length),
@@ -188,10 +184,14 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
   // and a canvas rasterised for the old one is visibly soft. The same measurement
   // decides how many pages will fit, so a rotation can change the count as well
   // as the size.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container || status !== 'ready') return;
     let frame = 0;
+    // A layout effect, so the first painted frame already knows how wide the
+    // container is. As a passive effect there was a frame where the count was
+    // still the initial one, and a phone rendered the picker and then took it
+    // away again.
     const measure = () => {
       const usable = container.clientWidth - 16;
       setMaxFit(Math.max(1, Math.min(MAX_PER_VIEW, Math.floor(usable / MIN_PAGE_WIDTH_PX))));
@@ -469,13 +469,16 @@ export default function DocumentSheet({ data, onPageCount, className }: Document
                     key={n}
                     type="button"
                     onClick={() => choosePerView(n)}
-                    // Against what is actually shown, not what was stored. A
-                    // remembered 4 on a screen that fits 2 otherwise renders a
-                    // picker with nothing selected while showing two pages.
-                    aria-pressed={Math.min(perView, maxFit) === n}
+                    // Against what is actually shown, not what was stored: a
+                    // remembered 4 on a screen that fits 2, or on a two-page
+                    // document, otherwise leaves the picker with nothing
+                    // selected. `spread.length` is the count in use, and the
+                    // highlight below reads the same value so the two cannot
+                    // say different things.
+                    aria-pressed={spread.length === n}
                     className={cn(
                       'min-w-[2.25rem] min-h-[2.75rem] inline-flex items-center justify-center text-xs tabular-nums cursor-pointer border-r border-border last:border-r-0',
-                      perView === n
+                      spread.length === n
                         ? 'bg-primary text-white'
                         : 'text-muted-foreground hover:bg-panel hover:text-foreground',
                     )}

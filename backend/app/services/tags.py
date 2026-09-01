@@ -110,19 +110,26 @@ def user_tags(db: Session, user_id: int) -> list[tuple[str, int]]:
 MAX_ARTIST_LENGTH = 500
 
 
-# What counts as whitespace, matched to the frontend rather than to Python.
+# What counts as whitespace, spelled out to match JavaScript's `\s` exactly.
 #
-# `str.split()` and JavaScript's `\s` very nearly agree, and the two places that
-# fold an artist name have to agree exactly or a name groups under one card and
-# is missed by the rename that targets that card. The difference that matters is
-# U+FEFF, which JS treats as whitespace and Python does not, and which arrives on
-# the front of the first field of any file saved with a BOM.
+# The two places that fold an artist name have to agree, or they disagree about
+# which songs are one card, and both directions of disagreement are bugs:
 #
-# Python also folds U+001C to U+001F and U+0085, which JS does not. Those are
-# control characters no artist name contains, and folding more is the safe
-# direction: the rename catches a name the library grouped, rather than missing
-# one.
-_ARTIST_WHITESPACE = re.compile(r"[\s\ufeff]+")
+# Under-folding, which `str.split()` alone did, misses U+FEFF. That arrives on
+# the front of the first field of any file saved with a BOM, so the library
+# groups the song under the plain card and a rename targeting that card skips it,
+# while the client's optimistic update shows a change the database never made.
+#
+# Over-folding is not the safe direction, which an earlier version of this
+# comment claimed. `str.split()` also folds U+001C to U+001F and U+0085, which JS
+# does not, so the backend would treat as one card what the library draws as two
+# and rewrite songs the user never selected, silently and outside the change the
+# client applied to its own copy.
+#
+# So: the JS set, no more and no less.
+_ARTIST_WHITESPACE = re.compile(
+    "[\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+"
+)
 
 
 def normalise_artist(artist: str) -> str:
@@ -131,7 +138,8 @@ def normalise_artist(artist: str) -> str:
     Case is preserved, for the same reason a tag's is: the spelling somebody
     typed is the spelling they should see.
     """
-    return " ".join(_ARTIST_WHITESPACE.split(artist.strip()))[:MAX_ARTIST_LENGTH].strip()
+    collapsed = _ARTIST_WHITESPACE.sub(" ", artist).strip()
+    return collapsed[:MAX_ARTIST_LENGTH].strip()
 
 
 def artist_key(artist: str | None) -> str:

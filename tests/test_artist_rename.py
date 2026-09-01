@@ -178,3 +178,21 @@ def test_a_name_carrying_a_byte_order_mark_is_still_one_artist(
 
     assert resp.status_code == 200, resp.text
     assert _artists(client) == ["Shakey"]
+
+
+def test_a_control_character_is_not_treated_as_a_space(
+    client: TestClient, profile_id: int
+) -> None:
+    """The fold must not be wider than the frontend's either.
+
+    Python's `str.split()` folds U+001C to U+001F and U+0085; JavaScript does
+    not. Folding them here would make the backend treat as one card what the
+    library draws as two, and rewrite songs the user never selected.
+    """
+    _song(client, profile_id, "Old Man", "Neil Young")
+    _song(client, profile_id, "Powderfinger", "Neil\u0085Young")
+
+    resp = client.put("/api/songs/artists", json={"from_name": "Neil Young", "name": "Shakey"})
+
+    assert resp.json()["renamed"] == 1
+    assert _artists(client) == ["Neil\u0085Young", "Shakey"]
