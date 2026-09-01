@@ -21,6 +21,8 @@ from ..models import (
     User,
 )
 from ..schemas import (
+    ArtistRename,
+    ArtistRenameResult,
     ChatMessageCreate,
     ChatMessageOut,
     OkResponse,
@@ -34,7 +36,7 @@ from ..schemas import (
 )
 from ..services.blob_store import hashes_for_songs, prune_orphan_blobs, put_blob
 from ..services.pdf_service import generate_song_pdf
-from ..services.tags import normalise, set_tags, user_tags
+from ..services.tags import artist_key, normalise, normalise_artist, set_tags, user_tags
 
 router = APIRouter(tags=["songs"])
 
@@ -174,6 +176,55 @@ async def rename_tag(
             row.tag = new_name
     db.commit()
     return OkResponse(ok=True)
+
+
+@router.put("/songs/artists/{artist_name}", response_model=ArtistRenameResult)
+async def rename_artist(
+    artist_name: str,
+    data: ArtistRename,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ArtistRenameResult:
+    """Rename an artist across every song of theirs.
+
+    The counterpart to `rename_tag`, and the same shape, but writing a column on
+    `songs` rather than rows in a join table: an artist is a property of the
+    song, not a label attached to it.
+
+    Renaming onto a name already in use merges the two, which is the point as
+    often as it is an accident. "Neil Young" and "neil young" are two cards in
+    the library and one act, and this is the only way to say so. The client warns
+    before it happens; the counts come back so it can say what happened after.
+
+    Matching folds case and collapses inner whitespace, the same rule the library
+    groups by, so renaming "neil  young" also catches "Neil Young".
+    """
+    new_name = normalise_artist(data.name)
+    if not new_name:
+        raise HTTPException(status_code=422, detail="An artist needs a name.")
+
+    wanted = artist_key(artist_name)
+    if not wanted:
+        # The library's Unknown bucket is not an artist and has no name to change.
+        # Giving those songs an artist is what the tidy screen is for.
+        raise HTTPException(status_code=422, detail="That is not an artist you can rename.")
+
+    songs = db.query(Song).filter(Song.user_id == current_user.id).all()
+    renamed = 0
+    merged_into = 0
+    for song in songs:
+        key = artist_key(song.artist)
+        if key == wanted:
+            song.artist = new_name
+            renamed += 1
+        elif key == artist_key(new_name):
+            merged_into += 1
+
+    if renamed == 0:
+        raise HTTPException(status_code=404, detail="No songs by that artist.")
+
+    db.commit()
+    return ArtistRenameResult(name=new_name, renamed=renamed, merged_into=merged_into)
 
 
 @router.delete("/songs/tags/{tag_name}", response_model=OkResponse)

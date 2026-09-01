@@ -95,3 +95,33 @@ def user_tags(db: Session, user_id: int) -> list[tuple[str, int]]:
         else:
             folded[key] = (tag, count)
     return sorted(folded.values(), key=lambda pair: pair[0].casefold())
+
+
+# --- Artists -----------------------------------------------------------------
+#
+# An artist is a column on `songs` rather than a row here, but the matching rule
+# is the same one, and the library groups its artist cards by exactly this key.
+# Keeping the two in step is why this lives beside `same_tag` rather than in the
+# router: three different foldings of a name is how "Neil Young" ends up as two
+# cards that the rename endpoint says do not exist.
+
+MAX_ARTIST_LENGTH = 500
+
+
+def normalise_artist(artist: str) -> str:
+    """The stored form: trimmed, inner whitespace collapsed, length-capped.
+
+    Case is preserved, for the same reason a tag's is: the spelling somebody
+    typed is the spelling they should see.
+    """
+    return " ".join(artist.split())[:MAX_ARTIST_LENGTH]
+
+
+def artist_key(artist: str | None) -> str:
+    """Case-and-whitespace-insensitive key. Empty for a song with no artist.
+
+    Mirrors `artistKeyOf` in the frontend's `lib/artists.ts`. An empty result is
+    the library's "Unknown artist" bucket, which is not an artist and cannot be
+    renamed.
+    """
+    return normalise_artist(artist or "").lower()
