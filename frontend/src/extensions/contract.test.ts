@@ -78,6 +78,10 @@ const BARREL_EXPORTS = Object.values(MANIFEST).flat().sort();
 const PREMIUM_ONLY = [
   'getCatchAllRedirect',
   'notifyQuotaChanged',
+  // Drops the provenance cache when accepting a share changes a song's history.
+  // Same shape as `notifyQuotaChanged`: premium's own components call it, and
+  // OSS has no cache to drop because it has nobody to receive a song from.
+  'invalidateProvenance',
   'deleteAccount',
   'verifyCheckoutSession',
 ];
