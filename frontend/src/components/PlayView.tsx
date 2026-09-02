@@ -5,7 +5,9 @@ import FollowControls from '@/components/FollowControls';
 import { useFollow } from '@/hooks/useFollow';
 import { useFollowScroll } from '@/hooks/useFollowScroll';
 import { normalizeSong } from '@/lib/followAlign';
+import { transposeChart } from '@/lib/chords/transpose';
 import { createSpeechSignal } from '@/lib/followSpeech';
+import { Select } from '@/components/ui/select';
 import { commitFollowEstimate, INITIAL_COMMIT_STATE } from '@/lib/followCommit';
 import usePerformanceLayout from '@/hooks/usePerformanceLayout';
 import type { Song } from '@/types';
@@ -116,12 +118,122 @@ export function FontSizeStepper({ value, autoSize, onChange, onCommit }: FontSiz
   );
 }
 
+/** The transpose stepper's reach. ±11 covers every key; past that is octaves. */
+export const TRANSPOSE_MIN = -11;
+export const TRANSPOSE_MAX = 11;
+
+/** Capo positions offered, matching the dictionary's picker: past the 7th you
+ *  are usually better off transposing. */
+const CAPO_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 7];
+
+interface TransposeControlProps {
+  /** Sounding-key offset from the chart as written, in semitones. */
+  transpose: number;
+  /** Fret the capo sits at. The written chords shift down by this much. */
+  capo: number;
+  /** Capo that lands this chart on open shapes, from suggestCapo. */
+  capoHint: number;
+  onTransposeChange: (next: number) => void;
+  onCapoChange: (next: number) => void;
+}
+
+/**
+ * The key controls: transpose the song, or keep its key and move the capo.
+ *
+ * Two controls because they answer two different wants. The ♭/♯ stepper changes
+ * the key you sing in; the capo keeps the key and changes the shapes you
+ * finger, which is why setting it rewrites the written chords down by the same
+ * amount. Same idiom as FontSizeStepper beside it: the middle button reads out
+ * the state and does the one meaningful thing, resetting it.
+ */
+export function TransposeControl({
+  transpose,
+  capo,
+  capoHint,
+  onTransposeChange,
+  onCapoChange,
+}: TransposeControlProps) {
+  const stepClass =
+    'min-w-[2.75rem] min-h-[2.75rem] flex items-center justify-center rounded-md border border-border bg-transparent text-sm text-muted-foreground hover:bg-panel hover:text-foreground disabled:opacity-40 cursor-pointer';
+
+  return (
+    <>
+      <div className="flex items-center gap-1" role="group" aria-label="Key">
+        <button
+          type="button"
+          onClick={() => onTransposeChange(Math.max(TRANSPOSE_MIN, transpose - 1))}
+          disabled={transpose <= TRANSPOSE_MIN}
+          className={stepClass}
+          aria-label="Down a semitone"
+        >
+          &#9837;
+        </button>
+        <button
+          type="button"
+          onClick={() => onTransposeChange(0)}
+          disabled={transpose === 0}
+          className="min-w-[2.75rem] min-h-[2.75rem] px-2 flex items-center justify-center rounded-md border border-border bg-transparent text-xs text-muted-foreground hover:bg-panel hover:text-foreground disabled:hover:bg-transparent disabled:hover:text-muted-foreground cursor-pointer disabled:cursor-default whitespace-nowrap"
+          title={transpose === 0 ? "In the chart's own key" : "Back to the chart's own key"}
+          aria-label={
+            transpose === 0
+              ? 'Key: as written'
+              : `Transposed ${transpose > 0 ? 'up' : 'down'} ${Math.abs(transpose)} semitone${Math.abs(transpose) === 1 ? '' : 's'}. Reset to the written key`
+          }
+        >
+          {transpose === 0 ? 'Key' : transpose > 0 ? `+${transpose}` : `${transpose}`}
+        </button>
+        <button
+          type="button"
+          onClick={() => onTransposeChange(Math.min(TRANSPOSE_MAX, transpose + 1))}
+          disabled={transpose >= TRANSPOSE_MAX}
+          className={stepClass}
+          aria-label="Up a semitone"
+        >
+          &#9839;
+        </button>
+      </div>
+      <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span className="whitespace-nowrap">Capo</span>
+        <Select
+          value={String(capo)}
+          onChange={(e) => onCapoChange(Number(e.target.value))}
+          className="w-auto px-2 py-1 text-xs"
+          aria-label="Capo fret"
+          title="The chart rewrites itself to the shapes you finger behind the capo"
+        >
+          {CAPO_OPTIONS.map((fret) => (
+            <option key={fret} value={String(fret)}>
+              {fret === 0 ? 'None' : fret === capoHint ? `${fret} · open shapes` : String(fret)}
+            </option>
+          ))}
+        </Select>
+      </label>
+      {capoHint > 0 && capoHint !== capo && (
+        <button
+          type="button"
+          onClick={() => onCapoChange(capoHint)}
+          className="min-h-[2.75rem] px-2 text-xs text-primary hover:underline cursor-pointer whitespace-nowrap"
+          title="Move the capo so this song's chords become open shapes"
+        >
+          Try capo {capoHint}
+        </button>
+      )}
+    </>
+  );
+}
+
 interface PerformanceSheetProps {
   song: Song;
   version: SongVersion;
   className?: string;
   fontSizeOverride?: number | null;
   columnsPref?: ColumnPref;
+  /**
+   * Semitones to shift the *written* chords by: the transpose offset minus the
+   * capo. Applied here rather than upstream so everything below (Follow, the
+   * layout solver, the columns) reads the chart the player is looking at.
+   */
+  transposeSemitones?: number;
   /** LLM model for the Follow arbiter; empty string disables it. */
   llmModel?: string;
   /** Reports the auto-computed font size so a parent can seed its stepper. */
@@ -145,10 +257,15 @@ export function PerformanceSheet({
   className,
   fontSizeOverride,
   columnsPref = 'auto',
+  transposeSemitones = 0,
   llmModel,
   onAutoFontSize,
 }: PerformanceSheetProps) {
-  const text = version === 'original' ? song.original_content : song.rewritten_content;
+  const rawText = version === 'original' ? song.original_content : song.rewritten_content;
+  // transposeChart never changes the line count or what normalizeSong makes of
+  // a line (pinned by its tests), which is what lets everything below take the
+  // transposed text without knowing a transposition happened.
+  const text = useMemo(() => transposeChart(rawText, transposeSemitones), [rawText, transposeSemitones]);
   const sheetRef = useRef<HTMLDivElement>(null);
 
   const layout = usePerformanceLayout(sheetRef, text, columnsPref, fontSizeOverride ?? null);

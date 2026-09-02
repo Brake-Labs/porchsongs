@@ -174,6 +174,21 @@ export default function ChordDiagram({
         </text>
       )}
 
+      {/* A windowed shape has scrolled the capo line out of the drawing, and
+          with it the only visual sign that the position number counts from the
+          capo rather than the nut. Say so in words instead. */}
+      {!showNut && capo > 0 && (
+        <text
+          x={viewWidth / 2}
+          y={PAD_TOP + gridHeight + 15}
+          textAnchor="middle"
+          fontSize={10}
+          className="fill-primary font-mono"
+        >
+          capo {capo}
+        </text>
+      )}
+
       {/* Open and muted markers above the nut. */}
       {voicing.frets.map((fret, i) => {
         if (fret === null) {

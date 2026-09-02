@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useLocation, useOutletContext } from 'react-router-dom';
 import api, { STORAGE_KEYS } from '@/api';
 import { Button } from '@/components/ui/button';
@@ -16,10 +16,17 @@ import ChordPanel from '@/components/chords/ChordPanel';
 import useChordPanel from '@/hooks/useChordPanel';
 import useFollowDebugHud from '@/hooks/useFollowDebugHud';
 import { useFollowCaptureEnabled } from '@/extensions';
-import { PerformanceSheet, FontSizeStepper } from '@/components/PlayView';
+import {
+  PerformanceSheet,
+  FontSizeStepper,
+  TransposeControl,
+  TRANSPOSE_MAX,
+  TRANSPOSE_MIN,
+} from '@/components/PlayView';
 import DocumentSheet from '@/components/DocumentSheet';
 import type { ColumnPref, SongVersion } from '@/components/PlayView';
 import { maxColumnsForContent } from '@/lib/performanceLayout';
+import { suggestCapo, transposeChart } from '@/lib/chords/transpose';
 import useWakeLock from '@/hooks/useWakeLock';
 import { cn } from '@/lib/utils';
 import type { AppShellContext } from '@/layouts/AppShell';
@@ -39,6 +46,39 @@ import type { Song } from '@/types';
  * its chat history) and would put `onLoadSong` out of reach, breaking "Rewrite
  * with AI".
  */
+
+/** One song's key adjustments: semitones of transpose, and the capo fret. */
+interface SongKeyPrefs {
+  t: number;
+  c: number;
+}
+
+/** The whole uuid -> prefs map. Guarded, because it is parsed from storage. */
+function readSongKeys(): Record<string, SongKeyPrefs> {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEYS.SONG_KEYS) ?? '{}');
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, SongKeyPrefs>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function songKeyFor(uuid: string): SongKeyPrefs {
+  const stored = readSongKeys()[uuid];
+  const t = Number(stored?.t);
+  const c = Number(stored?.c);
+  return {
+    t: Number.isFinite(t) ? Math.min(TRANSPOSE_MAX, Math.max(TRANSPOSE_MIN, Math.trunc(t))) : 0,
+    c: Number.isFinite(c) ? Math.min(7, Math.max(0, Math.trunc(c))) : 0,
+  };
+}
+
+function writeSongKey(uuid: string, prefs: SongKeyPrefs): void {
+  const all = readSongKeys();
+  if (prefs.t === 0 && prefs.c === 0) delete all[uuid];
+  else all[uuid] = prefs;
+  localStorage.setItem(STORAGE_KEYS.SONG_KEYS, JSON.stringify(all));
+}
 
 /** Optional navigation state so the header can render before the fetch lands. */
 interface PlayNavState {
@@ -85,6 +125,32 @@ export default function PlayPage() {
   }, []);
 
   const [fontSize, setFontSize] = useState<number | null>(null);
+
+  // The song's key adjustments. Per song and seeded before the fetch lands, so
+  // the chart never flashes in the written key before jumping to yours.
+  const [transpose, setTransposeRaw] = useState(() => (uuid ? songKeyFor(uuid).t : 0));
+  const [capo, setCapoRaw] = useState(() => (uuid ? songKeyFor(uuid).c : 0));
+  useEffect(() => {
+    if (!uuid) return;
+    const stored = songKeyFor(uuid);
+    setTransposeRaw(stored.t);
+    setCapoRaw(stored.c);
+  }, [uuid]);
+  const setTranspose = useCallback(
+    (next: number) => {
+      setTransposeRaw(next);
+      if (uuid) writeSongKey(uuid, { t: next, c: capo });
+    },
+    [uuid, capo],
+  );
+  const setCapo = useCallback(
+    (next: number) => {
+      setCapoRaw(next);
+      if (uuid) writeSongKey(uuid, { t: transpose, c: next });
+    },
+    [uuid, transpose],
+  );
+
   const [fileData, setFileData] = useState<ArrayBuffer | null>(null);
   const [fileError, setFileError] = useState('');
   const [keptOffline, setKeptOffline] = useState(false);
@@ -109,9 +175,35 @@ export default function PlayPage() {
         ? song.original_content
         : song.rewritten_content;
 
+  // What the player is actually fingering: the written chart shifted by the
+  // transpose, then down by the capo. Sounding key = written + transpose; the
+  // capo bridges the difference between what sounds and what the hand plays.
+  const writtenOffset = transpose - capo;
+  const displayContent = useMemo(
+    () => transposeChart(activeContent, writtenOffset),
+    [activeContent, writtenOffset],
+  );
+
   // Follows the version on screen, so switching to the original re-reads the
-  // chords from it rather than showing the rewrite's.
-  const chords = useChordPanel(activeContent);
+  // chords from it rather than showing the rewrite's. Reads the *displayed*
+  // chart: with a capo set the chart already names the fingered shapes, so the
+  // panel's pills match what is on screen and tapping G shows the plain G
+  // shape you finger behind the capo. The sheet's capo is deliberately NOT fed
+  // into the panel: the dictionary's capo means "shapes that *sound* as this
+  // chord over a capo", and stacking that on names the chart has already
+  // shifted down would shift them twice.
+  const chords = useChordPanel(displayContent);
+
+  // Suggested from the sounding roots (what is heard, not what is fingered),
+  // for the instrument the panel remembers the player owning.
+  const capoHint = useMemo(
+    () =>
+      suggestCapo(
+        chords.songChords.map((ch) => (ch.root + capo) % 12),
+        chords.selection.instrument.slug,
+      ),
+    [chords.songChords, chords.selection.instrument.slug, capo],
+  );
 
   // The Follow diagnostics panel is switched from the chart actions menu rather
   // than from a button floating over the chart. It is an operator tool on a
@@ -414,6 +506,13 @@ export default function PlayPage() {
               ))}
             </div>
           )}
+          <TransposeControl
+            transpose={transpose}
+            capo={capo}
+            capoHint={capoHint}
+            onTransposeChange={setTranspose}
+            onCapoChange={setCapo}
+          />
           <FontSizeStepper
             value={fontSize}
             autoSize={autoFontSize}
@@ -451,6 +550,7 @@ export default function PlayPage() {
         className="flex-1 min-h-0"
         fontSizeOverride={fontSize}
         columnsPref={perfColumns}
+        transposeSemitones={writtenOffset}
         llmModel={ctx?.llmSettings?.model}
         onAutoFontSize={setAutoFontSize}
       />
