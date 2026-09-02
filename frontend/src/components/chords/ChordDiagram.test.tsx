@@ -99,6 +99,27 @@ describe('ChordDiagram', () => {
     expect(container.querySelector('text[text-anchor="end"]')?.textContent).toBe('7');
   });
 
+  it('names the capo under a shape whose window has scrolled it out of view', () => {
+    // Up the neck the accent-coloured capo line is gone, and without it the
+    // position number silently changes meaning: 7 above the capo, not the nut.
+    const high = voicingFor([7, 9, 9, 8, 7, 7]);
+    const { container } = render(
+      <ChordDiagram voicing={high} instrument={guitar} tuning={withCapo(guitarStandard, 2)} capo={2} />,
+    );
+    expect([...container.querySelectorAll('text')].map(t => t.textContent)).toContain('capo 2');
+
+    // Against the nut the capo line itself is the cue, and stays the only one.
+    const { container: nutted } = render(
+      <ChordDiagram
+        voicing={shapeFor('guitar', 'standard', 0, '')}
+        instrument={guitar}
+        tuning={withCapo(guitarStandard, 2)}
+        capo={2}
+      />,
+    );
+    expect([...nutted.querySelectorAll('text')].map(t => t.textContent)).not.toContain('capo 2');
+  });
+
   it('marks muted strings with a cross and open ones with a circle', () => {
     // Guitar D (xx0232): two muted, one open.
     const { container } = render(
