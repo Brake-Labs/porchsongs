@@ -9,7 +9,9 @@
   --color-panel: #f5f3ef;
   --color-foreground: #2b2825;
   --color-muted-foreground: #7a756d;
-  --color-primary: #b85c2c;
+  /* 4.69:1 on --color-background; the original #b85c2c sat at 4.33:1, under AA
+     for body-size text (links, chord names). */
+  --color-primary: #b25627;
   --color-primary-hover: #9e4e24;
   --color-primary-light: #f3dfd2;
   --color-border: #e6e3dc;
@@ -43,10 +45,15 @@
   --text-code: 0.82rem;
   --text-badge: 0.7rem;
 
-  --font-display: 'Instrument Serif', Georgia, serif;
+  /* Fraunces is a variable font (wght 400-700, optical size axis), so heading
+     weights render real glyphs; Instrument Serif shipped only 400 and every
+     bolder heading was browser-synthesized. */
+  --font-display: 'Fraunces', Georgia, serif;
   --font-ui: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
-  --font-data: 'Geist', 'Plus Jakarta Sans', system-ui, sans-serif;
+  /* Plus Jakarta Sans has tabular figures (tnum), so stats and counts align
+     without loading a separate data face. */
+  --font-data: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
 
   --radius-sm: 4px;
   --radius-md: 8px;
@@ -105,6 +112,12 @@
 @layer base {
   html {
     overflow-x: hidden;
+    /* Tells the browser which scheme its own UI (scrollbars, form controls,
+       date pickers, autofill) should use; flipped in the dark block below. */
+    color-scheme: light;
+    /* Every loaded family covers the weights the app uses; a missing weight
+       should fall back to the nearest real one, not a synthesized smear. */
+    font-synthesis-weight: none;
   }
 
   /* Prevent iOS Safari auto-zoom on input focus (requires font-size >= 16px) */
@@ -126,9 +139,12 @@
   }
 
   html[data-theme="dark"] {
+    color-scheme: dark;
     --color-background: #1c1917;
     --color-card: #292524;
-    --color-panel: #1c1917;
+    /* One step above the background so sidebars and chat bubbles keep the
+       layering they have in light mode. */
+    --color-panel: #221f1c;
     --color-foreground: #e7e5e4;
     --color-muted-foreground: #a8a29e;
     --color-primary: #d4773e;

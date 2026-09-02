@@ -1,5 +1,5 @@
 import { renderHook, act } from '@testing-library/react';
-import useTheme from '@/hooks/useTheme';
+import useTheme, { initTheme } from '@/hooks/useTheme';
 
 describe('useTheme', () => {
   beforeEach(() => {
@@ -53,5 +53,26 @@ describe('useTheme', () => {
     const { result } = renderHook(() => useTheme());
     expect(result.current.theme).toBe('dark');
     expect(result.current.resolved).toBe('dark');
+  });
+});
+
+describe('initTheme', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    document.documentElement.removeAttribute('data-theme');
+  });
+
+  // The marketing routes and headerless play mode never mount useTheme, so the
+  // bootstrap call in main.tsx is the only thing theming them.
+  it('applies the stored theme with no component mounted', () => {
+    localStorage.setItem('porchsongs_theme', 'dark');
+    initTheme();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+  });
+
+  it('resolves the system preference when nothing is stored', () => {
+    initTheme();
+    // setup.ts mocks matchMedia with matches: false, i.e. a light-mode OS
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
   });
 });

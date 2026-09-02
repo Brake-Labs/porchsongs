@@ -7,11 +7,16 @@ import App from '@/App';
 import { getPremiumProviders } from '@/extensions';
 import { registerServiceWorker } from '@/lib/registerSW';
 import { enableWebFonts } from '@/lib/webfonts';
+import { initTheme } from '@/hooks/useTheme';
 import './index.css';
 
 // The webfont stylesheet is parked at media="print" in index.html so it cannot
 // block first paint; this applies it once it has downloaded. See webfonts.ts.
 enableWebFonts();
+
+// public/theme-init.js has set data-theme before first paint; this syncs the
+// theme-color metas and tracks OS changes on routes that never mount a Header.
+initTheme();
 
 // Registered via the plugin's virtual module rather than an inline script, because
 // the production CSP is `script-src 'self'` with no nonce. `registerSW` also gives us

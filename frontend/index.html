@@ -12,6 +12,14 @@
   <meta name="apple-mobile-web-app-title" content="porchsongs" />
   <meta name="theme-color" content="#faf9f6" media="(prefers-color-scheme: light)" />
   <meta name="theme-color" content="#1c1917" media="(prefers-color-scheme: dark)" />
+  <!--
+    Deliberately render-blocking: it sets data-theme from the stored preference
+    before anything paints, so a dark-theme user never gets a frame of the cream
+    background. It is a few hundred bytes, same-origin, and precached by the
+    service worker. It cannot be inline: the production CSP is `script-src
+    'self'` with no nonce.
+  -->
+  <script src="/theme-init.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <!--
@@ -32,7 +40,7 @@
   <link
     data-webfonts
     media="print"
-    href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Geist:wght@400;500;600&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
     rel="stylesheet"
   />
   <title>porchsongs</title>
