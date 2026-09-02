@@ -176,7 +176,7 @@ describe('PlayPage', () => {
     const { unmount } = renderAt('abc-123');
     await waitFor(() => expect(screen.getByTestId('sheet')).toBeInTheDocument());
     await user.click(screen.getByRole('button', { name: 'Chart settings' }));
-    await waitFor(() => expect(screen.getByLabelText('Capo fret')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('group', { name: 'Text size' })).toBeInTheDocument());
     expect(screen.queryByLabelText('Song version')).not.toBeInTheDocument();
     unmount();
 

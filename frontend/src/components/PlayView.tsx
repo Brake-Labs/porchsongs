@@ -122,10 +122,6 @@ export function FontSizeStepper({ value, autoSize, onChange, onCommit }: FontSiz
 export const TRANSPOSE_MIN = -11;
 export const TRANSPOSE_MAX = 11;
 
-/** Capo positions offered, matching the dictionary's picker: past the 7th you
- *  are usually better off transposing. */
-export const CAPO_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 7];
-
 interface TransposeControlProps {
   /** Sounding-key offset from the chart as written, in semitones. */
   transpose: number;
@@ -134,10 +130,7 @@ interface TransposeControlProps {
 
 /**
  * The transpose stepper, Ultimate Guitar style: ♭ and ♯ step the sounding key
- * by a semitone, the middle button reads out the offset and resets it. The
- * capo is a separate picker beside this in the settings sheet; the two answer
- * different wants (change the key you sing in, versus keep the key and change
- * the shapes you finger).
+ * by a semitone, the middle button reads out the offset and resets it.
  */
 export function TransposeControl({ transpose, onTransposeChange }: TransposeControlProps) {
   const stepClass =
@@ -462,12 +455,12 @@ export function PerformanceSheet({
   const lines = useMemo(() => text.split('\n'), [text]);
 
   return (
-    // A hairline of padding on the left. The play route is chromeless, so
-    // without it the first character of every chord line is flush against the
-    // window edge, which reads as the chart having been cut off rather than as
-    // it starting there. On the outer wrapper rather than the scroller, so the
-    // layout solver still measures the width the text actually gets.
-    <div className={cn('relative pl-px', className)}>
+    // A real margin, not a hairline: flush against the window edge the chart
+    // reads as cut off rather than as starting there. On the outer wrapper
+    // rather than the scroller, because usePerformanceLayout solves against the
+    // scroller's clientWidth/Height and padding there would be counted as text
+    // space.
+    <div className={cn('relative px-2 sm:px-3', className)}>
       <div
         ref={sheetRef}
         className={cn(
@@ -482,7 +475,7 @@ export function PerformanceSheet({
       >
         {followOn ? (
           <pre
-            className={cn(PRE_BASE_CLASS, 'cursor-pointer')}
+            className={cn(PRE_BASE_CLASS, 'pb-8', 'cursor-pointer')}
             style={fontStyle}
             onClick={handleSheetClick}
             // Not a button or a listbox: it is a chart you can also tap. The label
@@ -524,7 +517,12 @@ export function PerformanceSheet({
             </pre>
           ))
         ) : (
-          <pre className={PRE_BASE_CLASS} style={fontStyle}>{text}</pre>
+          // pb-8: the last line otherwise ends flush against the bottom bar,
+          // and on round-cornered phones reads as clipped. Inside the scroller,
+          // so mid-scroll content still runs to the edge; multi-column has no
+          // vertical scroll and the column packer does not know about padding,
+          // so it stays as is.
+          <pre className={cn(PRE_BASE_CLASS, 'pb-8')} style={fontStyle}>{text}</pre>
         )}
       </div>
 

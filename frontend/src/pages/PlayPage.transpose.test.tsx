@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route, Outlet } from 'react-router-dom';
 import api from '@/api';
@@ -90,12 +90,7 @@ async function chartLoaded() {
 /** The key controls live in the chart settings sheet now; open it first. */
 async function openSettings(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: 'Chart settings' }));
-  await waitFor(() => expect(screen.getByLabelText('Capo fret')).toBeInTheDocument());
-}
-
-async function closeSettings(user: ReturnType<typeof userEvent.setup>) {
-  await user.keyboard('{Escape}');
-  await waitFor(() => expect(screen.queryByLabelText('Capo fret')).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole('group', { name: 'Transpose' })).toBeInTheDocument());
 }
 
 beforeEach(() => {
@@ -147,58 +142,6 @@ describe('transpose', () => {
     renderPlay();
     await chartLoaded();
     expect(sheetText()).toContain('A       D       E7');
-  });
-});
-
-describe('capo', () => {
-  it('keeps the key and rewrites the chart to the shapes behind the capo', async () => {
-    const user = userEvent.setup();
-    renderPlay();
-    await chartLoaded();
-
-    await openSettings(user);
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Capo fret' }), '2');
-
-    // Sounding key unchanged (transpose still 0); written chords drop by two.
-    expect(sheetText()).toContain('F       Bb      C7');
-    expect(screen.getByRole('button', { name: 'Transpose: as written' })).toBeInTheDocument();
-  });
-
-  it('shows the panel the fingered names, and no capo of its own', async () => {
-    const user = userEvent.setup();
-    renderPlay();
-    await chartLoaded();
-
-    await openSettings(user);
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Capo fret' }), '2');
-    await closeSettings(user);
-    await user.click(screen.getByRole('button', { name: 'Chords' }));
-
-    // The pills match the chart on screen: F, not the sounding G. It shows up
-    // pressed twice, as the song pill and as the root the picker landed on.
-    const panel = screen.getByRole('complementary');
-    expect(within(panel).getAllByRole('button', { name: 'F', pressed: true })).not.toHaveLength(0);
-    // The panel's own capo stays off. Its capo means "shapes that *sound* as
-    // this chord over a capo"; the chart already shifted the names down, so
-    // handing it the sheet's capo would shift them twice. Tapping F must show
-    // the plain F shape you finger behind the capo.
-    expect(within(panel).getByRole('button', { name: 'None', pressed: true })).toBeInTheDocument();
-  });
-
-  it('offers plain frets, with no capo coaching attached', async () => {
-    // The "Try capo N" suggestion and its "open shapes" annotation are gone by
-    // design (the Ultimate Guitar treatment): a capo is a plain picker.
-    const user = userEvent.setup();
-    renderPlay();
-    await chartLoaded();
-
-    await openSettings(user);
-    const capo = screen.getByRole('combobox', { name: 'Capo fret' });
-    const labels = within(capo)
-      .getAllByRole('option')
-      .map((o) => o.textContent);
-    expect(labels).toEqual(['None', '1', '2', '3', '4', '5', '6', '7']);
-    expect(screen.queryByRole('button', { name: /Try capo/ })).not.toBeInTheDocument();
   });
 });
 
