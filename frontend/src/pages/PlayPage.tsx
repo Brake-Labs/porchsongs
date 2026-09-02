@@ -20,7 +20,6 @@ import {
   PerformanceSheet,
   FontSizeStepper,
   TransposeControl,
-  CAPO_OPTIONS,
   TRANSPOSE_MAX,
   TRANSPOSE_MIN,
 } from '@/components/PlayView';
@@ -51,10 +50,11 @@ import type { Song } from '@/types';
  * with AI".
  */
 
-/** One song's key adjustments: semitones of transpose, and the capo fret. */
+/** One song's key adjustment: semitones of transpose. Older entries may also
+ *  carry a capo fret (`c`) from when the play view had a capo control; it is
+ *  ignored on read and dropped on the next write. */
 interface SongKeyPrefs {
   t: number;
-  c: number;
 }
 
 /** The whole uuid -> prefs map. Guarded, because it is parsed from storage. */
@@ -70,17 +70,15 @@ function readSongKeys(): Record<string, SongKeyPrefs> {
 function songKeyFor(uuid: string): SongKeyPrefs {
   const stored = readSongKeys()[uuid];
   const t = Number(stored?.t);
-  const c = Number(stored?.c);
   return {
     t: Number.isFinite(t) ? Math.min(TRANSPOSE_MAX, Math.max(TRANSPOSE_MIN, Math.trunc(t))) : 0,
-    c: Number.isFinite(c) ? Math.min(7, Math.max(0, Math.trunc(c))) : 0,
   };
 }
 
 function writeSongKey(uuid: string, prefs: SongKeyPrefs): void {
   const all = readSongKeys();
-  if (prefs.t === 0 && prefs.c === 0) delete all[uuid];
-  else all[uuid] = prefs;
+  if (prefs.t === 0) delete all[uuid];
+  else all[uuid] = { t: prefs.t };
   localStorage.setItem(STORAGE_KEYS.SONG_KEYS, JSON.stringify(all));
 }
 
@@ -142,26 +140,16 @@ export default function PlayPage() {
   // The song's key adjustments. Per song and seeded before the fetch lands, so
   // the chart never flashes in the written key before jumping to yours.
   const [transpose, setTransposeRaw] = useState(() => (uuid ? songKeyFor(uuid).t : 0));
-  const [capo, setCapoRaw] = useState(() => (uuid ? songKeyFor(uuid).c : 0));
   useEffect(() => {
     if (!uuid) return;
-    const stored = songKeyFor(uuid);
-    setTransposeRaw(stored.t);
-    setCapoRaw(stored.c);
+    setTransposeRaw(songKeyFor(uuid).t);
   }, [uuid]);
   const setTranspose = useCallback(
     (next: number) => {
       setTransposeRaw(next);
-      if (uuid) writeSongKey(uuid, { t: next, c: capo });
+      if (uuid) writeSongKey(uuid, { t: next });
     },
-    [uuid, capo],
-  );
-  const setCapo = useCallback(
-    (next: number) => {
-      setCapoRaw(next);
-      if (uuid) writeSongKey(uuid, { t: transpose, c: next });
-    },
-    [uuid, transpose],
+    [uuid],
   );
 
   const [fileData, setFileData] = useState<ArrayBuffer | null>(null);
@@ -188,23 +176,15 @@ export default function PlayPage() {
         ? song.original_content
         : song.rewritten_content;
 
-  // What the player is actually fingering: the written chart shifted by the
-  // transpose, then down by the capo. Sounding key = written + transpose; the
-  // capo bridges the difference between what sounds and what the hand plays.
-  const writtenOffset = transpose - capo;
+  // The written chart shifted into the player's key.
   const displayContent = useMemo(
-    () => transposeChart(activeContent, writtenOffset),
-    [activeContent, writtenOffset],
+    () => transposeChart(activeContent, transpose),
+    [activeContent, transpose],
   );
 
   // Follows the version on screen, so switching to the original re-reads the
   // chords from it rather than showing the rewrite's. Reads the *displayed*
-  // chart: with a capo set the chart already names the fingered shapes, so the
-  // panel's pills match what is on screen and tapping G shows the plain G
-  // shape you finger behind the capo. The sheet's capo is deliberately NOT fed
-  // into the panel: the dictionary's capo means "shapes that *sound* as this
-  // chord over a capo", and stacking that on names the chart has already
-  // shifted down would shift them twice.
+  // chart, so the panel's pills match the transposed names on screen.
   const chords = useChordPanel(displayContent);
 
   // The Follow diagnostics panel is switched from the chart actions menu rather
@@ -518,11 +498,11 @@ export default function PlayPage() {
             ariaLabel="Chart settings"
             ariaHasPopup="dialog"
             ariaExpanded={settingsOpen}
-            title="Version, transpose, capo, text size, columns"
+            title="Version, transpose, text size, columns"
             label="Settings"
             // The one place the closed sheet leaks state: a dot when the chart
-            // is not playing as written, so a surprising key has an explanation.
-            badge={transpose !== 0 || capo !== 0}
+            // is transposed, so a surprising key has an explanation.
+            badge={transpose !== 0}
           >
             <SlidersIcon />
           </BarButton>
@@ -535,7 +515,7 @@ export default function PlayPage() {
         className="flex-1 min-h-0"
         fontSizeOverride={fontSize}
         columnsPref={perfColumns}
-        transposeSemitones={writtenOffset}
+        transposeSemitones={transpose}
         llmModel={ctx?.llmSettings?.model}
         onAutoFontSize={setAutoFontSize}
         followHandleRef={followHandle}
@@ -577,21 +557,6 @@ export default function PlayPage() {
             )}
             <SettingsRow label="Transpose">
               <TransposeControl transpose={transpose} onTransposeChange={setTranspose} />
-            </SettingsRow>
-            <SettingsRow label="Capo">
-              <Select
-                value={String(capo)}
-                onChange={(e) => setCapo(Number(e.target.value))}
-                className="w-auto px-2 py-1.5 text-sm"
-                aria-label="Capo fret"
-                title="The chart rewrites itself to the shapes you finger behind the capo"
-              >
-                {CAPO_OPTIONS.map((fret) => (
-                  <option key={fret} value={String(fret)}>
-                    {fret === 0 ? 'None' : String(fret)}
-                  </option>
-                ))}
-              </Select>
             </SettingsRow>
             <SettingsRow label="Text size">
               <FontSizeStepper
@@ -668,7 +633,7 @@ function BarButton({
   ariaExpanded?: boolean;
   title?: string;
   label: string;
-  /** A dot marking state that survives the sheet closing (transpose, capo). */
+  /** A dot marking state that survives the sheet closing (the transpose). */
   badge?: boolean;
   children: React.ReactNode;
 }) {

@@ -41,7 +41,7 @@ If you prefer to self-host or want to point porchsongs at your own LLM gateway, 
 1. **Paste your lyrics** -- with or without chords, any format works
 2. **Chat to workshop the lyrics** -- tell the AI what to change ("swap the truck for my bike," "make verse 2 about coding") and iterate in a live conversation
 3. **Play and enjoy** -- chords are automatically realigned above your new lyrics,
-   and any chart can be transposed to your key or rewritten for a capo as you play
+   and any chart can be transposed to your key as you play
 
 ## Quick Start
 
@@ -66,8 +66,8 @@ The AI is optional, and self-hosting without it is a supported setup:
 cd backend && uv run uvicorn app.main:app --reload
 ```
 
-Importing charts, storing tab PDFs, the library, the performance view, transpose and
-capo, the tuner, hands-free scrolling, the chord dictionary, and PDF export all work
+Importing charts, storing tab PDFs, the library, the performance view, transpose,
+the tuner, hands-free scrolling, the chord dictionary, and PDF export all work
 with no gateway configured. Only three things need one: tidying up a chart's formatting, rewriting
 lyrics, and suggesting tags for a chart. Those actions disable themselves and say why. Tagging
 itself is entirely manual and always works; the AI suggestion is one opt-in tap on one chart.

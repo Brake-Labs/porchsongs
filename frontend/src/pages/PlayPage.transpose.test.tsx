@@ -7,8 +7,8 @@ import PlayPage from '@/pages/PlayPage';
 import type { Song } from '@/types';
 
 /**
- * The key controls on the play route: transpose, capo, and the one fact they
- * share with the chord panel.
+ * The key control on the play route: transpose, and the one fact it shares
+ * with the chord panel (the panel reads the chart as displayed).
  *
  * The real PerformanceSheet renders here, on purpose. The thing under test is
  * that the chart on screen is the transposed chart, and a stub sheet applying
@@ -90,12 +90,14 @@ async function chartLoaded() {
 /** The key controls live in the chart settings sheet now; open it first. */
 async function openSettings(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: 'Chart settings' }));
-  await waitFor(() => expect(screen.getByLabelText('Capo fret')).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole('group', { name: 'Transpose' })).toBeInTheDocument());
 }
 
 async function closeSettings(user: ReturnType<typeof userEvent.setup>) {
   await user.keyboard('{Escape}');
-  await waitFor(() => expect(screen.queryByLabelText('Capo fret')).not.toBeInTheDocument());
+  await waitFor(() =>
+    expect(screen.queryByRole('group', { name: 'Transpose' })).not.toBeInTheDocument(),
+  );
 }
 
 beforeEach(() => {
@@ -148,57 +150,36 @@ describe('transpose', () => {
     await chartLoaded();
     expect(sheetText()).toContain('A       D       E7');
   });
-});
 
-describe('capo', () => {
-  it('keeps the key and rewrites the chart to the shapes behind the capo', async () => {
+  it('shows the panel the transposed names, matching the chart on screen', async () => {
     const user = userEvent.setup();
     renderPlay();
     await chartLoaded();
 
     await openSettings(user);
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Capo fret' }), '2');
-
-    // Sounding key unchanged (transpose still 0); written chords drop by two.
-    expect(sheetText()).toContain('F       Bb      C7');
-    expect(screen.getByRole('button', { name: 'Transpose: as written' })).toBeInTheDocument();
-  });
-
-  it('shows the panel the fingered names, and no capo of its own', async () => {
-    const user = userEvent.setup();
-    renderPlay();
-    await chartLoaded();
-
-    await openSettings(user);
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Capo fret' }), '2');
+    await user.click(screen.getByRole('button', { name: 'Up a semitone' }));
+    await user.click(screen.getByRole('button', { name: 'Up a semitone' }));
     await closeSettings(user);
     await user.click(screen.getByRole('button', { name: 'Chords' }));
 
-    // The pills match the chart on screen: F, not the sounding G. It shows up
-    // pressed twice, as the song pill and as the root the picker landed on.
+    // The pills match the chart on screen: A, not the written G.
     const panel = screen.getByRole('complementary');
-    expect(within(panel).getAllByRole('button', { name: 'F', pressed: true })).not.toHaveLength(0);
-    // The panel's own capo stays off. Its capo means "shapes that *sound* as
-    // this chord over a capo"; the chart already shifted the names down, so
-    // handing it the sheet's capo would shift them twice. Tapping F must show
-    // the plain F shape you finger behind the capo.
-    expect(within(panel).getByRole('button', { name: 'None', pressed: true })).toBeInTheDocument();
+    expect(within(panel).getAllByRole('button', { name: 'A', pressed: true })).not.toHaveLength(0);
   });
 
-  it('offers plain frets, with no capo coaching attached', async () => {
-    // The "Try capo N" suggestion and its "open shapes" annotation are gone by
-    // design (the Ultimate Guitar treatment): a capo is a plain picker.
+  it('honors the transpose in a legacy { t, c } entry, ignores the capo fret, and drops it on the next write', async () => {
+    // Entries written before the play view lost its capo control carry a `c`.
+    localStorage.setItem('test_song_keys', JSON.stringify({ 'abc-123': { t: 2, c: 3 } }));
     const user = userEvent.setup();
     renderPlay();
     await chartLoaded();
 
+    // Shifted by the transpose alone; the old capo fret no longer subtracts.
+    expect(sheetText()).toContain('A       D       E7');
+
     await openSettings(user);
-    const capo = screen.getByRole('combobox', { name: 'Capo fret' });
-    const labels = within(capo)
-      .getAllByRole('option')
-      .map((o) => o.textContent);
-    expect(labels).toEqual(['None', '1', '2', '3', '4', '5', '6', '7']);
-    expect(screen.queryByRole('button', { name: /Try capo/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Up a semitone' }));
+    expect(JSON.parse(localStorage.getItem('test_song_keys')!)).toEqual({ 'abc-123': { t: 3 } });
   });
 });
 
