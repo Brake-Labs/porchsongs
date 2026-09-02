@@ -72,6 +72,20 @@
   --animate-sheet-out-left: sheet-out-left 200ms ease-in;
   --animate-sheet-in-right: sheet-in-right 250ms ease-out;
   --animate-sheet-out-right: sheet-out-right 200ms ease-in;
+  --animate-sheet-in-bottom: sheet-in-bottom 250ms ease-out;
+  --animate-sheet-out-bottom: sheet-out-bottom 200ms ease-in;
+}
+
+/* iOS safe areas. Zero everywhere else, so these are free to apply broadly. */
+@utility safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+@utility safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+@utility safe-x {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 @keyframes overlay-in {
@@ -107,6 +121,16 @@
 @keyframes sheet-out-right {
   from { transform: translateX(0); }
   to { transform: translateX(100%); }
+}
+
+@keyframes sheet-in-bottom {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes sheet-out-bottom {
+  from { transform: translateY(0); }
+  to { transform: translateY(100%); }
 }
 
 @layer base {

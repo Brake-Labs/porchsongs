@@ -3,16 +3,17 @@ import { cn } from '@/lib/utils';
 import FollowDebugOverlay from '@/components/FollowDebugOverlay';
 import useFollowDebugHud from '@/hooks/useFollowDebugHud';
 import type { UseFollowResult } from '@/hooks/useFollow';
+import type { FollowWarning } from '@/lib/followHealth';
 import type { LyricState } from '@/lib/followAlign';
 
 interface FollowControlsProps {
   follow: UseFollowResult;
   followOn: boolean;
   paused: boolean;
-  micSupported: boolean;
+  /** Computed upstream (PerformanceSheet), shared with the bar's Follow button. */
+  warning: FollowWarning | null;
   lyricStates: LyricState[];
   debug: boolean;
-  onToggleFollow: () => void;
   onResume: () => void;
   onSaveJson: () => void;
   /** Outcome of the last save, so a phone user knows whether it left the device. */
@@ -20,71 +21,27 @@ interface FollowControlsProps {
 }
 
 /**
- * The visible Follow-mode chrome layered over the performance sheet: the
- * primary Follow toggle, the "Resume follow" affordance after a manual scroll,
- * and (only when the account has Follow capture enabled) the diagnostics HUD with
- * its record/save controls.
+ * The visible Follow-mode chrome layered over the performance sheet: warnings,
+ * the "Resume follow" affordance after a manual scroll, and (only when the
+ * account has Follow capture enabled) the diagnostics HUD with its record/save
+ * controls. The primary Follow toggle lives in the play route's bottom bar.
  */
 export default function FollowControls({
   follow,
   followOn,
   paused,
-  micSupported,
+  warning,
   lyricStates,
   debug,
-  onToggleFollow,
   onResume,
   onSaveJson,
   saveState,
 }: FollowControlsProps) {
   const [hudOpen, toggleHud] = useFollowDebugHud();
 
-  // Non-fatal warnings ("not following") only make sense while Follow is on. A
-  // fatal one has to outlive it: a mic failure now switches Follow off by
-  // design, so gating purely on followOn would make the very warning this
-  // component exists to show vanish the instant it fired.
-  const warning = followOn || follow.warning?.fatal ? follow.warning : null;
-  // "Following" next to a chart that never moves is the whole bug. Once we know
-  // Follow is not working, the toggle has to stop claiming that it is.
-  // "Follow error", not "Mic error": unsupported, network and aborted are all
-  // fatal but none of them is a microphone problem, and the card heading beside
-  // this already names the real cause.
-  const label = warning?.fatal
-    ? 'Follow error'
-    : !followOn
-      ? 'Follow'
-      : warning
-        ? 'Not following'
-        : paused
-          ? 'Paused'
-          : 'Following';
-  const live = followOn && !paused && !warning;
-
   return (
     <>
-      {/* Primary toggle */}
       <div className="absolute right-2 top-2 z-20 flex flex-col items-end gap-1">
-        <button
-          type="button"
-          onClick={onToggleFollow}
-          aria-pressed={followOn}
-          aria-label={`Follow mode: ${label}`}
-          title={!micSupported ? 'Voice follow needs Chrome or Edge' : 'Hands-free follow'}
-          className={cn(
-            'flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm transition-colors cursor-pointer',
-            followOn
-              ? 'border-primary bg-primary text-white'
-              : 'border-border bg-card text-foreground hover:bg-panel',
-          )}
-        >
-          <span
-            className={cn(
-              'inline-block h-2 w-2 rounded-full',
-              live ? 'animate-pulse bg-white' : followOn ? 'bg-white/70' : 'bg-primary',
-            )}
-          />
-          {label}
-        </button>
         {/* A mic error drops Follow back off, so this has to survive followOn
             going false or the failure would vanish silently. */}
         {warning && (

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useImperativeHandle, useRef, useMemo, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { uploadFollowLog, useFollowCaptureEnabled } from '@/extensions';
 import FollowControls from '@/components/FollowControls';
@@ -7,10 +7,10 @@ import { useFollowScroll } from '@/hooks/useFollowScroll';
 import { normalizeSong } from '@/lib/followAlign';
 import { transposeChart } from '@/lib/chords/transpose';
 import { createSpeechSignal } from '@/lib/followSpeech';
-import { Select } from '@/components/ui/select';
 import { commitFollowEstimate, INITIAL_COMMIT_STATE } from '@/lib/followCommit';
 import usePerformanceLayout from '@/hooks/usePerformanceLayout';
 import type { Song } from '@/types';
+import type { FollowWarning } from '@/lib/followHealth';
 
 /**
  * The performance sheet: a chord chart rendered for playing from, not editing.
@@ -124,101 +124,60 @@ export const TRANSPOSE_MAX = 11;
 
 /** Capo positions offered, matching the dictionary's picker: past the 7th you
  *  are usually better off transposing. */
-const CAPO_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 7];
+export const CAPO_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 7];
 
 interface TransposeControlProps {
   /** Sounding-key offset from the chart as written, in semitones. */
   transpose: number;
-  /** Fret the capo sits at. The written chords shift down by this much. */
-  capo: number;
-  /** Capo that lands this chart on open shapes, from suggestCapo. */
-  capoHint: number;
   onTransposeChange: (next: number) => void;
-  onCapoChange: (next: number) => void;
 }
 
 /**
- * The key controls: transpose the song, or keep its key and move the capo.
- *
- * Two controls because they answer two different wants. The ♭/♯ stepper changes
- * the key you sing in; the capo keeps the key and changes the shapes you
- * finger, which is why setting it rewrites the written chords down by the same
- * amount. Same idiom as FontSizeStepper beside it: the middle button reads out
- * the state and does the one meaningful thing, resetting it.
+ * The transpose stepper, Ultimate Guitar style: ♭ and ♯ step the sounding key
+ * by a semitone, the middle button reads out the offset and resets it. The
+ * capo is a separate picker beside this in the settings sheet; the two answer
+ * different wants (change the key you sing in, versus keep the key and change
+ * the shapes you finger).
  */
-export function TransposeControl({
-  transpose,
-  capo,
-  capoHint,
-  onTransposeChange,
-  onCapoChange,
-}: TransposeControlProps) {
+export function TransposeControl({ transpose, onTransposeChange }: TransposeControlProps) {
   const stepClass =
     'min-w-[2.75rem] min-h-[2.75rem] flex items-center justify-center rounded-md border border-border bg-transparent text-sm text-muted-foreground hover:bg-panel hover:text-foreground disabled:opacity-40 cursor-pointer';
 
   return (
-    <>
-      <div className="flex items-center gap-1" role="group" aria-label="Key">
-        <button
-          type="button"
-          onClick={() => onTransposeChange(Math.max(TRANSPOSE_MIN, transpose - 1))}
-          disabled={transpose <= TRANSPOSE_MIN}
-          className={stepClass}
-          aria-label="Down a semitone"
-        >
-          &#9837;
-        </button>
-        <button
-          type="button"
-          onClick={() => onTransposeChange(0)}
-          disabled={transpose === 0}
-          className="min-w-[2.75rem] min-h-[2.75rem] px-2 flex items-center justify-center rounded-md border border-border bg-transparent text-xs text-muted-foreground hover:bg-panel hover:text-foreground disabled:hover:bg-transparent disabled:hover:text-muted-foreground cursor-pointer disabled:cursor-default whitespace-nowrap"
-          title={transpose === 0 ? "In the chart's own key" : "Back to the chart's own key"}
-          aria-label={
-            transpose === 0
-              ? 'Key: as written'
-              : `Transposed ${transpose > 0 ? 'up' : 'down'} ${Math.abs(transpose)} semitone${Math.abs(transpose) === 1 ? '' : 's'}. Reset to the written key`
-          }
-        >
-          {transpose === 0 ? 'Key' : transpose > 0 ? `+${transpose}` : `${transpose}`}
-        </button>
-        <button
-          type="button"
-          onClick={() => onTransposeChange(Math.min(TRANSPOSE_MAX, transpose + 1))}
-          disabled={transpose >= TRANSPOSE_MAX}
-          className={stepClass}
-          aria-label="Up a semitone"
-        >
-          &#9839;
-        </button>
-      </div>
-      <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <span className="whitespace-nowrap">Capo</span>
-        <Select
-          value={String(capo)}
-          onChange={(e) => onCapoChange(Number(e.target.value))}
-          className="w-auto px-2 py-1 text-xs"
-          aria-label="Capo fret"
-          title="The chart rewrites itself to the shapes you finger behind the capo"
-        >
-          {CAPO_OPTIONS.map((fret) => (
-            <option key={fret} value={String(fret)}>
-              {fret === 0 ? 'None' : fret === capoHint ? `${fret} · open shapes` : String(fret)}
-            </option>
-          ))}
-        </Select>
-      </label>
-      {capoHint > 0 && capoHint !== capo && (
-        <button
-          type="button"
-          onClick={() => onCapoChange(capoHint)}
-          className="min-h-[2.75rem] px-2 text-xs text-primary hover:underline cursor-pointer whitespace-nowrap"
-          title="Move the capo so this song's chords become open shapes"
-        >
-          Try capo {capoHint}
-        </button>
-      )}
-    </>
+    <div className="flex items-center gap-1" role="group" aria-label="Transpose">
+      <button
+        type="button"
+        onClick={() => onTransposeChange(Math.max(TRANSPOSE_MIN, transpose - 1))}
+        disabled={transpose <= TRANSPOSE_MIN}
+        className={stepClass}
+        aria-label="Down a semitone"
+      >
+        &#9837;
+      </button>
+      <button
+        type="button"
+        onClick={() => onTransposeChange(0)}
+        disabled={transpose === 0}
+        className="min-w-[2.75rem] min-h-[2.75rem] px-2 flex items-center justify-center rounded-md border border-border bg-transparent text-xs text-muted-foreground hover:bg-panel hover:text-foreground disabled:hover:bg-transparent disabled:hover:text-muted-foreground cursor-pointer disabled:cursor-default whitespace-nowrap"
+        title={transpose === 0 ? "In the chart's own key" : "Back to the chart's own key"}
+        aria-label={
+          transpose === 0
+            ? 'Transpose: as written'
+            : `Transposed ${transpose > 0 ? 'up' : 'down'} ${Math.abs(transpose)} semitone${Math.abs(transpose) === 1 ? '' : 's'}. Reset to the written key`
+        }
+      >
+        {transpose === 0 ? '0' : transpose > 0 ? `+${transpose}` : `${transpose}`}
+      </button>
+      <button
+        type="button"
+        onClick={() => onTransposeChange(Math.min(TRANSPOSE_MAX, transpose + 1))}
+        disabled={transpose >= TRANSPOSE_MAX}
+        className={stepClass}
+        aria-label="Up a semitone"
+      >
+        &#9839;
+      </button>
+    </div>
   );
 }
 
@@ -238,6 +197,59 @@ interface PerformanceSheetProps {
   llmModel?: string;
   /** Reports the auto-computed font size so a parent can seed its stepper. */
   onAutoFontSize?: (px: number | undefined) => void;
+  /**
+   * Imperative access to the Follow toggle, for a control that lives outside
+   * this component (the play route's bottom bar). A ref rather than a prop
+   * round-trip because iOS only grants the mic inside a real user gesture: the
+   * bar's click handler has to reach startMic synchronously, and a state
+   * change plus effect would run after the gesture has expired.
+   */
+  followHandleRef?: React.Ref<FollowHandle>;
+  /** Reports the Follow state the bar button renders; null when Follow does not apply. */
+  onFollowStatus?: (status: FollowStatus | null) => void;
+}
+
+export interface FollowHandle {
+  toggleFollow: () => void;
+}
+
+export interface FollowStatus {
+  on: boolean;
+  /** What the toggle should say: Follow / Following / Paused / Not following / Follow error. */
+  label: string;
+  /** Actively tracking: on, not paused, no warning. Drives the pulse dot. */
+  live: boolean;
+  micSupported: boolean;
+}
+
+/**
+ * What the Follow toggle should present, from the raw hook state.
+ *
+ * Non-fatal warnings ("not following") only make sense while Follow is on. A
+ * fatal one has to outlive it: a mic failure switches Follow off by design, so
+ * gating purely on followOn would hide the very warning that explains it.
+ * "Following" next to a chart that never moves was the whole of #273: once
+ * Follow is not working, the toggle has to stop claiming that it is. "Follow
+ * error", not "Mic error": unsupported, network and aborted are all fatal but
+ * none of them is a microphone problem, and the warning card heading names the
+ * real cause.
+ */
+export function deriveFollowPresentation(
+  followOn: boolean,
+  paused: boolean,
+  rawWarning: FollowWarning | null,
+): { warning: FollowWarning | null; label: string; live: boolean } {
+  const warning = followOn || rawWarning?.fatal ? rawWarning : null;
+  const label = warning?.fatal
+    ? 'Follow error'
+    : !followOn
+      ? 'Follow'
+      : warning
+        ? 'Not following'
+        : paused
+          ? 'Paused'
+          : 'Following';
+  return { warning, label, live: followOn && !paused && !warning };
 }
 
 /** Trigger a browser download of a recorded Follow session as JSON. */
@@ -260,6 +272,8 @@ export function PerformanceSheet({
   transposeSemitones = 0,
   llmModel,
   onAutoFontSize,
+  followHandleRef,
+  onFollowStatus,
 }: PerformanceSheetProps) {
   const rawText = version === 'original' ? song.original_content : song.rewritten_content;
   // transposeChart never changes the line count or what normalizeSong makes of
@@ -388,6 +402,25 @@ export function PerformanceSheet({
     else startMic();
   }, [followOn, stopFollow, startMic]);
 
+  useImperativeHandle(followHandleRef, () => ({ toggleFollow }), [toggleFollow]);
+
+  // Shared by the bar button (via onFollowStatus) and the floating warning card.
+  const {
+    warning: followWarning,
+    label: followLabel,
+    live: followLive,
+  } = deriveFollowPresentation(followOn, paused, follow.warning);
+  const followAvailable = norm.hasLyrics || debug;
+  useEffect(() => {
+    onFollowStatus?.(
+      followAvailable
+        ? { on: followOn, label: followLabel, live: followLive, micSupported }
+        : null,
+    );
+  }, [followAvailable, followOn, followLabel, followLive, micSupported, onFollowStatus]);
+  // The bar must not keep rendering a Follow button for an unmounted sheet.
+  useEffect(() => () => onFollowStatus?.(null), [onFollowStatus]);
+
   // A mic error ends the session: the signal has already released the mic, so
   // drop out of Follow rather than sitting in a "Following" state that isn't
   // listening. The error stays visible next to the toggle, and the next tap is
@@ -495,15 +528,14 @@ export function PerformanceSheet({
         )}
       </div>
 
-      {(norm.hasLyrics || debug) && (
+      {followAvailable && (
         <FollowControls
           follow={follow}
           followOn={followOn}
           paused={paused}
-          micSupported={micSupported}
+          warning={followWarning}
           lyricStates={norm.lyricStates}
           debug={debug}
-          onToggleFollow={toggleFollow}
           onResume={resume}
           onSaveJson={saveJson}
           saveState={saveState}

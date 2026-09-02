@@ -169,16 +169,21 @@ describe('PlayPage', () => {
   });
 
   it('offers the version toggle only when the original differs', async () => {
+    const user = userEvent.setup();
     mockGetSong.mockResolvedValue(
       makeSong({ original_content: 'same', rewritten_content: 'same' }),
     );
     const { unmount } = renderAt('abc-123');
     await waitFor(() => expect(screen.getByTestId('sheet')).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'Chart settings' }));
+    await waitFor(() => expect(screen.getByLabelText('Capo fret')).toBeInTheDocument());
     expect(screen.queryByLabelText('Song version')).not.toBeInTheDocument();
     unmount();
 
     mockGetSong.mockResolvedValue(makeSong());
     renderAt('abc-123');
+    await waitFor(() => expect(screen.getByTestId('sheet')).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'Chart settings' }));
     await waitFor(() => expect(screen.getByLabelText('Song version')).toBeInTheDocument());
   });
 
@@ -192,6 +197,8 @@ describe('PlayPage', () => {
 
     await waitFor(() => expect(screen.getByTestId('sheet')).toHaveTextContent('My words'));
 
+    await user.click(screen.getByRole('button', { name: 'Chart settings' }));
+    await waitFor(() => expect(screen.getByLabelText('Song version')).toBeInTheDocument());
     await user.click(screen.getByRole('button', { name: 'Original' }));
     expect(screen.getByTestId('sheet')).toHaveTextContent('Original words');
     expect(screen.getByTestId('sheet')).not.toHaveTextContent('My words');
@@ -240,10 +247,13 @@ describe('PlayPage', () => {
   });
 
   it('seeds the font size from the song and never fails visibly when the save is refused', async () => {
+    const user = userEvent.setup();
     (api.updateSong as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('read only'));
     mockGetSong.mockResolvedValue(makeSong({ font_size: 22 }));
     renderAt('abc-123');
 
+    await waitFor(() => expect(screen.getByTestId('sheet')).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'Chart settings' }));
     await waitFor(() => expect(screen.getByText('22px')).toBeInTheDocument());
     // A read-only account cannot PUT, and a viewing preference must not surface an
     // error on the one screen where text size matters.

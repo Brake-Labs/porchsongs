@@ -1,6 +1,6 @@
 import { normalizeSong } from '@/lib/followAlign';
 import { isChordShaped } from './chordToken';
-import { noteName, parseNote, type PitchClass } from './theory';
+import { noteName, parseNote } from './theory';
 
 /**
  * Transpose a chart as text, because the chart *is* text.
@@ -135,50 +135,4 @@ export function transposeChart(text: string, semitones: number): string {
       return transposeInline(line, semitones);
     })
     .join('\n');
-}
-
-/**
- * Roots that have open-position shapes, per instrument.
- *
- * The stand-in for "shapes a porch player fingers without a barre": the cowboy
- * keys on guitar, their equivalents elsewhere. Quality barely matters at this
- * level (C, Cm and C7 all live at the nut), so roots are enough.
- */
-const OPEN_ROOTS: Record<string, PitchClass[]> = {
-  guitar: [0, 2, 4, 7, 9], // C D E G A
-  ukulele: [0, 2, 5, 7, 9], // C D F G A
-  mandolin: [0, 2, 7, 9], // C D G A
-  banjo: [0, 2, 7], // C D G
-};
-
-/** Where the suggestion stops looking. Past the 7th fret a capo stops being a
- *  convenience, which is also where the dictionary's picker stops. */
-const HIGHEST_SUGGESTED_CAPO = 7;
-
-/**
- * The capo that turns the most of these chords into open shapes.
- *
- * `roots` are the *sounding* roots the player wants to hear; a capo at fret c
- * means fingering everything c semitones lower. Ties go to the lowest fret,
- * and capo 0 competes like any other, so a chart already sitting on open
- * shapes suggests no capo at all.
- */
-export function suggestCapo(roots: PitchClass[], instrumentSlug: string): number {
-  const open = OPEN_ROOTS[instrumentSlug];
-  if (!open || roots.length === 0) return 0;
-  const openSet = new Set(open);
-
-  let best = 0;
-  let bestScore = -1;
-  for (let capo = 0; capo <= HIGHEST_SUGGESTED_CAPO; capo++) {
-    let score = 0;
-    for (const root of roots) {
-      if (openSet.has(((root - capo) % 12 + 12) % 12)) score++;
-    }
-    if (score > bestScore) {
-      bestScore = score;
-      best = capo;
-    }
-  }
-  return best;
 }

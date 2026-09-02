@@ -87,6 +87,17 @@ async function chartLoaded() {
   await waitFor(() => expect(document.querySelector('pre')).not.toBeNull());
 }
 
+/** The key controls live in the chart settings sheet now; open it first. */
+async function openSettings(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: 'Chart settings' }));
+  await waitFor(() => expect(screen.getByLabelText('Capo fret')).toBeInTheDocument());
+}
+
+async function closeSettings(user: ReturnType<typeof userEvent.setup>) {
+  await user.keyboard('{Escape}');
+  await waitFor(() => expect(screen.queryByLabelText('Capo fret')).not.toBeInTheDocument());
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
@@ -100,6 +111,7 @@ describe('transpose', () => {
     await chartLoaded();
     expect(sheetText()).toContain('G       C       D7');
 
+    await openSettings(user);
     await user.click(screen.getByRole('button', { name: 'Up a semitone' }));
     await user.click(screen.getByRole('button', { name: 'Up a semitone' }));
 
@@ -114,6 +126,7 @@ describe('transpose', () => {
     renderPlay();
     await chartLoaded();
 
+    await openSettings(user);
     await user.click(screen.getByRole('button', { name: 'Up a semitone' }));
     expect(sheetText()).toContain('Ab      C#      Eb7');
 
@@ -125,6 +138,7 @@ describe('transpose', () => {
     const user = userEvent.setup();
     const first = renderPlay();
     await chartLoaded();
+    await openSettings(user);
     await user.click(screen.getByRole('button', { name: 'Up a semitone' }));
     await user.click(screen.getByRole('button', { name: 'Up a semitone' }));
     expect(sheetText()).toContain('A       D       E7');
@@ -142,11 +156,12 @@ describe('capo', () => {
     renderPlay();
     await chartLoaded();
 
+    await openSettings(user);
     await user.selectOptions(screen.getByRole('combobox', { name: 'Capo fret' }), '2');
 
     // Sounding key unchanged (transpose still 0); written chords drop by two.
     expect(sheetText()).toContain('F       Bb      C7');
-    expect(screen.getByRole('button', { name: 'Key: as written' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Transpose: as written' })).toBeInTheDocument();
   });
 
   it('shows the panel the fingered names, and no capo of its own', async () => {
@@ -154,7 +169,9 @@ describe('capo', () => {
     renderPlay();
     await chartLoaded();
 
+    await openSettings(user);
     await user.selectOptions(screen.getByRole('combobox', { name: 'Capo fret' }), '2');
+    await closeSettings(user);
     await user.click(screen.getByRole('button', { name: 'Chords' }));
 
     // The pills match the chart on screen: F, not the sounding G. It shows up
@@ -168,21 +185,19 @@ describe('capo', () => {
     expect(within(panel).getByRole('button', { name: 'None', pressed: true })).toBeInTheDocument();
   });
 
-  it('suggests the capo that lands a flat chart on open shapes', async () => {
-    mockGetSong.mockResolvedValue(
-      makeSong({
-        original_content: 'Bb      Eb      F\nAmazing grace how sweet',
-        rewritten_content: 'Bb      Eb      F\nAmazing grace how sweet',
-      }),
-    );
+  it('offers plain frets, with no capo coaching attached', async () => {
+    // The "Try capo N" suggestion and its "open shapes" annotation are gone by
+    // design (the Ultimate Guitar treatment): a capo is a plain picker.
     const user = userEvent.setup();
     renderPlay();
     await chartLoaded();
 
-    // Bb Eb F under a capo at 1 are A D E.
-    await user.click(screen.getByRole('button', { name: 'Try capo 1' }));
-    expect(sheetText()).toContain('A       D       E');
-    // Taken, so no longer suggested.
+    await openSettings(user);
+    const capo = screen.getByRole('combobox', { name: 'Capo fret' });
+    const labels = within(capo)
+      .getAllByRole('option')
+      .map((o) => o.textContent);
+    expect(labels).toEqual(['None', '1', '2', '3', '4', '5', '6', '7']);
     expect(screen.queryByRole('button', { name: /Try capo/ })).not.toBeInTheDocument();
   });
 });

@@ -23,23 +23,27 @@ SheetOverlay.displayName = 'SheetOverlay';
 
 interface SheetContentProps
   extends ComponentPropsWithoutRef<typeof DialogPrimitive.Content> {
-  side?: 'left' | 'right';
+  side?: 'left' | 'right' | 'bottom';
+  /** Override the scrim, e.g. a lighter one when the page behind is a live preview. */
+  overlayClassName?: string;
 }
 
 const SheetContent = forwardRef<HTMLDivElement, SheetContentProps>(
-  ({ className, children, side = 'left', ...props }, ref) => (
+  ({ className, children, side = 'left', overlayClassName, ...props }, ref) => (
     <DialogPrimitive.Portal>
-      <SheetOverlay />
+      <SheetOverlay className={overlayClassName} />
       <DialogPrimitive.Content
         ref={ref}
         aria-describedby={undefined}
         className={cn(
           'fixed z-50 flex flex-col bg-card shadow-lg focus:outline-none',
-          'inset-y-0 w-64',
+          side !== 'bottom' && 'inset-y-0 w-64',
           side === 'left' &&
             'left-0 data-[state=open]:animate-sheet-in-left data-[state=closed]:animate-sheet-out-left',
           side === 'right' &&
             'right-0 data-[state=open]:animate-sheet-in-right data-[state=closed]:animate-sheet-out-right',
+          side === 'bottom' &&
+            'inset-x-0 bottom-0 rounded-t-lg data-[state=open]:animate-sheet-in-bottom data-[state=closed]:animate-sheet-out-bottom',
           className
         )}
         {...props}

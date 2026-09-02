@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { PerformanceSheet } from '@/components/PlayView';
+import { useRef, useState, type ComponentProps } from 'react';
+import { PerformanceSheet, deriveFollowPresentation } from '@/components/PlayView';
+import type { FollowHandle, FollowStatus } from '@/components/PlayView';
+import type { FollowWarning } from '@/lib/followHealth';
 
 const uploadMock = vi.hoisted(() => vi.fn<(r: unknown) => Promise<boolean>>());
 const captureEnabledMock = vi.hoisted(() => vi.fn<() => boolean>(() => false));
@@ -81,10 +84,35 @@ function followButton() {
   return screen.getByRole('button', { name: /^Follow mode:/ });
 }
 
+/**
+ * The Follow toggle lives in PlayPage's bottom bar and reaches the sheet
+ * through the imperative handle; this mirrors that wiring, including the
+ * synchronous click-to-toggle path the iOS mic grant depends on.
+ */
+function Harness(props: ComponentProps<typeof PerformanceSheet>) {
+  const handle = useRef<FollowHandle>(null);
+  const [status, setStatus] = useState<FollowStatus | null>(null);
+  return (
+    <>
+      {status && (
+        <button
+          type="button"
+          aria-pressed={status.on}
+          aria-label={`Follow mode: ${status.label}`}
+          onClick={() => handle.current?.toggleFollow()}
+        >
+          {status.label}
+        </button>
+      )}
+      <PerformanceSheet {...props} followHandleRef={handle} onFollowStatus={setStatus} />
+    </>
+  );
+}
+
 describe('PerformanceSheet follow mode', () => {
   it('recovers from a first-run mic denial on the next tap, with no reload', async () => {
     const user = userEvent.setup();
-    render(<PerformanceSheet song={makeSong()} version="rewritten" />);
+    render(<Harness song={makeSong()} version="rewritten" />);
 
     // First tap: iOS puts up the permission sheet and refuses this start().
     await user.click(followButton());
@@ -117,7 +145,7 @@ describe('PerformanceSheet follow mode', () => {
 
   it('does not respawn the recognizer after a fatal error', async () => {
     const user = userEvent.setup();
-    render(<PerformanceSheet song={makeSong()} version="rewritten" />);
+    render(<Harness song={makeSong()} version="rewritten" />);
 
     await user.click(followButton());
     const rec = MockRecognition.last;
@@ -151,7 +179,7 @@ describe('PerformanceSheet tap to reposition', () => {
   const isHighlighted = (i: number) => !!line(i)?.style.background;
 
   async function followOn(user: ReturnType<typeof userEvent.setup>) {
-    render(<PerformanceSheet song={makeSong()} version="rewritten" />);
+    render(<Harness song={makeSong()} version="rewritten" />);
     await user.click(followButton());
     expect(followButton()).toHaveAttribute('aria-pressed', 'true');
   }
@@ -199,7 +227,7 @@ describe('PerformanceSheet tap to reposition', () => {
     // handler, so a stray tap cannot move anything. Asserting only that a click did
     // nothing would pass even if the guard were deleted.
     const user = userEvent.setup();
-    render(<PerformanceSheet song={makeSong()} version="rewritten" />);
+    render(<Harness song={makeSong()} version="rewritten" />);
     const scrollTo = Element.prototype.scrollTo as ReturnType<typeof vi.fn>;
     scrollTo.mockClear();
 
@@ -253,7 +281,7 @@ describe('PerformanceSheet saving a capture', () => {
     // This surface renders the sheet on its own, so the preference is set
     // directly rather than through a menu that is not here.
     window.localStorage.setItem('porchsongs.followDebugHud', 'shown');
-    render(<PerformanceSheet song={makeSong()} version="rewritten" />);
+    render(<Harness song={makeSong()} version="rewritten" />);
     await user.click(screen.getByRole('button', { name: 'Record' }));
     await user.click(screen.getByRole('button', { name: /Save logs/ }));
     return user;
@@ -309,7 +337,7 @@ describe('PerformanceSheet capture controls gating', () => {
   });
 
   it('hides the capture controls when the account has not enabled them', () => {
-    render(<PerformanceSheet song={makeSong()} version="rewritten" />);
+    render(<Harness song={makeSong()} version="rewritten" />);
     expect(screen.queryByRole('button', { name: 'Record' })).toBeNull();
   });
 
@@ -317,12 +345,12 @@ describe('PerformanceSheet capture controls gating', () => {
     // Enabling capture puts the panel within reach; it does not open it. Both
     // have to be true before the controls exist.
     captureEnabledMock.mockReturnValue(true);
-    const { unmount } = render(<PerformanceSheet song={makeSong()} version="rewritten" />);
+    const { unmount } = render(<Harness song={makeSong()} version="rewritten" />);
     expect(screen.queryByRole('button', { name: 'Record' })).toBeNull();
     unmount();
 
     window.localStorage.setItem('porchsongs.followDebugHud', 'shown');
-    render(<PerformanceSheet song={makeSong()} version="rewritten" />);
+    render(<Harness song={makeSong()} version="rewritten" />);
     expect(screen.getByRole('button', { name: 'Record' })).toBeInTheDocument();
   });
 
@@ -331,10 +359,60 @@ describe('PerformanceSheet capture controls gating', () => {
     // way around the account setting.
     window.history.replaceState(null, '', '/app/play/1?followdebug');
     try {
-      render(<PerformanceSheet song={makeSong()} version="rewritten" />);
+      render(<Harness song={makeSong()} version="rewritten" />);
       expect(screen.queryByRole('button', { name: 'Record' })).toBeNull();
     } finally {
       window.history.replaceState(null, '', '/');
     }
+  });
+});
+
+describe('deriveFollowPresentation', () => {
+  const NO_AUDIO: FollowWarning = {
+    kind: 'no-audio',
+    heading: 'Not getting any audio',
+    message: 'Follow mode started but your browser never opened the microphone.',
+    fatal: false,
+  };
+  const DENIED: FollowWarning = {
+    kind: 'permission-denied',
+    heading: 'Microphone access needed',
+    message: 'Allow microphone access in your browser settings, then try again.',
+    fatal: true,
+  };
+
+  it('says it is following, and only says so, when nothing is wrong', () => {
+    expect(deriveFollowPresentation(true, false, null)).toEqual({
+      warning: null,
+      label: 'Following',
+      live: true,
+    });
+  });
+
+  it('stops claiming to follow over a dead chart', () => {
+    // The bug in #273 was the label staying "Following" over a chart that
+    // never moved.
+    const p = deriveFollowPresentation(true, false, NO_AUDIO);
+    expect(p.label).toBe('Not following');
+    expect(p.live).toBe(false);
+    expect(p.warning).toBe(NO_AUDIO);
+  });
+
+  it('hides a non-fatal warning once Follow is switched off', () => {
+    const p = deriveFollowPresentation(false, false, NO_AUDIO);
+    expect(p.warning).toBeNull();
+    expect(p.label).toBe('Follow');
+  });
+
+  it('keeps a fatal warning visible after the failure switched Follow off', () => {
+    const p = deriveFollowPresentation(false, false, DENIED);
+    expect(p.warning).toBe(DENIED);
+    expect(p.label).toBe('Follow error');
+  });
+
+  it('reads Paused after a manual scroll', () => {
+    const p = deriveFollowPresentation(true, true, null);
+    expect(p.label).toBe('Paused');
+    expect(p.live).toBe(false);
   });
 });

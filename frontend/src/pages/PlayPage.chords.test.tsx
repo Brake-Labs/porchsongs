@@ -262,7 +262,10 @@ describe('PlayPage chord panel', () => {
     await openPanel(user);
     expect(within(songChordRow()!).getByRole('button', { name: 'G' })).toBeInTheDocument();
 
+    await user.click(screen.getByRole('button', { name: 'Chart settings' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Original' })).toBeInTheDocument());
     await user.click(screen.getByRole('button', { name: 'Original' }));
+    await user.keyboard('{Escape}');
 
     await waitFor(() =>
       expect(within(songChordRow()!).getByRole('button', { name: 'Bb' })).toBeInTheDocument(),

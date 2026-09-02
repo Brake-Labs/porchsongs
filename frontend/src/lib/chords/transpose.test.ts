@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { suggestCapo, transposeChart, transposeChordToken } from './transpose';
+import { transposeChart, transposeChordToken } from './transpose';
 import { normalizeSong } from '@/lib/followAlign';
 
 /**
@@ -149,24 +149,3 @@ describe('transposeChart', () => {
   });
 });
 
-describe('suggestCapo', () => {
-  it('suggests the fret that lands a flat key on open shapes', () => {
-    // Bb Eb F: capo 1 plays them as A D E.
-    expect(suggestCapo([10, 3, 5], 'guitar')).toBe(1);
-  });
-
-  it('suggests nothing for a chart already on open shapes', () => {
-    // G C D score perfectly at capo 0, and capo 0 wins the tie.
-    expect(suggestCapo([7, 0, 2], 'guitar')).toBe(0);
-  });
-
-  it('takes the lowest fret when two capos tie', () => {
-    // B E F#: capo 2 gives A D E, capo 4 gives G C D. Both perfect; 2 wins.
-    expect(suggestCapo([11, 4, 6], 'guitar')).toBe(2);
-  });
-
-  it('answers 0 with nothing to score', () => {
-    expect(suggestCapo([], 'guitar')).toBe(0);
-    expect(suggestCapo([10, 3], 'theremin')).toBe(0);
-  });
-});
