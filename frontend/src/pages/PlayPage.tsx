@@ -633,7 +633,7 @@ function BarButton({
   ariaExpanded?: boolean;
   title?: string;
   label: string;
-  /** A dot marking state that survives the sheet closing (transpose, capo). */
+  /** A dot marking state that survives the sheet closing (the transpose). */
   badge?: boolean;
   children: React.ReactNode;
 }) {

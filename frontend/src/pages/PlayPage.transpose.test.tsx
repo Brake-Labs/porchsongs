@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route, Outlet } from 'react-router-dom';
 import api from '@/api';
@@ -7,8 +7,8 @@ import PlayPage from '@/pages/PlayPage';
 import type { Song } from '@/types';
 
 /**
- * The key controls on the play route: transpose, capo, and the one fact they
- * share with the chord panel.
+ * The key control on the play route: transpose, and the one fact it shares
+ * with the chord panel (the panel reads the chart as displayed).
  *
  * The real PerformanceSheet renders here, on purpose. The thing under test is
  * that the chart on screen is the transposed chart, and a stub sheet applying
@@ -93,6 +93,13 @@ async function openSettings(user: ReturnType<typeof userEvent.setup>) {
   await waitFor(() => expect(screen.getByRole('group', { name: 'Transpose' })).toBeInTheDocument());
 }
 
+async function closeSettings(user: ReturnType<typeof userEvent.setup>) {
+  await user.keyboard('{Escape}');
+  await waitFor(() =>
+    expect(screen.queryByRole('group', { name: 'Transpose' })).not.toBeInTheDocument(),
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
@@ -142,6 +149,37 @@ describe('transpose', () => {
     renderPlay();
     await chartLoaded();
     expect(sheetText()).toContain('A       D       E7');
+  });
+
+  it('shows the panel the transposed names, matching the chart on screen', async () => {
+    const user = userEvent.setup();
+    renderPlay();
+    await chartLoaded();
+
+    await openSettings(user);
+    await user.click(screen.getByRole('button', { name: 'Up a semitone' }));
+    await user.click(screen.getByRole('button', { name: 'Up a semitone' }));
+    await closeSettings(user);
+    await user.click(screen.getByRole('button', { name: 'Chords' }));
+
+    // The pills match the chart on screen: A, not the written G.
+    const panel = screen.getByRole('complementary');
+    expect(within(panel).getAllByRole('button', { name: 'A', pressed: true })).not.toHaveLength(0);
+  });
+
+  it('honors the transpose in a legacy { t, c } entry, ignores the capo fret, and drops it on the next write', async () => {
+    // Entries written before the play view lost its capo control carry a `c`.
+    localStorage.setItem('test_song_keys', JSON.stringify({ 'abc-123': { t: 2, c: 3 } }));
+    const user = userEvent.setup();
+    renderPlay();
+    await chartLoaded();
+
+    // Shifted by the transpose alone; the old capo fret no longer subtracts.
+    expect(sheetText()).toContain('A       D       E7');
+
+    await openSettings(user);
+    await user.click(screen.getByRole('button', { name: 'Up a semitone' }));
+    expect(JSON.parse(localStorage.getItem('test_song_keys')!)).toEqual({ 'abc-123': { t: 3 } });
   });
 });
 

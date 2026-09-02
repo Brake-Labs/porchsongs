@@ -181,9 +181,9 @@ interface PerformanceSheetProps {
   fontSizeOverride?: number | null;
   columnsPref?: ColumnPref;
   /**
-   * Semitones to shift the *written* chords by: the transpose offset minus the
-   * capo. Applied here rather than upstream so everything below (Follow, the
-   * layout solver, the columns) reads the chart the player is looking at.
+   * Semitones to shift the *written* chords by. Applied here rather than
+   * upstream so everything below (Follow, the layout solver, the columns)
+   * reads the chart the player is looking at.
    */
   transposeSemitones?: number;
   /** LLM model for the Follow arbiter; empty string disables it. */

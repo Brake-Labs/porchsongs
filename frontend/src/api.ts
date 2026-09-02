@@ -47,10 +47,12 @@ const STORAGE_KEYS = {
   // change between songs, so asking again every time asks a settled question.
   DOCUMENT_PAGES: 'porchsongs_document_pages',
   CHORD_TUNING: 'porchsongs_chord_tuning',
-  // Per-song transpose and capo, as one JSON map of uuid -> { t, c }. Per song
-  // rather than one global value like the layout keys above: the song you moved
-  // to D should reopen in D, and the next song should not. Entries are removed
-  // when both go back to zero, so the map only holds songs actually moved.
+  // Per-song transpose, as one JSON map of uuid -> { t }. (Older entries may
+  // also carry a capo fret `c` from the removed play-view capo control; it is
+  // ignored and dropped on the next write.) Per song rather than one global
+  // value like the layout keys above: the song you moved to D should reopen in
+  // D, and the next song should not. Entries are removed when the transpose
+  // goes back to zero, so the map only holds songs actually moved.
   SONG_KEYS: 'porchsongs_song_keys',
   // How wide the chord panel is dragged to, in px. Its own key rather than the
   // rewrite view's SPLIT_PERCENT: that one is a percentage split between two
