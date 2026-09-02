@@ -13,16 +13,16 @@
 - **Reference sites:** LyricStudio (bold but techy), Songcraft (warm, closest peer), Hookpad (clean, educational). PorchSongs differentiates with warm organic tones and serif display type.
 
 ## Typography
-- **Display/Hero:** Instrument Serif -- warm, editorial serif with craft character. Signals "artisan, not SaaS." Used for page titles, hero headings, section titles, and marketing headlines.
+- **Display/Hero:** Fraunces -- warm, soft-serif variable font with craft character. Signals "artisan, not SaaS." Used for page titles, hero headings, section titles, and marketing headlines. Loaded as a variable font (wght 400-700, optical size 9-144): headings can use real semibold/bold weights (Instrument Serif shipped only 400, so bolder headings were browser-synthesized and rendered poorly), and the optical size axis serves a sturdier, more readable cut at small sizes and a more elegant one at display sizes automatically.
 - **Body:** Plus Jakarta Sans -- modern, highly readable geometric sans with warm character. Used for body text, UI labels, buttons, navigation, and lyrics display.
 - **UI/Labels:** Same as body (Plus Jakarta Sans)
-- **Data/Tables:** Geist (tabular-nums) -- clean monospaced numerals for statistics, pricing, usage counts.
+- **Data/Tables:** Plus Jakarta Sans with `tabular-nums` -- the family ships tabular figures (OpenType `tnum`), so statistics, pricing, and usage counts align without loading a separate face.
 - **Code/Chords:** JetBrains Mono -- excellent for chord alignment above lyrics, code blocks, and monospaced content.
-- **Loading:** Google Fonts for Instrument Serif, Plus Jakarta Sans, and JetBrains Mono. Geist self-hosted or via Vercel CDN.
+- **Loading:** Google Fonts for Fraunces, Plus Jakarta Sans (400-700; 300 is unused), and JetBrains Mono.
 - **Scale:**
-  - 48px -- page titles (Instrument Serif)
-  - 36px -- section headings (Instrument Serif)
-  - 30px -- card titles (Instrument Serif)
+  - 48px -- page titles (Fraunces)
+  - 36px -- section headings (Fraunces)
+  - 30px -- card titles (Fraunces)
   - 24px -- subheadings (Plus Jakarta Sans, semibold)
   - 20px -- large body (Plus Jakarta Sans, semibold)
   - 16px -- body text (Plus Jakarta Sans)
@@ -31,7 +31,7 @@
 
 ## Color
 - **Approach:** Restrained (1 accent + warm neutrals). The burnt sienna primary is the only strong color. No blue or purple anywhere except semantic info states.
-- **Primary:** `#b85c2c` -- burnt sienna. The brand color. Used for CTAs, active states, chord coloring, links.
+- **Primary:** `#b25627` -- burnt sienna. The brand color. Used for CTAs, active states, chord coloring, links. Chosen to clear WCAG AA (4.69:1) against the paper background for body-size text; the earlier `#b85c2c` sat at 4.33:1. Brand artwork (logo, social banner) keeps the original `#b85c2c` shade: it is not text, so the AA rationale does not apply and the assets stay untouched.
 - **Primary hover:** `#9e4e24` -- deeper sienna for hover/pressed states.
 - **Primary light:** `#f3dfd2` -- warm tint for selected states, badges, light backgrounds.
 - **Background:** `#faf9f6` -- warm paper, not sterile white. Creates a subtle "songwriter's notebook" feel.
@@ -51,7 +51,7 @@
   - Primary light dark: `#3d2a1d`
   - Background dark: `#1c1917`
   - Card dark: `#292524`
-  - Panel dark: `#1c1917`
+  - Panel dark: `#221f1c` (one step above the background, so panels keep their layering)
   - Foreground dark: `#e7e5e4`
   - Muted dark: `#a8a29e`
   - Border dark: `#44403c`
