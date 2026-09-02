@@ -31,7 +31,7 @@
 
 ## Color
 - **Approach:** Restrained (1 accent + warm neutrals). The burnt sienna primary is the only strong color. No blue or purple anywhere except semantic info states.
-- **Primary:** `#b25627` -- burnt sienna. The brand color. Used for CTAs, active states, chord coloring, links. Chosen to clear WCAG AA (4.69:1) against the paper background for body-size text; the earlier `#b85c2c` sat at 4.33:1.
+- **Primary:** `#b25627` -- burnt sienna. The brand color. Used for CTAs, active states, chord coloring, links. Chosen to clear WCAG AA (4.69:1) against the paper background for body-size text; the earlier `#b85c2c` sat at 4.33:1. Brand artwork (logo, social banner) keeps the original `#b85c2c` shade: it is not text, so the AA rationale does not apply and the assets stay untouched.
 - **Primary hover:** `#9e4e24` -- deeper sienna for hover/pressed states.
 - **Primary light:** `#f3dfd2` -- warm tint for selected states, badges, light backgrounds.
 - **Background:** `#faf9f6` -- warm paper, not sterile white. Creates a subtle "songwriter's notebook" feel.

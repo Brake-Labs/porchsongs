@@ -43,10 +43,10 @@
     <text x="70" y="22" font-family="serif" font-size="10" fill="#faf9f6" opacity="0.7">&#9835;</text>
   </g>
 
-  <!-- Wordmark. Instrument Serif is --font-display, the same face the app header
+  <!-- Wordmark. Fraunces is --font-display, the same face the app header
        uses for "porchsongs". The previous banner set it in bold Plus Jakarta Sans,
        which is the UI font, so the wordmark did not match the product. -->
-  <text x="640" y="330" font-family="'Instrument Serif', Georgia, serif" font-size="104" font-weight="400" fill="#faf9f6" text-anchor="middle" letter-spacing="-1">porchsongs</text>
+  <text x="640" y="330" font-family="'Fraunces', Georgia, serif" font-size="104" font-weight="400" fill="#faf9f6" text-anchor="middle" letter-spacing="-1">porchsongs</text>
 
   <!-- Accent line -->
   <rect x="529" y="352" width="222" height="3" rx="1.5" fill="#b85c2c" opacity="0.8" />

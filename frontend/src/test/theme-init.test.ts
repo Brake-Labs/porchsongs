@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import themeInitSrc from '../../public/theme-init.js?raw';
 import indexHtml from '../../index.html?raw';
 import { readFileSync } from 'node:fs';
+import { STORAGE_KEYS } from '@/api';
 
 // Off disk, not imported: vitest stubs every CSS import (?raw and ?inline
 // included) to an empty string. vitest's cwd is the frontend directory.
@@ -56,6 +57,12 @@ describe('theme-init.js', () => {
 
   it('falls back to the system preference when storage throws', () => {
     expect(runThemeInit({ storageThrows: true, systemDark: true })).toBe('dark');
+  });
+
+  it('reads the same storage key the app writes', () => {
+    // theme-init.js cannot import STORAGE_KEYS (it runs before the module
+    // graph), so the literal is duplicated; this pins the two together.
+    expect(themeInitSrc).toContain(`'${STORAGE_KEYS.THEME}'`);
   });
 });
 
