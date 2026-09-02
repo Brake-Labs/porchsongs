@@ -201,3 +201,26 @@ describe('capo', () => {
     expect(screen.queryByRole('button', { name: /Try capo/ })).not.toBeInTheDocument();
   });
 });
+
+describe('follow bar wiring', () => {
+  // PlayView.follow.test.tsx proves the PerformanceSheet half of the contract
+  // with a stand-in bar; this proves PlayPage actually passes followHandleRef
+  // and onFollowStatus, so the real bar button exists and its click reaches the
+  // sheet's toggle through the imperative handle.
+  it('renders the Follow toggle and routes its click into the sheet', async () => {
+    const user = userEvent.setup();
+    renderPlay();
+    await chartLoaded();
+
+    const follow = await screen.findByRole('button', { name: 'Follow mode: Follow' });
+    expect(follow).toHaveAttribute('aria-pressed', 'false');
+
+    // jsdom has no SpeechRecognition, so the toggle lands on the unsupported
+    // failure path; any label change proves the click crossed the handle.
+    await user.click(follow);
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Follow mode: Follow' })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole('button', { name: /^Follow mode:/ })).toBeInTheDocument();
+  });
+});

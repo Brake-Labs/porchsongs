@@ -436,7 +436,9 @@ export default function AppShell() {
   const chromeless = location.pathname.startsWith('/app/play/');
 
   return (
-    <div className="flex flex-col h-dvh">
+    // safe-x: viewport-fit=cover (see index.html) puts every route under the
+    // iPhone notch ears in landscape, not just the chromeless play route.
+    <div className="flex flex-col h-dvh safe-x">
       {!chromeless && (
         <div className="sticky top-0 z-50 shrink-0">
           <Header

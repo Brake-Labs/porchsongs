@@ -207,8 +207,6 @@ export default function PlayPage() {
   // shifted down would shift them twice.
   const chords = useChordPanel(displayContent);
 
-  // Suggested from the sounding roots (what is heard, not what is fingered),
-  // for the instrument the panel remembers the player owning.
   // The Follow diagnostics panel is switched from the chart actions menu rather
   // than from a button floating over the chart. It is an operator tool on a
   // performance surface, so it belongs with the other things you reach for
@@ -518,6 +516,8 @@ export default function PlayPage() {
             onClick={() => setSettingsOpen(true)}
             active={settingsOpen}
             ariaLabel="Chart settings"
+            ariaHasPopup="dialog"
+            ariaExpanded={settingsOpen}
             title="Version, transpose, capo, text size, columns"
             label="Settings"
             // The one place the closed sheet leaks state: a dot when the chart
@@ -548,7 +548,7 @@ export default function PlayPage() {
       <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
         <SheetContent side="bottom" overlayClassName="bg-black/15" className="safe-bottom">
           <DialogPrimitive.Title className="sr-only">Chart settings</DialogPrimitive.Title>
-          <div className="mx-auto w-full max-w-md px-4 py-3 flex flex-col divide-y divide-border">
+          <div className="mx-auto w-full max-w-md px-4 py-3 flex flex-col divide-y divide-border max-h-[80dvh] overflow-y-auto">
             {hasDistinctOriginal && (
               <SettingsRow label="Version">
                 <div
@@ -653,6 +653,8 @@ function BarButton({
   active,
   ariaLabel,
   ariaPressed,
+  ariaHasPopup,
+  ariaExpanded,
   title,
   label,
   badge,
@@ -662,6 +664,8 @@ function BarButton({
   active?: boolean;
   ariaLabel?: string;
   ariaPressed?: boolean;
+  ariaHasPopup?: 'dialog';
+  ariaExpanded?: boolean;
   title?: string;
   label: string;
   /** A dot marking state that survives the sheet closing (transpose, capo). */
@@ -674,6 +678,8 @@ function BarButton({
       onClick={onClick}
       aria-label={ariaLabel}
       aria-pressed={ariaPressed}
+      aria-haspopup={ariaHasPopup}
+      aria-expanded={ariaExpanded}
       title={title}
       className={cn(
         'relative flex-1 max-w-28 min-h-[3.25rem] flex flex-col items-center justify-center gap-0.5 rounded-md px-1 text-[10px] font-medium cursor-pointer transition-colors',
@@ -685,7 +691,7 @@ function BarButton({
       {badge && (
         <span
           aria-hidden="true"
-          className="absolute top-1 right-1/2 -translate-x-3 h-1.5 w-1.5 rounded-full bg-primary"
+          className="absolute top-1 left-1/2 translate-x-3 h-1.5 w-1.5 rounded-full bg-primary"
         />
       )}
     </button>

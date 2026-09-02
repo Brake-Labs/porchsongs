@@ -99,7 +99,7 @@ test.describe('Chord panel on a phone', () => {
 
     await expect(page.getByRole('complementary')).toBeVisible();
     await expect(words).toBeHidden();
-    // The way back is the same button, which stays in the header.
+    // The way back is the same button, which stays in the bottom bar.
     await expect(page.getByRole('button', { name: 'Chords', exact: true })).toBeVisible();
 
     await page.getByRole('button', { name: 'Chords', exact: true }).click();
