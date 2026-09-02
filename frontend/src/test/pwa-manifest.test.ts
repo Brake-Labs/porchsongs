@@ -84,6 +84,13 @@ describe("index.html render-blocking resources", () => {
   const head = new DOMParser().parseFromString(indexHtml, "text/html").head;
   const stylesheets = [...head.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')];
 
+  it("opts into viewport-fit=cover so iOS reports real safe-area insets", () => {
+    // Without it env(safe-area-inset-*) is 0 on iPhones and the play route's
+    // bottom bar renders under the home indicator.
+    const viewport = head.querySelector('meta[name="viewport"]');
+    expect(viewport?.getAttribute("content")).toContain("viewport-fit=cover");
+  });
+
   it("parks the webfont stylesheet at media=print so it cannot block first paint", () => {
     const webfonts = head.querySelector<HTMLLinkElement>("link[data-webfonts]");
     // src/lib/webfonts.ts finds the link by this attribute and promotes it to

@@ -22,7 +22,10 @@ export default function Header({ user, authRequired, onLogout, isPremium, leftSl
   const logoTo = isPremium ? '/' : '/app/library';
 
   return (
-    <header className="bg-linear-to-r from-header-bg-from to-header-bg-to text-header-text border-b border-header-border">
+    // safe-top: in the installed PWA (black-translucent status bar) the header
+    // is the topmost chrome, so it carries the status-bar inset; its background
+    // covers the padded strip. Zero everywhere else.
+    <header className="safe-top bg-linear-to-r from-header-bg-from to-header-bg-to text-header-text border-b border-header-border">
       <div className="flex justify-between items-center px-3 sm:px-8 py-2 sm:py-2.5 max-w-[1800px] mx-auto">
       <div className="flex items-center gap-0 min-w-0">
         {leftSlot}

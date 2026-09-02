@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useLocation, useOutletContext } from 'react-router-dom';
 import api, { STORAGE_KEYS } from '@/api';
 import { Button } from '@/components/ui/button';
@@ -20,13 +20,17 @@ import {
   PerformanceSheet,
   FontSizeStepper,
   TransposeControl,
+  CAPO_OPTIONS,
   TRANSPOSE_MAX,
   TRANSPOSE_MIN,
 } from '@/components/PlayView';
+import type { FollowHandle, FollowStatus } from '@/components/PlayView';
+import { Sheet, SheetContent } from '@/components/ui/sheet';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
 import DocumentSheet from '@/components/DocumentSheet';
 import type { ColumnPref, SongVersion } from '@/components/PlayView';
 import { maxColumnsForContent } from '@/lib/performanceLayout';
-import { suggestCapo, transposeChart } from '@/lib/chords/transpose';
+import { transposeChart } from '@/lib/chords/transpose';
 import useWakeLock from '@/hooks/useWakeLock';
 import { cn } from '@/lib/utils';
 import type { AppShellContext } from '@/layouts/AppShell';
@@ -103,7 +107,16 @@ export default function PlayPage() {
   const [song, setSong] = useState<Song | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'notfound' | 'error'>('loading');
   const [tunerOpen, setTunerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [autoFontSize, setAutoFontSize] = useState<number | undefined>();
+
+  // The Follow toggle lives in the bottom bar but the mic lives in
+  // PerformanceSheet; the ref keeps the tap-to-mic path synchronous (iOS only
+  // grants the mic inside a real user gesture), and the status callback is how
+  // the bar button knows what to say.
+  const followHandle = useRef<FollowHandle>(null);
+  const [followStatus, setFollowStatus] = useState<FollowStatus | null>(null);
+  const handleFollowStatus = useCallback((next: FollowStatus | null) => setFollowStatus(next), []);
 
   // useLocalStorage is string-only, and these are unions, so persist by hand.
   const [perfVersion, setPerfVersionRaw] = useState<SongVersion>(() =>
@@ -193,17 +206,6 @@ export default function PlayPage() {
   // chord over a capo", and stacking that on names the chart has already
   // shifted down would shift them twice.
   const chords = useChordPanel(displayContent);
-
-  // Suggested from the sounding roots (what is heard, not what is fingered),
-  // for the instrument the panel remembers the player owning.
-  const capoHint = useMemo(
-    () =>
-      suggestCapo(
-        chords.songChords.map((ch) => (ch.root + capo) % 12),
-        chords.selection.instrument.slug,
-      ),
-    [chords.songChords, chords.selection.instrument.slug, capo],
-  );
 
   // The Follow diagnostics panel is switched from the chart actions menu rather
   // than from a button floating over the chart. It is an operator tool on a
@@ -370,9 +372,6 @@ export default function PlayPage() {
         artist={song.artist ?? ''}
         actions={
           <>
-            <ChordsButton open={chords.open} onClick={chords.toggle} />
-            <TunerButton onClick={() => setTunerOpen(true)} />
-            <WakeLockButton wakeLock={wakeLock} />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -404,6 +403,13 @@ export default function PlayPage() {
           </>
         }
         panel={chords.open ? <ChordPanel state={chords} className={PANEL_CLASS} /> : null}
+        bottomBar={
+          <>
+            <ChordsButton open={chords.open} onClick={chords.toggle} />
+            <TunerButton onClick={() => setTunerOpen(true)} />
+            <WakeLockButton wakeLock={wakeLock} />
+          </>
+        }
       >
         {fileError ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center text-muted-foreground">
@@ -444,9 +450,6 @@ export default function PlayPage() {
       artist={song.artist ?? ''}
       actions={
         <>
-          <ChordsButton open={chords.open} onClick={chords.toggle} />
-          <TunerButton onClick={() => setTunerOpen(true)} />
-          <WakeLockButton wakeLock={wakeLock} />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -480,69 +483,51 @@ export default function PlayPage() {
           </DropdownMenu>
         </>
       }
-      controls={
+      panel={chords.open ? <ChordPanel state={chords} className={PANEL_CLASS} /> : null}
+      bottomBar={
         <>
-          {hasDistinctOriginal && (
-            <div
-              className="inline-flex rounded-md border border-border overflow-hidden shrink-0"
-              role="group"
-              aria-label="Song version"
+          {followStatus && (
+            <BarButton
+              onClick={() => followHandle.current?.toggleFollow()}
+              active={followStatus.on}
+              ariaLabel={`Follow mode: ${followStatus.label}`}
+              ariaPressed={followStatus.on}
+              title={
+                !followStatus.micSupported ? 'Voice follow needs Chrome or Edge' : 'Hands-free follow'
+              }
+              label={followStatus.label}
             >
-              {(['rewritten', 'original'] as const).map((v, i) => (
-                <button
-                  key={v}
-                  onClick={() => setPerfVersion(v)}
-                  aria-pressed={activeVersion === v}
-                  className={cn(
-                    'px-3 min-h-[2.75rem] text-xs font-medium cursor-pointer transition-colors',
-                    i > 0 && 'border-l border-border',
-                    activeVersion === v
-                      ? 'bg-primary text-white'
-                      : 'bg-transparent text-muted-foreground hover:bg-panel hover:text-foreground',
-                  )}
-                >
-                  {v === 'rewritten' ? 'Your Version' : 'Original'}
-                </button>
-              ))}
-            </div>
+              <span
+                className={cn(
+                  'my-1 inline-block h-2.5 w-2.5 rounded-full',
+                  followStatus.live
+                    ? 'animate-pulse bg-primary'
+                    : followStatus.on
+                      ? 'bg-primary/70'
+                      : 'border-2 border-current',
+                )}
+              />
+            </BarButton>
           )}
-          <TransposeControl
-            transpose={transpose}
-            capo={capo}
-            capoHint={capoHint}
-            onTransposeChange={setTranspose}
-            onCapoChange={setCapo}
-          />
-          <FontSizeStepper
-            value={fontSize}
-            autoSize={autoFontSize}
-            onChange={setFontSize}
-            onCommit={persistFontSize}
-          />
-          {maxCols >= 2 && (
-            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className="whitespace-nowrap">Columns</span>
-              <Select
-                value={String(perfColumns)}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setPerfColumns(v === 'auto' ? 'auto' : (Number(v) as ColumnPref));
-                }}
-                className="w-auto px-2 py-1 text-xs"
-                aria-label="Number of columns"
-              >
-                <option value="auto">Auto</option>
-                {Array.from({ length: maxCols }, (_, i) => i + 1).map((n) => (
-                  <option key={n} value={String(n)}>
-                    {n}
-                  </option>
-                ))}
-              </Select>
-            </label>
-          )}
+          <ChordsButton open={chords.open} onClick={chords.toggle} />
+          <TunerButton onClick={() => setTunerOpen(true)} />
+          <WakeLockButton wakeLock={wakeLock} />
+          <BarButton
+            onClick={() => setSettingsOpen(true)}
+            active={settingsOpen}
+            ariaLabel="Chart settings"
+            ariaHasPopup="dialog"
+            ariaExpanded={settingsOpen}
+            title="Version, transpose, capo, text size, columns"
+            label="Settings"
+            // The one place the closed sheet leaks state: a dot when the chart
+            // is not playing as written, so a surprising key has an explanation.
+            badge={transpose !== 0 || capo !== 0}
+          >
+            <SlidersIcon />
+          </BarButton>
         </>
       }
-      panel={chords.open ? <ChordPanel state={chords} className={PANEL_CLASS} /> : null}
     >
       <PerformanceSheet
         song={song}
@@ -553,8 +538,92 @@ export default function PlayPage() {
         transposeSemitones={writtenOffset}
         llmModel={ctx?.llmSettings?.model}
         onAutoFontSize={setAutoFontSize}
+        followHandleRef={followHandle}
+        onFollowStatus={handleFollowStatus}
       />
       <TunerDialog open={tunerOpen} onOpenChange={setTunerOpen} />
+      {/* The chart settings: everything you set up once per song, off the
+          stage. A light scrim so a transpose or text-size nudge is visible on
+          the chart behind it. */}
+      <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <SheetContent side="bottom" overlayClassName="bg-black/15" className="safe-bottom">
+          <DialogPrimitive.Title className="sr-only">Chart settings</DialogPrimitive.Title>
+          <div className="mx-auto w-full max-w-md px-4 py-3 flex flex-col divide-y divide-border max-h-[80dvh] overflow-y-auto">
+            {hasDistinctOriginal && (
+              <SettingsRow label="Version">
+                <div
+                  className="inline-flex rounded-md border border-border overflow-hidden shrink-0"
+                  role="group"
+                  aria-label="Song version"
+                >
+                  {(['rewritten', 'original'] as const).map((v, i) => (
+                    <button
+                      key={v}
+                      onClick={() => setPerfVersion(v)}
+                      aria-pressed={activeVersion === v}
+                      className={cn(
+                        'px-3 min-h-[2.75rem] text-xs font-medium cursor-pointer transition-colors',
+                        i > 0 && 'border-l border-border',
+                        activeVersion === v
+                          ? 'bg-primary text-white'
+                          : 'bg-transparent text-muted-foreground hover:bg-panel hover:text-foreground',
+                      )}
+                    >
+                      {v === 'rewritten' ? 'Your Version' : 'Original'}
+                    </button>
+                  ))}
+                </div>
+              </SettingsRow>
+            )}
+            <SettingsRow label="Transpose">
+              <TransposeControl transpose={transpose} onTransposeChange={setTranspose} />
+            </SettingsRow>
+            <SettingsRow label="Capo">
+              <Select
+                value={String(capo)}
+                onChange={(e) => setCapo(Number(e.target.value))}
+                className="w-auto px-2 py-1.5 text-sm"
+                aria-label="Capo fret"
+                title="The chart rewrites itself to the shapes you finger behind the capo"
+              >
+                {CAPO_OPTIONS.map((fret) => (
+                  <option key={fret} value={String(fret)}>
+                    {fret === 0 ? 'None' : String(fret)}
+                  </option>
+                ))}
+              </Select>
+            </SettingsRow>
+            <SettingsRow label="Text size">
+              <FontSizeStepper
+                value={fontSize}
+                autoSize={autoFontSize}
+                onChange={setFontSize}
+                onCommit={persistFontSize}
+              />
+            </SettingsRow>
+            {maxCols >= 2 && (
+              <SettingsRow label="Columns">
+                <Select
+                  value={String(perfColumns)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setPerfColumns(v === 'auto' ? 'auto' : (Number(v) as ColumnPref));
+                  }}
+                  className="w-auto px-2 py-1.5 text-sm"
+                  aria-label="Number of columns"
+                >
+                  <option value="auto">Auto</option>
+                  {Array.from({ length: maxCols }, (_, i) => i + 1).map((n) => (
+                    <option key={n} value={String(n)}>
+                      {n}
+                    </option>
+                  ))}
+                </Select>
+              </SettingsRow>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </PlayChrome>
   );
 }
@@ -574,24 +643,87 @@ export default function PlayPage() {
 const PANEL_CLASS = 'flex-1 min-w-0 lg:flex-none';
 
 /** Shared by both play surfaces: a chart has chords to look up, and so does a tab. */
-function ChordsButton({ open, onClick }: { open: boolean; onClick: () => void }) {
+/**
+ * One slot in the bottom bar: an icon above a caption, sized for a finger. The
+ * bar owns the border and background; slots stay flat so the active state can
+ * be pure color.
+ */
+function BarButton({
+  onClick,
+  active,
+  ariaLabel,
+  ariaPressed,
+  ariaHasPopup,
+  ariaExpanded,
+  title,
+  label,
+  badge,
+  children,
+}: {
+  onClick: () => void;
+  active?: boolean;
+  ariaLabel?: string;
+  ariaPressed?: boolean;
+  ariaHasPopup?: 'dialog';
+  ariaExpanded?: boolean;
+  title?: string;
+  label: string;
+  /** A dot marking state that survives the sheet closing (transpose, capo). */
+  badge?: boolean;
+  children: React.ReactNode;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-pressed={open}
+      aria-label={ariaLabel}
+      aria-pressed={ariaPressed}
+      aria-haspopup={ariaHasPopup}
+      aria-expanded={ariaExpanded}
+      title={title}
       className={cn(
-        'min-w-[2.75rem] min-h-[2.75rem] inline-flex items-center justify-center rounded-md border cursor-pointer',
-        open
-          ? 'border-primary bg-primary text-white'
-          : 'border-border text-muted-foreground hover:bg-panel hover:text-foreground',
+        'relative flex-1 max-w-28 min-h-[3.25rem] flex flex-col items-center justify-center gap-0.5 rounded-md px-1 text-[10px] font-medium cursor-pointer transition-colors',
+        active ? 'text-primary' : 'text-muted-foreground can-hover:hover:bg-panel can-hover:hover:text-foreground',
       )}
-      // Named for what it opens, with the state on aria-pressed rather than in
-      // the name. The panel has its own close button, and two controls both
-      // announcing "Close chords" is a coin toss for anyone listening.
-      aria-label="Chords"
-      title="Chords"
     >
+      {children}
+      <span className="leading-none whitespace-nowrap">{label}</span>
+      {badge && (
+        <span
+          aria-hidden="true"
+          className="absolute top-1 left-1/2 translate-x-3 h-1.5 w-1.5 rounded-full bg-primary"
+        />
+      )}
+    </button>
+  );
+}
+
+/** Label + control, one row of the chart settings sheet. */
+function SettingsRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-2 first:pt-0 last:pb-0 min-h-[3.25rem]">
+      <span className="text-sm text-muted-foreground whitespace-nowrap">{label}</span>
+      <div className="flex items-center gap-1.5">{children}</div>
+    </div>
+  );
+}
+
+function SlidersIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path d="M4 8h10M18 8h2M4 16h2M10 16h10" />
+      <circle cx="16" cy="8" r="2" />
+      <circle cx="8" cy="16" r="2" />
+    </svg>
+  );
+}
+
+function ChordsButton({ open, onClick }: { open: boolean; onClick: () => void }) {
+  return (
+    // Named for what it opens, with the state on aria-pressed rather than in
+    // the name. The panel has its own close button, and two controls both
+    // announcing "Close chords" is a coin toss for anyone listening.
+    <BarButton onClick={onClick} active={open} ariaPressed={open} ariaLabel="Chords" label="Chords">
       {/* A chord diagram: nut, strings, and two stopped frets. */}
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
         <path d="M4 6h16" strokeWidth="3" />
@@ -600,26 +732,20 @@ function ChordsButton({ open, onClick }: { open: boolean; onClick: () => void })
         <circle cx="8" cy="16" r="1.6" fill="currentColor" stroke="none" />
         <circle cx="16" cy="9" r="1.6" fill="currentColor" stroke="none" />
       </svg>
-    </button>
+    </BarButton>
   );
 }
 
 /** Shared by both play surfaces: a chart has a tuner, and so does a tab. */
 function TunerButton({ onClick }: { onClick: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="min-w-[2.75rem] min-h-[2.75rem] inline-flex items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-panel hover:text-foreground cursor-pointer"
-      aria-label="Open tuner"
-      title="Tuner"
-    >
+    <BarButton onClick={onClick} ariaLabel="Open tuner" label="Tuner">
       {/* Tuning fork / guitar head glyph */}
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
         <path d="M9 3v8a3 3 0 006 0V3" />
         <path d="M12 14v7" />
       </svg>
-    </button>
+    </BarButton>
   );
 }
 
@@ -630,20 +756,19 @@ function TunerButton({ onClick }: { onClick: () => void }) {
  */
 function WakeLockButton({ wakeLock }: { wakeLock: ReturnType<typeof useWakeLock> }) {
   return (
-    <button
-      type="button"
+    <BarButton
       onClick={wakeLock.toggle}
-      aria-pressed={wakeLock.enabled}
-      className={cn(
-        'min-h-[2.75rem] px-3 inline-flex items-center justify-center rounded-md border text-xs cursor-pointer whitespace-nowrap',
-        wakeLock.enabled
-          ? 'border-primary bg-primary text-white'
-          : 'border-border text-muted-foreground hover:bg-panel hover:text-foreground',
-      )}
+      active={wakeLock.enabled}
+      ariaPressed={wakeLock.enabled}
       title="Keep the screen awake while you play"
+      label={wakeLock.enabled ? 'Awake' : 'Stay awake'}
     >
-      {wakeLock.enabled ? 'Awake' : 'Stay awake'}
-    </button>
+      {/* An open eye: the screen that does not go to sleep. */}
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+        <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" />
+        <circle cx="12" cy="12" r="2.5" />
+      </svg>
+    </BarButton>
   );
 }
 
@@ -652,9 +777,11 @@ interface PlayChromeProps {
   title: string;
   artist?: string;
   actions?: React.ReactNode;
-  controls?: React.ReactNode;
   /** The chord panel, when it is open. Beside the chart, or instead of it. */
   panel?: React.ReactNode;
+  /** The performance bar pinned to the bottom edge, where a hand at a music
+   *  stand actually is. Slots come from BarButton. */
+  bottomBar?: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -663,10 +790,12 @@ interface PlayChromeProps {
  * chart itself all keep a route home. A full-screen surface with no way back is
  * a dead end, and this route has no header or tab bar to escape through.
  */
-function PlayChrome({ onBack, title, artist, actions, controls, panel, children }: PlayChromeProps) {
+function PlayChrome({ onBack, title, artist, actions, panel, bottomBar, children }: PlayChromeProps) {
   return (
-    <div className="flex flex-col h-full min-h-0">
-      <div className="shrink-0 flex items-center gap-2 px-1 py-1 flex-wrap">
+    // safe-top/safe-x: this route is chromeless and viewport-fit=cover puts it
+    // under the iPhone status bar and, in landscape, the notch ears.
+    <div className="flex flex-col h-full min-h-0 safe-x">
+      <div className="shrink-0 flex items-center gap-2 px-1 py-1 flex-wrap safe-top">
         <button
           onClick={onBack}
           className="min-w-[2.75rem] min-h-[2.75rem] inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-panel hover:text-foreground cursor-pointer"
@@ -691,25 +820,18 @@ function PlayChrome({ onBack, title, artist, actions, controls, panel, children 
         </div>
         <div className="flex items-center gap-1.5 shrink-0">{actions}</div>
       </div>
-      {/* The chart's own controls go with the chart: on a phone the panel has
-          replaced it, so a font size stepper for something not on screen is
-          just another thing in the way. */}
-      {controls && (
-        <div
-          className={cn(
-            'shrink-0 items-center gap-2 px-1 pb-1 flex-wrap',
-            panel ? 'hidden lg:flex' : 'flex',
-          )}
-        >
-          {controls}
-        </div>
-      )}
       <div className="flex-1 min-h-0 flex">
         <div className={cn('flex-1 min-w-0 min-h-0 flex-col', panel ? 'hidden lg:flex' : 'flex')}>
           {children}
         </div>
         {panel}
       </div>
+      {bottomBar && (
+        // safe-bottom keeps the buttons above the iPhone home indicator.
+        <div className="shrink-0 border-t border-border bg-background safe-bottom">
+          <div className="flex items-stretch justify-around px-1 py-0.5">{bottomBar}</div>
+        </div>
+      )}
     </div>
   );
 }
