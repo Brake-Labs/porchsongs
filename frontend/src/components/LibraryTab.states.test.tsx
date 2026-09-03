@@ -124,6 +124,24 @@ describe('LibraryTab load states', () => {
     expect(screen.queryByText(/Songs you rewrite will appear here/)).not.toBeInTheDocument();
   });
 
+  it('opens the bulk link importer from the empty state', async () => {
+    mockListSongs.mockResolvedValue([]);
+    renderLibrary();
+
+    await waitFor(() => expect(screen.getByText('Your library is empty')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: 'Import from links' }));
+    expect(screen.getByRole('heading', { name: 'Import from links' })).toBeInTheDocument();
+  });
+
+  it('opens the bulk link importer from the toolbar', async () => {
+    mockListSongs.mockResolvedValue([MOCK_SONG]);
+    renderLibrary();
+
+    await waitFor(() => expect(screen.getByText('Amazing Grace')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: '+ Links' }));
+    expect(screen.getByRole('heading', { name: 'Import from links' })).toBeInTheDocument();
+  });
+
   it('gives SongCapNotice the library chart count', async () => {
     // The library owns the count, so premium's notice is passed it rather than
     // refetching. Asserting the prop keeps this honest whichever implementation of

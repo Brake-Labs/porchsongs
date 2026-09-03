@@ -21,6 +21,7 @@ import {
 import ConfirmDialog from '@/components/ui/confirm-dialog';
 import PromptDialog, { type PromptField } from '@/components/ui/prompt-dialog';
 import TagSuggestDialog from '@/components/TagSuggestDialog';
+import BulkLinkImportDialog from '@/components/BulkLinkImportDialog';
 import TagEditDialog from '@/components/TagEditDialog';
 import { cn } from '@/lib/utils';
 import { SongCapNotice, SongShareAction, SongShareNotice, SongProvenanceTag } from '@/extensions';
@@ -318,6 +319,7 @@ type DialogState =
   | { kind: 'deleteTag'; tag: string }
   | { kind: 'editTags'; song: Song }
   | { kind: 'suggestTags'; song: Song }
+  | { kind: 'bulkImport' }
   | { kind: 'renameArtist'; artist: ArtistRenameTarget };
 
 const SONGS_PER_PAGE = 20;
@@ -546,6 +548,12 @@ export default function LibraryTab() {
   const [keptOffline, setKeptOffline] = useState<Set<string>>(new Set());
   const [keptBytes, setKeptBytes] = useState(0);
   const selectMode = selectedUuids.size > 0;
+  // Links already imported, so pasting the same list twice is a visible no-op
+  // per row rather than a pile of duplicates.
+  const existingSourceUrls = useMemo(
+    () => new Set(songs.flatMap(s => (s.source_url ? [s.source_url] : []))),
+    [songs],
+  );
 
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -1354,8 +1362,24 @@ export default function LibraryTab() {
           >
             {uploading ? 'Adding...' : 'Add a tab PDF'}
           </Button>
+          <Button
+            variant="secondary"
+            disabled={!ctx.profile}
+            onClick={() => setDialogState({ kind: 'bulkImport' })}
+          >
+            Import from links
+          </Button>
         </div>
         {uploadError && <p className="text-sm text-danger mt-3">{uploadError}</p>}
+        {/* Mounted here too: this return never reaches the dialogs at the bottom,
+            and an empty library is exactly where a pasted list starts. */}
+        <BulkLinkImportDialog
+          open={dialogState.kind === 'bulkImport'}
+          onOpenChange={(o: boolean) => { if (!o) setDialogState({ kind: 'none' }); }}
+          profileId={ctx.profile?.id ?? null}
+          existingSourceUrls={existingSourceUrls}
+          onImported={() => void loadSongs()}
+        />
       </div>
     );
   }
@@ -1512,6 +1536,22 @@ export default function LibraryTab() {
               title="Store a tab PDF in your library"
             >
               {uploading ? 'Adding\u2026' : '+ Tab'}
+            </Button>
+          )}
+          {/* Bulk companion to the Import screen's Link tab: paste a list of
+              links and the library fills itself. It lives here for the same
+              reason as the tab button: it adds to the library rather than
+              opening the workshop. */}
+          {!showingArtistPicker && (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="shrink-0 rounded-md"
+              disabled={!ctx.profile}
+              onClick={() => setDialogState({ kind: 'bulkImport' })}
+              title="Import charts from a list of links"
+            >
+              + Links
             </Button>
           )}
           {/* Hidden below the breakpoint rather than shown and made inert. At phone
@@ -1942,6 +1982,14 @@ export default function LibraryTab() {
         canUseAi={ctx.isPremium || !!ctx.llmSettings?.model}
         onApply={setSongTags}
         onOpenSettings={ctx.onOpenSettings}
+      />
+
+      <BulkLinkImportDialog
+        open={dialogState.kind === 'bulkImport'}
+        onOpenChange={(o: boolean) => { if (!o) setDialogState({ kind: 'none' }); }}
+        profileId={ctx.profile?.id ?? null}
+        existingSourceUrls={existingSourceUrls}
+        onImported={() => void loadSongs()}
       />
     </div>
   );
