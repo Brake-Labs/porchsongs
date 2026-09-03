@@ -1401,3 +1401,58 @@ describe('RewriteTab', () => {
     });
   });
 });
+
+describe('bulk link import entry', () => {
+  it('the Link tab offers the bulk importer and opens it', async () => {
+    render(<RewriteTab {...makeProps()} />);
+    selectImportTab('Link');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Paste all your links at once' }));
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Import from links' })).toBeInTheDocument(),
+    );
+  });
+});
+
+describe('desktop import layout', () => {
+  // At lg and up the import screen drops the tab strip: the paste surface is
+  // always visible, and photo/file/link become a rail of tiles beside it.
+  const originalMatchMedia = window.matchMedia;
+
+  beforeEach(() => {
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes('min-width'),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })) as never;
+  });
+
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia;
+  });
+
+  it('shows the paste surface and all three source tiles with no tab strip', () => {
+    render(<RewriteTab {...makeProps()} />);
+
+    expect(screen.queryByRole('tablist', { name: 'Import source' })).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Paste lyrics, or drop a file here...')).toBeInTheDocument();
+    expect(screen.getByText('From a photo')).toBeInTheDocument();
+    expect(screen.getByText('From a file')).toBeInTheDocument();
+    expect(screen.getByText('From a link')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Fetch chords' })).toBeInTheDocument();
+  });
+
+  it('opens the bulk importer from the rail', async () => {
+    render(<RewriteTab {...makeProps()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Paste all your links at once' }));
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Import from links' })).toBeInTheDocument(),
+    );
+  });
+});

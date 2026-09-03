@@ -13,14 +13,18 @@ vi.mock('@/api', () => ({
   default: {
     scrapeUrl: vi.fn(),
     saveSong: vi.fn(),
+    listSongs: vi.fn(),
   },
 }));
 
 const scrapeUrl = vi.mocked(api.scrapeUrl);
 const saveSong = vi.mocked(api.saveSong);
+const listSongs = vi.mocked(api.listSongs);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The dialog fetches the library on open to build its duplicate-skip set.
+  listSongs.mockResolvedValue([]);
 });
 
 describe('parseUrlList', () => {
@@ -49,7 +53,6 @@ function setup(overrides: Partial<Parameters<typeof BulkLinkImportDialog>[0]> = 
       open
       onOpenChange={onOpenChange}
       profileId={1}
-      existingSourceUrls={new Set()}
       onImported={onImported}
       delayMs={0}
       {...overrides}
@@ -107,7 +110,8 @@ it('skips links already in the library without fetching them', async () => {
     source_url: 'https://a.example/new',
   });
   saveSong.mockResolvedValue({} as never);
-  setup({ existingSourceUrls: new Set(['https://a.example/old']) });
+  listSongs.mockResolvedValue([{ source_url: 'https://a.example/old' } as never]);
+  setup();
 
   pasteLinks('https://a.example/old\nhttps://a.example/new');
   await user.click(screen.getByRole('button', { name: /Import 2 links/ }));
@@ -155,6 +159,7 @@ it('reloads the library on close only when something was imported', async () => 
   await screen.findByText('Done: 1 imported, 0 skipped, 0 failed');
 
   await user.click(screen.getByRole('button', { name: 'Close' }));
+  expect(onImported).toHaveBeenCalledWith(1);
   expect(onImported).toHaveBeenCalledTimes(1);
   expect(onOpenChange).toHaveBeenCalledWith(false);
 });

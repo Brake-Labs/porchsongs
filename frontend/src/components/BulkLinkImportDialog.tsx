@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import api from '@/api';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -31,10 +31,8 @@ interface BulkLinkImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   profileId: number | null;
-  /** source_urls already in the library, so re-pasting the same list is a no-op. */
-  existingSourceUrls: Set<string>;
-  /** Called once, after a run that imported at least one chart. */
-  onImported: () => void;
+  /** Called once on close, after a run that imported at least one chart. */
+  onImported: (imported: number) => void;
   /** Pause between fetches. The scrape happens server-side against the linked
       site, so a paste of fifty links must not become fifty requests in one
       burst from one host. Overridable for tests. */
@@ -53,7 +51,6 @@ export default function BulkLinkImportDialog({
   open,
   onOpenChange,
   profileId,
-  existingSourceUrls,
   onImported,
   delayMs = 2000,
 }: BulkLinkImportDialogProps) {
@@ -62,6 +59,19 @@ export default function BulkLinkImportDialog({
   const [items, setItems] = useState<Item[]>([]);
   const cancelRef = useRef(false);
   const importedRef = useRef(0);
+  // source_urls already in the library, fetched when the dialog opens, so
+  // re-pasting the same list is a visible per-row no-op rather than a pile of
+  // duplicates. A promise, not state: the run awaits it, so clicking Import
+  // before the fetch lands cannot race past the skip check.
+  const existingRef = useRef<Promise<Set<string>> | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    existingRef.current = api
+      .listSongs()
+      .then(songs => new Set(songs.flatMap(s => (s.source_url ? [s.source_url] : []))))
+      .catch(() => new Set<string>());
+  }, [open]);
 
   const urlCount = parseUrlList(text).length;
 
@@ -85,7 +95,7 @@ export default function BulkLinkImportDialog({
       return;
     }
     if (!next) {
-      if (importedRef.current > 0) onImported();
+      if (importedRef.current > 0) onImported(importedRef.current);
       reset();
     }
     onOpenChange(next);
@@ -99,6 +109,7 @@ export default function BulkLinkImportDialog({
     setItems(initial);
     setPhase('running');
     cancelRef.current = false;
+    const existingSourceUrls = await (existingRef.current ?? Promise.resolve(new Set<string>()));
 
     let didWork = false;
     for (const [i, url] of urls.entries()) {
