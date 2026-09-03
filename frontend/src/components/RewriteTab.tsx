@@ -6,6 +6,7 @@ import ChatPanel from '@/components/ChatPanel';
 import ModelSelector from '@/components/ModelSelector';
 import ResizableColumns from '@/components/ui/resizable-columns';
 import ConfirmDialog from '@/components/ui/confirm-dialog';
+import BulkLinkImportDialog from '@/components/BulkLinkImportDialog';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -29,6 +30,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
+import useMediaQuery from '@/hooks/useMediaQuery';
 import { QuotaBanner, OnboardingBanner, isQuotaError, QuotaUpgradeLink } from '@/extensions/quota';
 import { SAMPLE_SONGS, sampleToParseResult } from '@/data/sample-songs';
 import { guessSongMeta } from '@/lib/songMeta';
@@ -153,6 +155,10 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const [tabStoring, setTabStoring] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [linkLoading, setLinkLoading] = useState(false);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  // 64rem is Tailwind's lg breakpoint. A JS branch rather than CSS hiding, so
+  // only one layout's controls exist at a time.
+  const isDesktop = useMediaQuery('(min-width: 64rem)');
   // Which of the four ways in is showing. Photo, file, and link all end by
   // filling the paste box, so 'paste' doubles as the review step: an extraction
   // switches back to it so you see the text before you save it.
@@ -276,6 +282,14 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const replaceNotice = importSource !== 'paste' && hasInput ? (
     <p className="mt-3 text-xs text-muted-foreground">
       This replaces what&apos;s currently in the Paste tab.
+    </p>
+  ) : null;
+
+  // The rail's version of the same warning: on desktop the paste box is always
+  // on screen, so the notice appears whenever there is content to lose.
+  const railReplaceNotice = hasInput ? (
+    <p className="mt-2 text-xs text-muted-foreground">
+      Replaces what&apos;s in the paste box.
     </p>
   ) : null;
 
@@ -999,6 +1013,100 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     </div>
   );
 
+  // The paste surface doubles as the review step for every other way in, so
+  // both layouts render the same panel: tabs below lg, an always-visible pane
+  // beside the source rail at lg and up.
+  const pastePanel = (
+    <>
+                  {!input && (
+                    <Button
+                      variant="secondary"
+                      className="mb-3 md:hidden"
+                      onClick={handlePasteFromClipboard}
+                    >
+                      Paste from clipboard
+                    </Button>
+                  )}
+
+                  <Textarea
+                    className="flex-1 min-h-0 resize-none"
+                    value={input}
+                    onChange={e => setInput(e.target.value)}
+                    placeholder="Paste lyrics, or drop a file here..."
+                    onKeyDown={e => {
+                      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canSave) {
+                        e.preventDefault();
+                        handleSaveAsIs();
+                      }
+                    }}
+                  />
+
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground cursor-pointer hover:text-foreground"
+                      onClick={() => setShowHints(prev => !prev)}
+                    >
+                      {showHints ? '− Import options' : '+ Import options'}
+                    </button>
+                    {showHints && (
+                      <Textarea
+                        rows={2}
+                        value={instruction}
+                        onChange={e => setInstruction(e.target.value)}
+                        placeholder='Cleanup hints, e.g. "only grab the first song" or "ignore the intro"'
+                        className="mt-2 font-ui"
+                        onKeyDown={e => {
+                          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canSave) {
+                            e.preventDefault();
+                            handleSaveAsIs();
+                          }
+                        }}
+                      />
+                    )}
+                  </div>
+
+                  <div className="flex flex-col gap-3 mt-3">
+                    {/* Primary action is free and instant. The AI options are
+                        secondary and labelled as costing credits, because "clean up
+                        the formatting" previously looked free, sat above the plain
+                        option, and quietly spent 15 to 20 credits. */}
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <Button onClick={handleSaveAsIs} disabled={!canSave}>
+                        Add to library
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() => handleImport('library')}
+                        disabled={!canParse}
+                        title="Reformats the chart with AI before saving. Uses AI credits."
+                      >
+                        Tidy up with AI
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() => handleImport('rewrite')}
+                        disabled={!canParse}
+                        title="Reformats the chart and opens the rewrite workshop. Uses AI credits."
+                      >
+                        Import &amp; rewrite
+                      </Button>
+                      <span className="text-xs text-muted-foreground">
+                        {saveBlocker ?? shortcutHint}
+                      </span>
+                    </div>
+                    {/* Only surfaced when the AI actions specifically are unavailable.
+                        Saving and playing still work, so this is a note rather than a
+                        blocker. */}
+                    {!hasModel && hasInput && (
+                      <p className="text-xs text-muted-foreground">
+                        {parseBlocker} to use the AI options. Importing and playing work without one.
+                      </p>
+                    )}
+                  </div>
+    </>
+  );
+
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {isPremium && <QuotaBanner />}
@@ -1100,6 +1208,98 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                   review step and owns the save actions. An extraction switches
                   back to it, which is also what makes the text visible before you
                   commit to saving it. */}
+              {isDesktop ? (
+                /* Desktop: no tabs. Every way in is visible at once, and each is
+                   one action on a tile rather than a place to travel to. */
+                <div className="flex flex-1 min-h-0 gap-6">
+                  <div className="flex-1 min-h-0 flex flex-col">{pastePanel}</div>
+                  <div className="w-72 shrink-0 flex flex-col gap-3 overflow-y-auto">
+                    <div className="rounded-md border border-border p-3">
+                      <p className="text-sm font-semibold text-foreground">From a link</p>
+                      <p className="text-xs text-muted-foreground mt-1 mb-2">
+                        A page with the chords on it, fetched as text.
+                      </p>
+                      <Input
+                        type="url"
+                        value={linkUrl}
+                        onChange={e => setLinkUrl(e.target.value)}
+                        placeholder="https://..."
+                        aria-label="Link to fetch"
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && linkUrl.trim() && !linkLoading) {
+                            e.preventDefault();
+                            handleScrapeUrl();
+                          }
+                        }}
+                      />
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="mt-2"
+                        onClick={handleScrapeUrl}
+                        disabled={!hasProfile || !linkUrl.trim() || linkLoading}
+                      >
+                        {linkLoading ? <><Spinner size="sm" className="mr-1.5" /> Fetching...</> : 'Fetch chords'}
+                      </Button>
+                      <p className="text-xs text-muted-foreground mt-3">
+                        Have a whole list?{' '}
+                        <button
+                          type="button"
+                          className="underline cursor-pointer hover:text-foreground"
+                          onClick={() => setBulkImportOpen(true)}
+                        >
+                          Paste all your links at once
+                        </button>
+                      </p>
+                      {railReplaceNotice}
+                    </div>
+                    <div className="rounded-md border border-border p-3">
+                      <p className="text-sm font-semibold text-foreground">From a file</p>
+                      <p className="text-xs text-muted-foreground mt-1 mb-2">
+                        A PDF or text file. The text lands in the paste box. No AI credits.
+                      </p>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={!hasProfile || fileLoading || tabStoring}
+                        onClick={() => docFileInputRef.current?.click()}
+                      >
+                        {fileLoading ? <><Spinner size="sm" className="mr-1.5" /> Extracting...</> : 'Choose file'}
+                      </Button>
+                      <p className="text-xs text-muted-foreground mt-3 mb-2">
+                        Or keep a tab PDF as-is, for page-by-page play.
+                      </p>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={!hasProfile || fileLoading || tabStoring}
+                        onClick={() => tabPdfInputRef.current?.click()}
+                      >
+                        {tabStoring ? <><Spinner size="sm" className="mr-1.5" /> Storing...</> : 'Store a tab PDF'}
+                      </Button>
+                      {railReplaceNotice}
+                    </div>
+                    <div className="rounded-md border border-border p-3">
+                      <p className="text-sm font-semibold text-foreground">From a photo</p>
+                      <p className="text-xs text-muted-foreground mt-1 mb-2">
+                        A photo or screenshot, read with AI. Uses AI credits.
+                      </p>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={!hasProfile || !hasModel || imageLoading}
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        {imageLoading ? <><Spinner size="sm" className="mr-1.5" /> Extracting...</> : 'Choose photo'}
+                      </Button>
+                      {!hasModel && (
+                        <p className="mt-2 text-xs text-muted-foreground">{parseBlocker} to read a photo.</p>
+                      )}
+                      {railReplaceNotice}
+                    </div>
+                  </div>
+                </div>
+              ) : (
               <Tabs
                 value={importSource}
                 onValueChange={value => setImportSource(value as ImportSource)}
@@ -1121,92 +1321,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 </TabsList>
 
                 <TabsContent value="paste" className="flex-1 min-h-0 flex flex-col mt-3">
-                  {!input && (
-                    <Button
-                      variant="secondary"
-                      className="mb-3 md:hidden"
-                      onClick={handlePasteFromClipboard}
-                    >
-                      Paste from clipboard
-                    </Button>
-                  )}
-
-                  <Textarea
-                    className="flex-1 min-h-0 resize-none"
-                    value={input}
-                    onChange={e => setInput(e.target.value)}
-                    placeholder="Paste lyrics, or drop a file here..."
-                    onKeyDown={e => {
-                      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canSave) {
-                        e.preventDefault();
-                        handleSaveAsIs();
-                      }
-                    }}
-                  />
-
-                  <div className="mt-3">
-                    <button
-                      type="button"
-                      className="text-xs text-muted-foreground cursor-pointer hover:text-foreground"
-                      onClick={() => setShowHints(prev => !prev)}
-                    >
-                      {showHints ? '− Import options' : '+ Import options'}
-                    </button>
-                    {showHints && (
-                      <Textarea
-                        rows={2}
-                        value={instruction}
-                        onChange={e => setInstruction(e.target.value)}
-                        placeholder='Cleanup hints, e.g. "only grab the first song" or "ignore the intro"'
-                        className="mt-2 font-ui"
-                        onKeyDown={e => {
-                          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canSave) {
-                            e.preventDefault();
-                            handleSaveAsIs();
-                          }
-                        }}
-                      />
-                    )}
-                  </div>
-
-                  <div className="flex flex-col gap-3 mt-3">
-                    {/* Primary action is free and instant. The AI options are
-                        secondary and labelled as costing credits, because "clean up
-                        the formatting" previously looked free, sat above the plain
-                        option, and quietly spent 15 to 20 credits. */}
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <Button onClick={handleSaveAsIs} disabled={!canSave}>
-                        Add to library
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        onClick={() => handleImport('library')}
-                        disabled={!canParse}
-                        title="Reformats the chart with AI before saving. Uses AI credits."
-                      >
-                        Tidy up with AI
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        onClick={() => handleImport('rewrite')}
-                        disabled={!canParse}
-                        title="Reformats the chart and opens the rewrite workshop. Uses AI credits."
-                      >
-                        Import &amp; rewrite
-                      </Button>
-                      <span className="text-xs text-muted-foreground">
-                        {saveBlocker ?? shortcutHint}
-                      </span>
-                    </div>
-                    {/* Only surfaced when the AI actions specifically are unavailable.
-                        Saving and playing still work, so this is a note rather than a
-                        blocker. */}
-                    {!hasModel && hasInput && (
-                      <p className="text-xs text-muted-foreground">
-                        {parseBlocker} to use the AI options. Importing and playing work without one.
-                      </p>
-                    )}
-                  </div>
+                  {pastePanel}
                 </TabsContent>
 
                 <TabsContent value="photo" className="mt-3">
@@ -1325,10 +1440,24 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                         {linkLoading ? <><Spinner size="sm" className="mr-1.5" /> Fetching...</> : 'Fetch chords'}
                       </Button>
                     </div>
+                    {/* The single field above routes one page through the review
+                        step. A list is a different job: each page is saved as-is,
+                        straight to the library, so it opens its own flow. */}
+                    <p className="text-sm text-muted-foreground mt-3">
+                      Have a whole list?{' '}
+                      <button
+                        type="button"
+                        className="underline cursor-pointer hover:text-foreground"
+                        onClick={() => setBulkImportOpen(true)}
+                      >
+                        Paste all your links at once
+                      </button>
+                    </p>
                     {replaceNotice}
                   </div>
                 </TabsContent>
               </Tabs>
+              )}
 
               {/* The "Or try a sample" row that used to sit here was gated on
                   `!isFirstTime`, so it appeared only for people who already had
@@ -1496,6 +1625,15 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
           </DialogContent>
         </Dialog>
       )}
+
+      <BulkLinkImportDialog
+        open={bulkImportOpen}
+        onOpenChange={setBulkImportOpen}
+        profileId={profile?.id ?? null}
+        // The imports land in the library, so finishing a run that added
+        // anything goes there to show them.
+        onImported={() => navigate('/app/library')}
+      />
 
       {/* The link dialog that used to live here is now the Link tab on the import
           screen. A modal on top of a tab strip offering the same thing would be
