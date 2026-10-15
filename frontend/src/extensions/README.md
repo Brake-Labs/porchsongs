@@ -44,7 +44,8 @@ flow, so production kept the old behaviour.
 When premium needs something different from an OSS component, add a seam member
 here instead:
 
-- **Login.** `getLoginPageElement` returns OSS's own `LoginPage`. Everything
+- **Login.** Premium's `getLoginPageElement` returns OSS's own `LoginPage` (the
+  OSS stub redirects to `/app`). Everything
   hosted-specific (OAuth method, invite codes, magic links, open signup) comes
   from `GET /api/auth/config`, so premium configures the page rather than
   forking it.

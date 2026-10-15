@@ -220,7 +220,10 @@ describe('extensions seam contract', () => {
     it('LoginPage leaves the login route to the app when there is no auth', () => {
       mockAuthConfig = { method: 'none', required: false };
       render(createElement(MemoryRouter, null, createElement(LoginPage)));
-      expect(screen.queryByRole('button', { name: 'Sign in with Google' })).toBeNull();
+      // No sign-in UI of any kind: the page hands the route back to the app.
+      expect(screen.queryByRole('button')).toBeNull();
+      expect(screen.queryByRole('textbox')).toBeNull();
+      expect(screen.queryByText(/Sign in to continue|Create your account/)).toBeNull();
     });
   });
 });
