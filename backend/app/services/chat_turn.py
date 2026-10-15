@@ -20,12 +20,11 @@ from sqlalchemy import update
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import set_committed_value
 
-from ..auth.scoping import get_user_song
+from ..auth.scoping import get_user_song, reject_documents
 from ..config import settings
 from ..database import SessionLocal
 from ..models import ChatMessage as ChatMessageModel
 from ..models import Profile, Song, SongRevision, User
-from ..routers.songs import reject_documents
 from ..schemas import ChatMessage, ChatRequest
 from . import llm_service
 from .llm_service import StreamAccumulator, StreamEvent

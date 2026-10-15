@@ -23,7 +23,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
-from ..auth.scoping import get_user_profile, get_user_song
+from ..auth.scoping import get_user_profile, get_user_song, reject_documents
 from ..config import settings
 from ..database import get_db
 from ..models import User
@@ -49,14 +49,17 @@ from ..services import llm_service, scrape_service
 from ..services.chat_turn import ChatTurn
 from ..services.llm_service import ReasoningDelta, StreamAccumulator, StreamEvent, TextDelta
 from ..services.tags import user_tags
-from .songs import reject_documents
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def require_gateway() -> None:
-    """Dependency: 503 when no LLM gateway is configured (``LLM_API_BASE`` unset)."""
+def require_gateway(current_user: User = Depends(get_current_user)) -> None:
+    """Dependency: 503 when no LLM gateway is configured (``LLM_API_BASE`` unset).
+
+    Depends on ``get_current_user`` so an unauthenticated request still gets its
+    401 first. FastAPI caches the user per request, so this resolves it once.
+    """
     if not settings.llm_api_base:
         raise HTTPException(
             status_code=503,

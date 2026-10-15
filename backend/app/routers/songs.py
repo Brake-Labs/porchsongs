@@ -9,7 +9,12 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, load_only, undefer
 
 from ..auth.dependencies import get_current_user
-from ..auth.scoping import get_user_profile, get_user_song, get_user_song_by_uuid
+from ..auth.scoping import (
+    get_user_profile,
+    get_user_song,
+    get_user_song_by_uuid,
+    reject_documents,
+)
 from ..database import get_db
 from ..models import (
     ChatMessage,
@@ -66,18 +71,6 @@ def _document_page_count(data: bytes) -> int | None:
         return len(PdfReader(io.BytesIO(data)).pages)
     except Exception:
         return None
-
-
-def reject_documents(song: Song, action: str) -> None:
-    """Guard the text-only routes.
-
-    A document has no chart text to revise, summarise, or discuss, so these are
-    404-shaped rather than 400-shaped situations: the resource genuinely is not
-    there. 409 says the song exists and this is not a thing it does, which is the
-    accurate answer and the one the frontend can show.
-    """
-    if song.kind == "document":
-        raise HTTPException(status_code=409, detail=f"A stored document cannot be {action}.")
 
 
 def _resolve_song(db: Session, user: User, song_ref: str) -> Song:

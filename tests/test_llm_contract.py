@@ -195,6 +195,42 @@ def test_abandoned_stream_keeps_usage_seen_before_abandonment(
     assert (reply.input_tokens, reply.output_tokens) == (10, 20)
 
 
+@patch("app.services.llm_service.amessages", new_callable=AsyncMock)
+def test_disconnect_mid_stream_hands_off_and_saves_the_whole_reply(
+    mock_amessages: AsyncMock, client: TestClient, db_session: Session, test_user: User
+) -> None:
+    """A disconnect seen by ``is_disconnected`` hands the stream to the background.
+
+    The event that revealed the disconnect is kept, the rest of the reply and its
+    usage arrive in the background, and no further frames are sent.
+    """
+    song = _song(client)
+    mock_amessages.return_value = _aiter(_events(["<content>\nNew\n</content>", "\nDone."]))
+    req = ChatRequest(
+        song_id=song["id"], messages=[{"role": "user", "content": "x"}], model="gpt-4o-mini"
+    )
+    request = SimpleNamespace(is_disconnected=AsyncMock(side_effect=[False, True]))
+
+    async def _run() -> list[str]:
+        resp = await rewrite.chat_stream(req, request, current_user=test_user, db=db_session)  # type: ignore[arg-type]
+        frames = [str(f) async for f in resp.body_iterator]
+        pending = asyncio.all_tasks() - {asyncio.current_task()}
+        await asyncio.gather(*pending)
+        return frames
+
+    frames = asyncio.run(_run())
+
+    assert frames == ['event: token\ndata: "<content>\\nNew\\n</content>"\n\n']
+    db_session.expire_all()
+    reply = (
+        db_session.query(ChatMessageModel)
+        .filter(ChatMessageModel.song_id == song["id"], ChatMessageModel.role == "assistant")
+        .one()
+    )
+    assert reply.content == "<content>\nNew\n</content>\nDone."
+    assert (reply.input_tokens, reply.output_tokens) == (10, 20)
+
+
 # --- Error shape ---
 
 
@@ -242,3 +278,18 @@ def test_every_llm_route_requires_the_gateway(method: str, path: str, client: Te
     assert resp.status_code == 503
     assert resp.json()["detail"]["error_type"] == "gateway_not_configured"
     mock_amessages.assert_not_called()
+
+
+@pytest.mark.usefixtures("no_gateway")
+def test_auth_failure_outranks_the_missing_gateway(client: TestClient) -> None:
+    from fastapi import HTTPException
+
+    from app.auth.dependencies import get_current_user
+    from app.main import app
+
+    def _reject() -> User:
+        raise HTTPException(status_code=401, detail="nope")
+
+    app.dependency_overrides[get_current_user] = _reject
+    resp = client.get("/api/models")
+    assert resp.status_code == 401
