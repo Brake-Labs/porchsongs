@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import { Outlet, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import api, { ConnectionLostError, STORAGE_KEYS } from '@/api';
 import { chatHistoryToMessages } from '@/lib/chat-utils';
+import { ChatSessionStore } from '@/lib/chatSessions';
 import useLocalStorage from '@/hooks/useLocalStorage';
 import useVisibilityRecovery from '@/hooks/useVisibilityRecovery';
 import Header from '@/components/Header';
@@ -25,6 +26,18 @@ export interface AppShellContext {
   currentSongUuid: string | null;
   chatMessages: ChatMessage[];
   setChatMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  // Chat requests in flight, per song. Outlives ChatPanel so leaving the
+  // workshop neither loses a running stream nor lets it land on another song.
+  chatSessions: ChatSessionStore;
+  // Workshop title/artist and unsaved-edit flag. Held here, not in RewriteTab,
+  // so an edit made just before leaving the workshop is still there (and still
+  // saved) after it unmounts.
+  songTitle: string;
+  setSongTitle: React.Dispatch<React.SetStateAction<string>>;
+  songArtist: string;
+  setSongArtist: React.Dispatch<React.SetStateAction<string>>;
+  isDirty: boolean;
+  setIsDirty: React.Dispatch<React.SetStateAction<boolean>>;
   onNewRewrite: (result: RewriteResult | null, meta: RewriteMeta | null) => void;
   onSongSaved: (song: Song) => void;
   onContentUpdated: (content: string) => void;
@@ -55,7 +68,6 @@ export interface AppShellContext {
   onParse: (params: { content: string; instruction?: string }) => Promise<ParseResult | null>;
   onCancelParse: () => void;
   onClearParse: () => void;
-  onChatStreamingChange: (streaming: boolean) => void;
   // Bumped whenever a new song is started from the global "New Song" button, so
   // RewriteTab can reset its local (input/title/artist) state even while mounted.
   newSongNonce: number;
@@ -81,6 +93,10 @@ export default function AppShell() {
   const [rewriteResult, setRewriteResult] = useState<RewriteResult | null>(null);
   const [rewriteMeta, setRewriteMeta] = useState<RewriteMeta | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatSessions] = useState(() => new ChatSessionStore());
+  const [songTitle, setSongTitle] = useState('');
+  const [songArtist, setSongArtist] = useState('');
+  const [isDirty, setIsDirty] = useState(false);
 
   // Parse state (lives here so it survives tab navigation)
   const [parseLoading, setParseLoading] = useState(false);
@@ -91,9 +107,6 @@ export default function AppShell() {
   const [parseError, setParseError] = useState<string | null>(null);
   const [parseErrorType, setParseErrorType] = useState<string | undefined>();
   const parseAbortRef = useRef<AbortController | null>(null);
-
-  // Chat streaming state (reported by ChatPanel for visibility recovery)
-  const [chatStreaming, setChatStreaming] = useState(false);
 
   // Track current song: integer ID for chat requests, UUID for URL routing
   const [currentSongId, setCurrentSongIdRaw] = useState<number | null>(null);
@@ -115,6 +128,9 @@ export default function AppShell() {
   }));
 
   const setCurrentSong = useCallback((song: Song | null) => {
+    // Synchronously, so a chat reply that arrives right after a song switch is
+    // already measured against the new song.
+    chatSessions.setActiveSong(song?.id ?? null);
     if (song) {
       setCurrentSongIdRaw(song.id);
       setCurrentSongUuidRaw(song.uuid);
@@ -124,12 +140,16 @@ export default function AppShell() {
       setCurrentSongUuidRaw(null);
       localStorage.removeItem(STORAGE_KEYS.CURRENT_SONG_ID);
     }
-  }, []);
+  }, [chatSessions]);
 
   const llmSettings = { model, reasoning_effort: reasoningEffort };
 
   // Re-sync song state from DB when the tab becomes visible after a stream
   // was active (handles mobile browser suspending the tab mid-generation).
+  const chatStreaming = useSyncExternalStore(
+    chatSessions.subscribe,
+    () => chatSessions.get(currentSongId).sending,
+  );
   const isStreaming = chatStreaming || parseLoading;
   useVisibilityRecovery({ songUuid: currentSongUuid, isStreaming, setRewriteResult, setChatMessages });
 
@@ -180,6 +200,7 @@ export default function AppShell() {
   useEffect(() => {
     if (authState !== 'ready' || rewriteResult || !currentSongUuid) return;
     api.getSong(currentSongUuid).then(async (song: Song) => {
+      chatSessions.setActiveSong(song.id);
       setCurrentSongIdRaw(song.id);
       setRewriteResult({
         original_content: song.original_content,
@@ -194,6 +215,8 @@ export default function AppShell() {
         llm_provider: song.llm_provider ?? undefined,
         llm_model: song.llm_model ?? undefined,
       });
+      setSongTitle(song.title ?? '');
+      setSongArtist(song.artist ?? '');
       try {
         const history = await api.getChatHistory(song.uuid);
         setChatMessages(chatHistoryToMessages(history));
@@ -236,9 +259,16 @@ export default function AppShell() {
   const handleNewRewrite = useCallback((result: RewriteResult | null, meta: RewriteMeta | null) => {
     setRewriteResult(result);
     setRewriteMeta(meta);
+    if (meta) {
+      setSongTitle(meta.title ?? '');
+      setSongArtist(meta.artist ?? '');
+    }
     if (!result) {
       setChatMessages([]);
       setCurrentSong(null);
+      setSongTitle('');
+      setSongArtist('');
+      setIsDirty(false);
     }
   }, [setCurrentSong]);
 
@@ -273,6 +303,8 @@ export default function AppShell() {
       );
       setParseResult(result);
       setParsedContent(result.original_content);
+      setSongTitle(result.title || '');
+      setSongArtist(result.artist || '');
       return result;
     } catch (err) {
       if (err instanceof ConnectionLostError) {
@@ -331,6 +363,8 @@ export default function AppShell() {
       llm_provider: song.llm_provider ?? undefined,
       llm_model: song.llm_model ?? undefined,
     });
+    setSongTitle(song.title ?? '');
+    setSongArtist(song.artist ?? '');
     setCurrentSong(song);
     navigate('/app/rewrite');
 
@@ -341,6 +375,11 @@ export default function AppShell() {
       setChatMessages([]);
     }
   }, [navigate, setCurrentSong]);
+
+  // Unsaved edits belong to the song they were made on.
+  useEffect(() => {
+    setIsDirty(false);
+  }, [currentSongUuid]);
 
   // Global "New Song" flow. Lives here (not in RewriteTab) so it can be
   // triggered from the tab bar / mobile nav on any tab. The nonce lets
@@ -393,6 +432,13 @@ export default function AppShell() {
     currentSongUuid,
     chatMessages,
     setChatMessages,
+    chatSessions,
+    songTitle,
+    setSongTitle,
+    songArtist,
+    setSongArtist,
+    isDirty,
+    setIsDirty,
     onNewRewrite: handleNewRewrite,
     onSongSaved: handleSongSaved,
     onContentUpdated: handleContentUpdated,
@@ -420,7 +466,6 @@ export default function AppShell() {
     onParse: handleParse,
     onCancelParse: handleCancelParse,
     onClearParse: handleClearParse,
-    onChatStreamingChange: setChatStreaming,
     newSongNonce,
   };
 

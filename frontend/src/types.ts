@@ -52,6 +52,7 @@ export interface ChatMessage {
   images?: string[];  // base64 data URLs for display in bubbles
   pending?: boolean;  // queued while LLM is busy, awaiting delivery
   errorType?: string; // error classification from backend (e.g. "provider_rate_limit")
+  streamId?: number;  // client-only: identifies the bubble a live stream is writing into
 }
 
 export interface AttachedFile {

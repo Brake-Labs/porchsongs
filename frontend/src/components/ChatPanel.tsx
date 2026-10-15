@@ -1,14 +1,14 @@
-import { useState, useRef, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useSyncExternalStore, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import { toast } from 'sonner';
-import { cn, stripXmlTags } from '@/lib/utils';
-import api, { ConnectionLostError, isProviderError } from '@/api';
+import { cn } from '@/lib/utils';
+import api, { isProviderError } from '@/api';
 import { isQuotaError, QuotaUpgradeLink, UsageFooter } from '@/extensions/quota';
 import { Card, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Spinner from '@/components/ui/spinner';
 import StreamingPre from '@/components/ui/streaming-pre';
-import { StreamParser } from '@/lib/streamParser';
+import { ChatSessionStore } from '@/lib/chatSessions';
 import { sumTokenUsage } from '@/lib/chat-utils';
 import type { AttachedFile, ChatMessage, LlmSettings, TokenUsage } from '@/types';
 
@@ -97,16 +97,20 @@ interface ChatPanelProps {
   onOriginalContentUpdated?: (content: string) => void;
   headerRight?: ReactNode;
   flat?: boolean;
-  onStreamingChange?: (streaming: boolean) => void;
   rewrittenContent?: string;
+  /** Shared session store. Without one the panel keeps its own, scoped to its lifetime. */
+  sessions?: ChatSessionStore;
 }
 
-export default function ChatPanel({ songId, profileId, messages, setMessages, llmSettings, onContentUpdated, initialLoading, onBeforeSend, onContentStreaming, onOriginalContentUpdated, headerRight, flat, onStreamingChange, rewrittenContent }: ChatPanelProps) {
+export default function ChatPanel({ songId, profileId, messages, setMessages, llmSettings, onContentUpdated, initialLoading, onBeforeSend, onContentStreaming, onOriginalContentUpdated, headerRight, flat, rewrittenContent, sessions: sharedSessions }: ChatPanelProps) {
   const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
-  const [streaming, setStreaming] = useState(false);
-  const [reasoningText, setReasoningText] = useState('');
-  const [lastFailedInput, setLastFailedInput] = useState<string | null>(null);
+  const [ownSessions] = useState(() => new ChatSessionStore());
+  const sessions = sharedSessions ?? ownSessions;
+  const sessionKey = songId ?? null;
+  const { sending, streaming, reasoningText, lastFailedInput } = useSyncExternalStore(
+    sessions.subscribe,
+    () => sessions.get(sessionKey),
+  );
   const [tokenUsage, setTokenUsage] = useState<TokenUsage>(() => sumTokenUsage(messages));
   const [attachments, setAttachments] = useState<AttachedFile[]>([]);
   const [dragging, setDragging] = useState(false);
@@ -115,8 +119,26 @@ export default function ChatPanel({ songId, profileId, messages, setMessages, ll
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fileLoading, setFileLoading] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const abortRef = useRef<AbortController | null>(null);
-  const pendingQueue = useRef<Array<{ apiContent: string | Array<Record<string, unknown>>; text: string }>>([]);
+
+  // A store of its own has nobody else to tell it which song is open.
+  useEffect(() => {
+    if (!sharedSessions) ownSessions.setActiveSong(sessionKey);
+  }, [sharedSessions, ownSessions, sessionKey]);
+
+  useLayoutEffect(() => {
+    sessions.setSink({
+      setMessages,
+      onContentUpdated,
+      onContentStreaming,
+      onOriginalContentUpdated,
+      llmSettings,
+      rewrittenContent,
+      onUsage: usage => setTokenUsage(prev => ({
+        input_tokens: prev.input_tokens + usage.input_tokens,
+        output_tokens: prev.output_tokens + usage.output_tokens,
+      })),
+    });
+  });
 
   // Restore accumulated token usage when loading a different song
   useEffect(() => {
@@ -253,14 +275,12 @@ export default function ChatPanel({ songId, profileId, messages, setMessages, ll
     autoResize();
   }, [input, autoResize]);
 
-  // Don't abort in-flight requests on unmount: if the user navigates
-  // away from the rewrite tab, the stream continues in the background
-  // and updates messages (which live in AppShell). When the user returns,
-  // they see the completed result.
+  // In-flight requests are not aborted on unmount: the session lives in the
+  // store (owned by AppShell in the app), so a stream keeps running while the
+  // user is elsewhere and is still live when they come back to this song.
 
   const handleCancel = () => {
-    pendingQueue.current = [];
-    abortRef.current?.abort();
+    sessions.cancel(sessionKey);
   };
 
   const handleRetry = () => {
@@ -279,7 +299,7 @@ export default function ChatPanel({ songId, profileId, messages, setMessages, ll
       return updated;
     });
     setInput(lastFailedInput);
-    setLastFailedInput(null);
+    sessions.clearFailedInput(sessionKey);
     // Trigger send on next tick after state settles
     retryPendingRef.current = true;
   };
@@ -292,140 +312,6 @@ export default function ChatPanel({ songId, profileId, messages, setMessages, ll
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [input]);
-
-  const sendApiRequest = async (effectiveSongId: number, apiContent: string | Array<Record<string, unknown>>, text: string): Promise<void> => {
-    const controller = new AbortController();
-    abortRef.current = controller;
-    if (!sending) {
-      setSending(true);
-      onStreamingChange?.(true);
-    }
-    let streamStarted = false;
-    const parser = new StreamParser();
-    let reasoningAccumulated = '';
-    setReasoningText('');
-    const sentModel = llmSettings.model;
-
-    try {
-      const apiMessages = [{ role: 'user' as const, content: apiContent }];
-
-      const result = await api.chatStream(
-        {
-          song_id: effectiveSongId,
-          messages: apiMessages,
-          ...llmSettings,
-          ...(rewrittenContent ? { rewritten_content: rewrittenContent } : {}),
-        },
-        (token: string) => {
-          const { contentDelta, originalSongDelta } = parser.processToken(token);
-
-          if (contentDelta && onContentStreaming) {
-            onContentStreaming(parser.contentText);
-          }
-
-          if (originalSongDelta && onOriginalContentUpdated) {
-            onOriginalContentUpdated(parser.originalSongText);
-          }
-
-          // Determine what to show in the chat bubble
-          const isInTag = (parser.phase === 'content' || parser.phase === 'original_song') && !parser.chatText;
-          const bubbleContent = isInTag
-            ? 'Updating song...'
-            : parser.chatText || 'Updating song...';
-
-          if (!streamStarted) {
-            streamStarted = true;
-            setStreaming(true);
-            setMessages(prev => [...prev, { role: 'assistant' as const, content: bubbleContent }]);
-          } else {
-            setMessages(prev => {
-              const updated = [...prev];
-              const last = updated[updated.length - 1];
-              if (last && last.role === 'assistant') {
-                updated[updated.length - 1] = { ...last, content: bubbleContent };
-              }
-              return updated;
-            });
-          }
-        },
-        controller.signal,
-        (reasoningToken: string) => {
-          reasoningAccumulated += reasoningToken;
-          setReasoningText(reasoningAccumulated);
-        },
-      );
-
-      // Replace the streaming bubble with the final parsed result
-      const reasoning = (result.reasoning ?? reasoningAccumulated) || undefined;
-      const hasContent = result.rewritten_content !== null;
-      const finalMsg: ChatMessage = hasContent
-        ? { role: 'assistant', content: stripXmlTags(result.changes_summary), rawContent: result.assistant_message, reasoning, model: sentModel }
-        : { role: 'assistant', content: stripXmlTags(result.assistant_message), reasoning, model: sentModel };
-      if (streamStarted) {
-        setMessages(prev => {
-          const updated = [...prev];
-          updated[updated.length - 1] = finalMsg;
-          return updated;
-        });
-      } else {
-        // No tokens were streamed (unlikely but handle it)
-        setMessages(prev => [...prev, finalMsg]);
-      }
-      if (result.rewritten_content != null) {
-        onContentUpdated(result.rewritten_content);
-      }
-      if (result.original_content && onOriginalContentUpdated) {
-        onOriginalContentUpdated(result.original_content);
-      }
-      if (result.usage) {
-        setTokenUsage(prev => ({
-          input_tokens: prev.input_tokens + result.usage!.input_tokens,
-          output_tokens: prev.output_tokens + result.usage!.output_tokens,
-        }));
-      }
-      setLastFailedInput(null);
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') {
-        pendingQueue.current = [];
-        setMessages(prev => [...prev.filter(m => !m.pending), { role: 'assistant' as const, content: 'Cancelled.' }]);
-      } else if (err instanceof ConnectionLostError) {
-        // Mobile tab suspended or connection dropped mid-stream.
-        // The backend continues the LLM call and persists the result.
-        // The visibility recovery hook will re-fetch when the tab returns.
-        pendingQueue.current = [];
-        setLastFailedInput(null);
-        setMessages(prev => [...prev.filter(m => !m.pending), { role: 'assistant' as const, content: 'Processing in background...', isNote: true }]);
-      } else {
-        pendingQueue.current = [];
-        setLastFailedInput(text);
-        const errorType = (err as Error & { errorType?: string }).errorType;
-        setMessages(prev => [...prev.filter(m => !m.pending), { role: 'assistant' as const, content: 'Error: ' + (err as Error).message, errorType }]);
-      }
-    } finally {
-      abortRef.current = null;
-      setStreaming(false);
-      setReasoningText('');
-
-      // Process next queued message or reset sending state
-      if (pendingQueue.current.length > 0) {
-        const next = pendingQueue.current.shift()!;
-        // Mark first pending message as active
-        setMessages(prev => {
-          const idx = prev.findIndex(m => m.pending);
-          if (idx >= 0) {
-            const updated = [...prev];
-            updated[idx] = { ...updated[idx]!, pending: false };
-            return updated;
-          }
-          return prev;
-        });
-        sendApiRequest(effectiveSongId, next.apiContent, next.text);
-      } else {
-        setSending(false);
-        onStreamingChange?.(false);
-      }
-    }
-  };
 
   const handleSend = async () => {
     const text = input.trim();
@@ -459,37 +345,8 @@ export default function ChatPanel({ songId, profileId, messages, setMessages, ll
     setAttachments([]);
     inputRef.current?.focus();
 
-    if (sending) {
-      // Queue the message while LLM is busy
-      pendingQueue.current.push({ apiContent, text });
-      const userMsg: ChatMessage = { role: 'user', content: displayText, images: imageDataUrls.length > 0 ? imageDataUrls : undefined, pending: true };
-      setMessages(prev => [...prev, userMsg]);
-      return;
-    }
-
-    // Add user message to chat
-    const userMsg: ChatMessage = { role: 'user', content: displayText, images: imageDataUrls.length > 0 ? imageDataUrls : undefined };
-    setMessages(prev => [...prev, userMsg]);
-
-    // Resolve song ID (first message may need to create the song)
-    let effectiveSongId = songId;
-    if (!effectiveSongId && onBeforeSend) {
-      setSending(true);
-      onStreamingChange?.(true);
-      try {
-        effectiveSongId = await onBeforeSend();
-      } catch (err) {
-        pendingQueue.current = [];
-        const errorMsg: ChatMessage = { role: 'assistant', content: 'Error: ' + (err as Error).message };
-        setMessages(prev => [...prev.filter(m => !m.pending), errorMsg]);
-        setSending(false);
-        onStreamingChange?.(false);
-        return;
-      }
-    }
-    if (!effectiveSongId) return;
-
-    await sendApiRequest(effectiveSongId, apiContent, text);
+    const display: ChatMessage = { role: 'user', content: displayText, images: imageDataUrls.length > 0 ? imageDataUrls : undefined };
+    await sessions.send(sessionKey, { apiContent, text, display }, onBeforeSend);
   };
 
   return (
