@@ -21,21 +21,38 @@ it has three consequences worth internalising:
 
 1. **A file at a shared path is a two-repo change.** Editing only the OSS copy
    has no effect on the hosted product, and editing only the premium copy has no
-   effect on self-hosters.
+   effect on self-hosters. That is why only `extensions/*` may be shared (below).
 2. **Adding a seam member is a two-step landing.** If OSS code imports a member
    the premium copy does not export yet, the premium `frontend` CI job fails
    typecheck the moment the OSS change reaches the ref it builds against. Land the
    premium side first, or land both together.
 3. **Only premium CI can catch a mismatch.** OSS CI never sees the merged tree.
 
-Currently shadowed paths (premium wins):
+## What premium may shadow
 
-```
-extensions/*                      components/LoginPage.tsx    test/setup.ts
-components/CookieBanner.tsx       components/Tabs.test.tsx
-components/LoginPage.test.tsx     layouts/MarketingLayout.tsx
-pages/marketing/*                 data/howto-articles.ts
-```
+**Only `extensions/*`.** Everything else premium contributes lives at paths OSS
+does not have (`pages/marketing/*`, `layouts/MarketingLayout.tsx`,
+`components/CookieBanner.tsx`, `data/howto-articles.ts`, its own tests), so the
+overlay adds files rather than replacing them.
+
+Shadowing any other OSS file is a bug, not a customisation: every OSS fix to that
+file stops reaching the hosted product, and nothing says so. This has happened.
+Premium's copy of `components/LoginPage.tsx` predated the OSS fix that stopped
+echoing `#auth_error=` text (a phishing vector) and the standalone-PWA sign-in
+flow, so production kept the old behaviour.
+
+When premium needs something different from an OSS component, add a seam member
+here instead:
+
+- **Login.** `getLoginPageElement` returns OSS's own `LoginPage`. Everything
+  hosted-specific (OAuth method, invite codes, magic links, open signup) comes
+  from `GET /api/auth/config`, so premium configures the page rather than
+  forking it.
+- **Marketing.** OSS has no marketing site (`shouldRedirectRootToApp` is `true`).
+  `getPremiumRouteElements` mounts premium's pages, which premium owns outright.
+- **Tests.** A test that asserts what an OSS stub returns guards that assertion
+  with `IS_PREMIUM_OVERLAY` from `@/test/overlay` rather than being shadowed by a
+  premium copy. A shadowed test stops running for the overlay entirely.
 
 ## Rules
 

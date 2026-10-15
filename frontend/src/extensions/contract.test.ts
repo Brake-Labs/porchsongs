@@ -1,4 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import { createElement } from 'react';
+import { MemoryRouter } from 'react-router-dom';
+import type { AuthConfig } from '@/types';
+import LoginPage from '@/components/LoginPage';
 import * as barrel from '@/extensions';
 import * as auth from '@/extensions/auth';
 import * as routes from '@/extensions/routes';
@@ -7,6 +12,14 @@ import * as quota from '@/extensions/quota';
 import * as extensionsApi from '@/extensions/api';
 import * as feedback from '@/extensions/feedback';
 import * as sharing from '@/extensions/sharing';
+import { IS_PREMIUM_OVERLAY } from '@/test/overlay';
+
+// The login seam is configuration, so the composed-components test below drives
+// LoginPage through the auth config it reads.
+let mockAuthConfig: AuthConfig | null = null;
+vi.mock('@/contexts/AuthContext', () => ({
+  useAuth: () => ({ authConfig: mockAuthConfig }),
+}));
 
 /**
  * Enforces the OSS <-> premium extensions contract. See ./README.md.
@@ -85,20 +98,6 @@ const PREMIUM_ONLY = [
   'deleteAccount',
   'verifyCheckoutSession',
 ];
-
-/**
- * True when running against the premium overlay rather than the OSS stubs.
- *
- * This file is shared: prepare-frontend.sh copies premium's extensions over the
- * OSS ones, and this test is not shadowed, so it executes against whichever
- * implementation is present. The export-shape assertions apply to both. The
- * inertness assertions describe the OSS stubs specifically, because in premium
- * these same functions correctly render real UI and fetch real data.
- *
- * Discriminated on a premium-only export rather than an env var so it works
- * identically in both CIs with no configuration.
- */
-const IS_PREMIUM_OVERLAY = 'verifyCheckoutSession' in extensionsApi;
 
 const MODULES: Record<string, Record<string, unknown>> = {
   auth,
@@ -200,6 +199,28 @@ describe('extensions seam contract', () => {
       expect(() => routes.getAdminPageElement()).not.toThrow();
       expect(() => routes.getLoginPageElement()).not.toThrow();
       expect(() => settings.showOssSettingsTabs(false)).not.toThrow();
+    });
+  });
+
+  // Not skipped under the overlay: these are OSS components premium composes
+  // through a seam member instead of shadowing (README, "What premium may
+  // shadow"). Hosted behaviour comes from configuration, so it is testable here.
+  describe('composed OSS components', () => {
+    it('LoginPage takes its hosted options from the auth config', () => {
+      mockAuthConfig = {
+        method: 'oauth_google',
+        required: true,
+        magic_link_enabled: true,
+      };
+      render(createElement(MemoryRouter, null, createElement(LoginPage)));
+      expect(screen.getByRole('button', { name: 'Sign in with Google' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Sign in with email link' })).toBeInTheDocument();
+    });
+
+    it('LoginPage leaves the login route to the app when there is no auth', () => {
+      mockAuthConfig = { method: 'none', required: false };
+      render(createElement(MemoryRouter, null, createElement(LoginPage)));
+      expect(screen.queryByRole('button', { name: 'Sign in with Google' })).toBeNull();
     });
   });
 });

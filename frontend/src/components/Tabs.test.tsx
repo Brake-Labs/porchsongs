@@ -1,5 +1,6 @@
 import { screen, fireEvent } from '@testing-library/react';
 import { renderWithRouter } from '@/test/test-utils';
+import { IS_PREMIUM_OVERLAY } from '@/test/overlay';
 import Tabs, { buildTabItems, activeKeyFromPath } from '@/components/Tabs';
 
 vi.mock('@/contexts/AuthContext', () => ({
@@ -86,7 +87,8 @@ describe('buildTabItems', () => {
     expect(tabs.map(t => t.key)).toEqual(['library', 'rewrite', 'chords', 'settings']);
   });
 
-  it('does not include admin tab in OSS mode even if isAdmin is true', () => {
+  // Asserts the OSS stub. Under the premium overlay an admin does get the tab.
+  it.skipIf(IS_PREMIUM_OVERLAY)('does not include admin tab in OSS mode even if isAdmin is true', () => {
     // In OSS, getExtraTopLevelTabs returns [] regardless
     const tabs = buildTabItems(false, true);
     expect(tabs.find(t => t.key === 'admin')).toBeUndefined();
