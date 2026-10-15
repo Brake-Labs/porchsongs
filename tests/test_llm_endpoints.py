@@ -1678,7 +1678,9 @@ def test_suggest_tags_proposes_a_new_one_for_a_user_with_no_tags(
     mock_amessages: MagicMock, client: TestClient
 ) -> None:
     _, song = _make_profile_and_song(client)
-    mock_amessages.return_value = _fake_message_response('{"existing": [], "new": ["Test Artist"]}')
+    mock_amessages.return_value = _fake_message_response(
+        '{"existing": [], "new": ["Test Artist"]}'
+    )
 
     resp = client.post("/api/tags/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
 
@@ -1705,7 +1707,9 @@ def test_suggest_tags_falls_back_to_the_artist_when_the_reply_is_unusable(
 
 
 @patch("app.services.llm_service.amessages")
-def test_suggest_tags_does_not_tag_the_chart(mock_amessages: MagicMock, client: TestClient) -> None:
+def test_suggest_tags_does_not_tag_the_chart(
+    mock_amessages: MagicMock, client: TestClient
+) -> None:
     """Suggesting is not tagging. Only an explicit apply (a PUT) changes a chart."""
     _, song = _make_profile_and_song(client)
     mock_amessages.return_value = _fake_message_response('{"existing": [], "new": ["Campfire"]}')
@@ -1833,7 +1837,10 @@ def test_chat_db_work_runs_off_the_event_loop(
     path: str, client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The async chat routes hand their DB reads and the persist to a worker thread."""
+    from app.models import User
     from app.routers import rewrite
+    from app.routers.rewrite import _ChatSetup
+    from app.schemas import ChatRequest
 
     _, song = _make_profile_and_song(client)
     threads: dict[str, int] = {}
@@ -1841,17 +1848,17 @@ def test_chat_db_work_runs_off_the_event_loop(
     real_prepare = rewrite._prepare_chat
     real_persist = rewrite._persist_chat_result
 
-    def spy_prepare(*args: Any, **kwargs: Any) -> Any:
+    def spy_prepare(db: Session, user: User, req: ChatRequest) -> _ChatSetup:
         threads["prepare"] = threading.get_ident()
-        return real_prepare(*args, **kwargs)
+        return real_prepare(db, user, req)
 
-    def spy_persist(*args: Any, **kwargs: Any) -> Any:
+    def spy_persist(db: Session, song: Song, **kwargs: Any) -> int:  # noqa: ANN401
         threads["persist"] = threading.get_ident()
-        return real_persist(*args, **kwargs)
+        return real_persist(db, song, **kwargs)
 
     reply = "<content>\nNew line\n</content>\nDone."
 
-    async def fake_llm(*args: Any, **kwargs: Any) -> Any:
+    async def fake_llm(**kwargs: object) -> object:
         # The LLM call is awaited on the event loop, so this is the loop thread.
         threads["loop"] = threading.get_ident()
         if kwargs.get("stream"):
@@ -1890,7 +1897,7 @@ def test_chat_stream_reports_no_version_when_persist_fails(
         _make_stream_events(["<content>\nNew\n</content>\nDone."])
     )
 
-    def boom(*args: Any, **kwargs: Any) -> int:
+    def boom(*args: object, **kwargs: object) -> int:
         raise RuntimeError("db down")
 
     monkeypatch.setattr(rewrite, "_persist_chat_result", boom)

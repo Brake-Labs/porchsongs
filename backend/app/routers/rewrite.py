@@ -56,12 +56,6 @@ from .songs import reject_documents
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# The engine is sync (psycopg2), so a query on the event loop stalls every other
-# request in the worker, including SSE token streams. Routes that only touch the
-# database are plain ``def`` and FastAPI runs them in its threadpool. Routes that
-# must stay ``async`` (LLM calls, streaming) hand their DB work to
-# ``run_in_threadpool``.
-
 # Strong references to background tasks so they aren't GC'd before completion.
 _background_tasks: set[asyncio.Task[None]] = set()
 
@@ -910,21 +904,22 @@ async def suggest_tags(
     """
     _require_gateway()
 
-    def _load() -> tuple[Song, dict[str, int]]:
+    def _load() -> tuple[str | None, str | None, str, dict[str, int]]:
         song = get_user_song(db, current_user, req.song_id)
         reject_documents(song, "sent to the model")
-        return song, dict(user_tags(db, current_user.id))
+        content = song.rewritten_content or song.original_content
+        return song.title, song.artist, content, dict(user_tags(db, current_user.id))
 
-    song, counts = await run_in_threadpool(_load)
+    title, artist, content, counts = await run_in_threadpool(_load)
     existing_tags = sorted(counts)
 
     try:
         result = await _cancellable(
             request,
             llm_service.suggest_tags(
-                title=song.title,
-                artist=song.artist,
-                content=song.rewritten_content or song.original_content,
+                title=title,
+                artist=artist,
+                content=content,
                 existing_tags=existing_tags,
                 provider=settings.llm_provider,
                 model=req.model,
@@ -952,9 +947,9 @@ async def suggest_tags(
     # tap, so fall back to the artist. Costs nothing extra: the call is already
     # paid for by the time we get here.
     if not suggestions:
-        artist = (song.artist or "").strip()[: llm_service.TAG_NAME_MAX_CHARS]
-        if artist and artist.casefold() not in {f.casefold() for f in existing_tags}:
-            suggestions = [TagSuggestion(tag=artist, count=0)]
+        fallback = (artist or "").strip()[: llm_service.TAG_NAME_MAX_CHARS]
+        if fallback and fallback.casefold() not in {f.casefold() for f in existing_tags}:
+            suggestions = [TagSuggestion(tag=fallback, count=0)]
 
     usage_data = result.get("usage")
     return TagSuggestResponse(
