@@ -45,7 +45,7 @@ def _clean_tables(db_engine: Engine) -> None:
 def _configure_gateway() -> Generator[None]:
     """Point the app at a dummy LLM gateway so rewrite endpoints don't 503.
 
-    porchsongs is gateway-only: ``_require_gateway`` returns 503 when
+    porchsongs is gateway-only: ``require_gateway`` returns 503 when
     ``llm_api_base`` is unset. Tests mock the LLM call itself, so they only
     need the gateway settings to be present.
     """

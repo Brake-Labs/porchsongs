@@ -15,10 +15,15 @@ from app.services.llm_service import (
     TAG_SUGGEST_MAX_OUTPUT_TOKENS,
     IMAGE_EXTRACT_SYSTEM_PROMPT,
     LLMCallParams,
+    ReasoningDelta,
+    StreamAccumulator,
+    StreamEvent,
+    TextDelta,
+    UsageReport,
     _build_chat_params,
     _build_parse_params,
-    _parse_chat_response,
-    _parse_clean_response,
+    parse_chat_response,
+    parse_clean_response,
     _parse_tag_suggestions,
     _resolve_thinking,
     chat_edit_content_stream,
@@ -375,12 +380,12 @@ def test_build_chat_params_no_reasoning_effort() -> None:
     assert params.output_config is None
 
 
-# --- _parse_chat_response ---
+# --- parse_chat_response ---
 
 
 def test_parse_chat_with_xml_tags() -> None:
     raw = "<content>\nHello world\nSecond line\n</content>\nI changed the first word."
-    result = _parse_chat_response(raw)
+    result = parse_chat_response(raw)
     assert result["content"] == "Hello world\nSecond line"
     assert result["explanation"] is not None
     assert "changed" in result["explanation"]
@@ -388,7 +393,7 @@ def test_parse_chat_with_xml_tags() -> None:
 
 def test_parse_chat_with_xml_tags_no_explanation() -> None:
     raw = "<content>\nHello\n</content>"
-    result = _parse_chat_response(raw)
+    result = parse_chat_response(raw)
     assert result["content"] == "Hello"
     assert result["explanation"] == ""
 
@@ -396,12 +401,12 @@ def test_parse_chat_with_xml_tags_no_explanation() -> None:
 def test_parse_chat_no_markers() -> None:
     """Without <content> tags the response is conversational — no content update."""
     raw = "Just some text without markers"
-    result = _parse_chat_response(raw)
+    result = parse_chat_response(raw)
     assert result["content"] is None
     assert result["explanation"] == "Just some text without markers"
 
 
-# --- _parse_clean_response ---
+# --- parse_clean_response ---
 
 
 def test_parse_clean_basic() -> None:
@@ -409,7 +414,7 @@ def test_parse_clean_basic() -> None:
         "<meta>\nTitle: Wagon Wheel\nArtist: Old Crow\n</meta>\n"
         "<original>\nG  Am\nHello world\n</original>"
     )
-    result = _parse_clean_response(raw, "fallback")
+    result = parse_clean_response(raw, "fallback")
     assert result["title"] == "Wagon Wheel"
     assert result["artist"] == "Old Crow"
     assert result["original"] == "G  Am\nHello world"
@@ -417,14 +422,14 @@ def test_parse_clean_basic() -> None:
 
 def test_parse_clean_unknown_maps_to_none() -> None:
     raw = "<meta>\nTitle: UNKNOWN\nArtist: UNKNOWN\n</meta>\n<original>\nHello\n</original>"
-    result = _parse_clean_response(raw, "fallback")
+    result = parse_clean_response(raw, "fallback")
     assert result["title"] is None
     assert result["artist"] is None
 
 
 def test_parse_clean_missing_tags_fallback() -> None:
     raw = "Just some text without XML tags"
-    result = _parse_clean_response(raw, "fallback original")
+    result = parse_clean_response(raw, "fallback original")
     assert result["original"] == "fallback original"
     assert result["title"] is None
     assert result["artist"] is None
@@ -494,6 +499,16 @@ def _make_stream_events(
     return events
 
 
+def _as_tuple(event: StreamEvent) -> tuple[str, str]:
+    """Flatten a typed stream event for compact assertions."""
+    if isinstance(event, TextDelta):
+        return ("token", event.text)
+    if isinstance(event, ReasoningDelta):
+        return ("reasoning", event.text)
+    assert isinstance(event, UsageReport)
+    return ("usage", json.dumps(event.usage))
+
+
 async def _async_iter(items: list[SimpleNamespace]) -> SimpleNamespace:  # type: ignore[misc]
     """Convert a list to an async iterator."""
     for item in items:
@@ -508,8 +523,8 @@ def test_parse_stream_text_deltas(mock_amessages: AsyncMock) -> None:
         events = _make_stream_events(["Hello ", "world"])
         mock_amessages.return_value = _async_iter(events)
         results = []
-        async for kind, text in parse_content_stream("test content", "openai", "gpt-4o"):
-            results.append((kind, text))
+        async for event in parse_content_stream("test content", "openai", "gpt-4o"):
+            results.append(_as_tuple(event))
         return results
 
     results = asyncio.run(_run())
@@ -531,8 +546,8 @@ def test_parse_stream_thinking_deltas(mock_amessages: AsyncMock) -> None:
         events = _make_stream_events(["result"], thinking_chunks=["Let me ", "think..."])
         mock_amessages.return_value = _async_iter(events)
         results = []
-        async for kind, text in parse_content_stream("test content", "openai", "gpt-4o"):
-            results.append((kind, text))
+        async for event in parse_content_stream("test content", "openai", "gpt-4o"):
+            results.append(_as_tuple(event))
         return results
 
     results = asyncio.run(_run())
@@ -548,8 +563,8 @@ def test_parse_stream_cache_usage(mock_amessages: AsyncMock) -> None:
         events = _make_stream_events(["ok"], cache_creation=100, cache_read=50)
         mock_amessages.return_value = _async_iter(events)
         results = []
-        async for kind, text in parse_content_stream("test content", "openai", "gpt-4o"):
-            results.append((kind, text))
+        async for event in parse_content_stream("test content", "openai", "gpt-4o"):
+            results.append(_as_tuple(event))
         return results
 
     results = asyncio.run(_run())
@@ -569,13 +584,13 @@ def test_chat_stream_text_deltas(mock_amessages: AsyncMock) -> None:
         original_content = "G  Am\nHello world"
         messages: list[dict[str, object]] = [{"role": "user", "content": "make it sadder"}]
         results = []
-        async for kind, text in chat_edit_content_stream(
+        async for event in chat_edit_content_stream(
             original_content,
             messages,
             "openai",
             "gpt-4o",
         ):
-            results.append((kind, text))
+            results.append(_as_tuple(event))
         return results
 
     results = asyncio.run(_run())
@@ -594,18 +609,32 @@ def test_chat_stream_thinking_deltas(mock_amessages: AsyncMock) -> None:
         original_content = "G  Am\nHello world"
         messages: list[dict[str, object]] = [{"role": "user", "content": "test"}]
         results = []
-        async for kind, text in chat_edit_content_stream(
+        async for event in chat_edit_content_stream(
             original_content,
             messages,
             "openai",
             "gpt-4o",
         ):
-            results.append((kind, text))
+            results.append(_as_tuple(event))
         return results
 
     results = asyncio.run(_run())
     reasoning = [(k, t) for k, t in results if k == "reasoning"]
     assert reasoning == [("reasoning", "hmm")]
+
+
+def test_stream_accumulator_collects_each_kind() -> None:
+    acc = StreamAccumulator()
+    for event in (
+        ReasoningDelta("hm"),
+        TextDelta("Hel"),
+        UsageReport({"input_tokens": 1, "output_tokens": 2}),
+        TextDelta("lo"),
+    ):
+        acc.consume(event)
+    assert acc.text == "Hello"
+    assert acc.reasoning == "hm"
+    assert acc.usage == {"input_tokens": 1, "output_tokens": 2}
 
 
 # --- Follow-mode arbiter ---

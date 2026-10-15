@@ -26,3 +26,15 @@ def get_user_song_by_uuid(db: Session, user: User, song_uuid: str) -> Song:
     if not song:
         raise HTTPException(status_code=404, detail="Song not found")
     return song
+
+
+def reject_documents(song: Song, action: str) -> None:
+    """Guard the text-only routes.
+
+    A document has no chart text to revise, summarise, or discuss, so these are
+    404-shaped rather than 400-shaped situations: the resource genuinely is not
+    there. 409 says the song exists and this is not a thing it does, which is the
+    accurate answer and the one the frontend can show.
+    """
+    if song.kind == "document":
+        raise HTTPException(status_code=409, detail=f"A stored document cannot be {action}.")

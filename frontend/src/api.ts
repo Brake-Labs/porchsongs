@@ -120,7 +120,7 @@ function _parseApiError(body: unknown, fallback: string): string {
  * Pull the machine-readable error slug out of an error body.
  *
  * Two shapes are in the wild and both must work:
- *  - `detail.error_type` — what the OSS backend emits (see `_require_gateway`,
+ *  - `detail.error_type` — what the OSS backend emits (see `require_gateway`,
  *    which returns `error_type: "gateway_not_configured"`).
  *  - `detail.error` — what the premium guard middleware emits for
  *    `max_songs_exceeded`, `quota_exceeded`, `rate_limited`,
