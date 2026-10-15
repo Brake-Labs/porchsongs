@@ -3,6 +3,7 @@ import base64
 import json
 import logging
 from collections.abc import AsyncIterator, Awaitable
+from dataclasses import dataclass
 from io import BytesIO
 from typing import TypeVar
 
@@ -17,8 +18,11 @@ from any_llm import (
 )
 from any_llm import AuthenticationError as LLMAuthError
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
+from sqlalchemy import update
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import set_committed_value
 
 from ..auth.dependencies import get_current_user
 from ..auth.scoping import get_user_profile, get_user_song
@@ -51,6 +55,12 @@ from .songs import reject_documents
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# The engine is sync (psycopg2), so a query on the event loop stalls every other
+# request in the worker, including SSE token streams. Routes that only touch the
+# database are plain ``def`` and FastAPI runs them in its threadpool. Routes that
+# must stay ``async`` (LLM calls, streaming) hand their DB work to
+# ``run_in_threadpool``.
 
 # Strong references to background tasks so they aren't GC'd before completion.
 _background_tasks: set[asyncio.Task[None]] = set()
@@ -164,7 +174,8 @@ async def parse(
     db: Session = Depends(get_db),
 ) -> ParseResponse:
     _require_gateway()
-    profile = get_user_profile(db, current_user, req.profile_id)
+    profile = await run_in_threadpool(get_user_profile, db, current_user, req.profile_id)
+    system_prompt = profile.system_prompt_parse
 
     try:
         result = await _cancellable(
@@ -176,7 +187,7 @@ async def parse(
                 api_base=settings.llm_api_base,
                 reasoning_effort=req.reasoning_effort,
                 instruction=req.instruction,
-                system_prompt=profile.system_prompt_parse,
+                system_prompt=system_prompt,
                 max_tokens=req.max_tokens,
                 api_key=settings.llm_api_key,
             ),
@@ -208,7 +219,7 @@ async def parse_stream(
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
     _require_gateway()
-    profile = get_user_profile(db, current_user, req.profile_id)
+    profile = await run_in_threadpool(get_user_profile, db, current_user, req.profile_id)
 
     # Extract ORM value before the generator runs — the DB session may be
     # closed by then, making ORM attribute access raise DetachedInstanceError.
@@ -273,7 +284,7 @@ async def parse_image(
 ) -> ImageExtractResponse:
     """Extract song text from an uploaded image using LLM vision."""
     _require_gateway()
-    get_user_profile(db, current_user, req.profile_id)
+    await run_in_threadpool(get_user_profile, db, current_user, req.profile_id)
 
     try:
         result = await _cancellable(
@@ -354,7 +365,7 @@ def _extract_text(file_bytes: bytes) -> FileExtractResponse:
 
 
 @router.post("/parse/file", response_model=FileExtractResponse)
-async def parse_file(
+def parse_file(
     req: FileExtractRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -379,7 +390,7 @@ async def parse_file(
     filename_lower = req.filename.lower()
 
     if filename_lower.endswith(".pdf"):
-        return await asyncio.to_thread(_extract_pdf, file_bytes)
+        return _extract_pdf(file_bytes)
     elif filename_lower.endswith((".txt", ".text")):
         return _extract_text(file_bytes)
     else:
@@ -390,7 +401,7 @@ async def parse_file(
 
 
 @router.post("/parse/url", response_model=UrlScrapeResponse)
-async def parse_url(
+def parse_url(
     req: UrlScrapeRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -403,7 +414,7 @@ async def parse_url(
     get_user_profile(db, current_user, req.profile_id)
 
     try:
-        result = await asyncio.to_thread(scrape_service.scrape_url, req.url)
+        result = scrape_service.scrape_url(req.url)
     except scrape_service.ScrapeError as e:
         raise HTTPException(status_code=e.status_code, detail=str(e)) from None
     except Exception:
@@ -483,8 +494,10 @@ def _persist_chat_result(
     model: str | None = None,
     input_tokens: int | None = None,
     output_tokens: int | None = None,
-) -> None:
+) -> int:
     """Update song, create revision, and save assistant message (does not commit).
+
+    Returns the song's version after this turn.
 
     The user message is persisted earlier via ``_persist_user_message`` so that
     it survives request cancellation.
@@ -492,15 +505,27 @@ def _persist_chat_result(
     if original_content is not None:
         song.original_content = original_content
 
+    version = song.current_version
     if rewritten_content is not None:
         song.rewritten_content = rewritten_content
         song.changes_summary = changes_summary
-        song.current_version += 1
+        # Bump in the database, not in Python. A read-then-add lets two persists
+        # for one song (the background finisher and the user's next request)
+        # claim the same version. The UPDATE also holds the row lock until
+        # commit, so the second writer waits and reads the first one's number.
+        version = db.execute(
+            update(Song)
+            .where(Song.id == song.id)
+            .values(current_version=Song.current_version + 1)
+            .returning(Song.current_version)
+            .execution_options(synchronize_session=False)
+        ).scalar_one()
+        set_committed_value(song, "current_version", version)
 
         db.add(
             SongRevision(
                 song_id=song.id,
-                version=song.current_version,
+                version=version,
                 rewritten_content=rewritten_content,
                 changes_summary=changes_summary,
                 edit_type="chat",
@@ -519,6 +544,47 @@ def _persist_chat_result(
             output_tokens=output_tokens,
         )
     )
+    return version
+
+
+def _persist_chat_in_new_session(
+    song_id: int,
+    accumulated: str,
+    reasoning_accumulated: str,
+    model: str | None,
+    usage_data: dict[str, int] | None,
+) -> int | None:
+    """Persist a streamed chat turn in its own session and commit.
+
+    Sync, for ``run_in_threadpool``. The request session may be closed by the
+    time a stream finishes. Returns the committed version, or None if the song
+    is gone. Raises (after rolling back) if the commit fails.
+    """
+    parsed = llm_service._parse_chat_response(accumulated)
+    db = SessionLocal()
+    try:
+        song = db.query(Song).filter(Song.id == song_id).first()
+        if not song:
+            return None
+        version = _persist_chat_result(
+            db,
+            song,
+            rewritten_content=parsed["content"],
+            changes_summary=parsed["explanation"] or "Chat edit applied.",
+            assistant_content=accumulated,
+            original_content=parsed.get("original_content"),
+            reasoning=reasoning_accumulated or None,
+            model=model,
+            input_tokens=usage_data.get("input_tokens") if usage_data else None,
+            output_tokens=usage_data.get("output_tokens") if usage_data else None,
+        )
+        db.commit()
+        return version
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 async def _finish_chat_in_background(
@@ -548,34 +614,66 @@ async def _finish_chat_in_background(
         logger.exception("Background chat stream completion error (LLM)")
         return
 
-    parsed = llm_service._parse_chat_response(accumulated)
-    changes_summary = parsed["explanation"] or "Chat edit applied."
-
-    db = SessionLocal()
     try:
-        song = db.query(Song).filter(Song.id == song_id).first()
-        if not song:
-            logger.warning("Background chat persist: song %s not found", song_id)
-            return
-        _persist_chat_result(
-            db,
-            song,
-            rewritten_content=parsed["content"],
-            changes_summary=changes_summary,
-            assistant_content=accumulated,
-            original_content=parsed.get("original_content"),
-            reasoning=reasoning_accumulated or None,
-            model=model,
-            input_tokens=usage_data.get("input_tokens") if usage_data else None,
-            output_tokens=usage_data.get("output_tokens") if usage_data else None,
+        version = await run_in_threadpool(
+            _persist_chat_in_new_session,
+            song_id,
+            accumulated,
+            reasoning_accumulated,
+            model,
+            usage_data,
         )
-        db.commit()
-        logger.info("Background chat persist succeeded for song %s", song_id)
     except Exception:
         logger.exception("Background chat stream DB persist error")
-        db.rollback()
-    finally:
-        db.close()
+        return
+    if version is None:
+        logger.warning("Background chat persist: song %s not found", song_id)
+    else:
+        logger.info("Background chat persist succeeded for song %s", song_id)
+
+
+@dataclass
+class _ChatSetup:
+    """What a chat turn needs from the database, read before the LLM call.
+
+    Plain values, not ORM objects: the session is committed (expiring them) and
+    may be closed before a stream finishes.
+    """
+
+    song_id: int
+    messages: list[dict[str, object]]
+    history_len: int
+    system_prompt: str | None
+    original_content: str
+    rewritten_content: str | None
+
+
+def _prepare_chat(db: Session, current_user: User, req: ChatRequest) -> _ChatSetup:
+    """Load the song and history and persist the user message (sync; commits).
+
+    The user message is committed before the LLM call so it survives
+    cancellation.
+    """
+    song = get_user_song(db, current_user, req.song_id)
+    reject_documents(song, "sent to the model")
+    messages, history_len = _load_chat_messages(db, song.id, req.messages)
+    profile = db.query(Profile).filter(Profile.id == song.profile_id).first()
+    setup = _ChatSetup(
+        song_id=song.id,
+        messages=messages,
+        history_len=history_len,
+        system_prompt=profile.system_prompt_chat if profile else None,
+        original_content=song.original_content,
+        # Use frontend-provided rewritten_content (avoids autosave race), else DB
+        # value. Explicit None check so an empty string from the client doesn't
+        # silently fall through to the DB value.
+        rewritten_content=(
+            req.rewritten_content if req.rewritten_content is not None else song.rewritten_content
+        ),
+    )
+    _persist_user_message(db, song.id, req.messages)
+    db.commit()
+    return setup
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -586,40 +684,23 @@ async def chat(
     db: Session = Depends(get_db),
 ) -> ChatResponse:
     _require_gateway()
-    song = get_user_song(db, current_user, req.song_id)
-    reject_documents(song, "sent to the model")
-    messages, history_len = _load_chat_messages(db, song.id, req.messages)
-    profile = db.query(Profile).filter(Profile.id == song.profile_id).first()
-
-    # Extract ORM values before commit (commit expires cached attributes).
-    system_prompt = profile.system_prompt_chat if profile else None
-    original_content = song.original_content
-    # Use frontend-provided rewritten_content (avoids autosave race), else DB value.
-    # Explicit None check so an empty string from the client doesn't silently
-    # fall through to the DB value.
-    rewritten_content = (
-        req.rewritten_content if req.rewritten_content is not None else song.rewritten_content
-    )
-
-    # Persist the user message before the LLM call so it survives cancellation
-    _persist_user_message(db, song.id, req.messages)
-    db.commit()
+    setup = await run_in_threadpool(_prepare_chat, db, current_user, req)
 
     try:
         result = await _cancellable(
             request,
             llm_service.chat_edit_content(
-                original_content=original_content,
-                messages=messages,
+                original_content=setup.original_content,
+                messages=setup.messages,
                 provider=settings.llm_provider,
                 model=req.model,
                 api_base=settings.llm_api_base,
                 reasoning_effort=req.reasoning_effort,
-                system_prompt=system_prompt,
+                system_prompt=setup.system_prompt,
                 max_tokens=req.max_tokens,
                 api_key=settings.llm_api_key,
-                history_len=history_len,
-                rewritten_content=rewritten_content,
+                history_len=setup.history_len,
+                rewritten_content=setup.rewritten_content,
             ),
         )
     except HTTPException:
@@ -630,19 +711,25 @@ async def chat(
         ) from None
 
     usage_data = result.get("usage")
-    _persist_chat_result(
-        db,
-        song,
-        rewritten_content=result["rewritten_content"],
-        changes_summary=result["changes_summary"],
-        assistant_content=result["assistant_message"],
-        original_content=result.get("original_content"),
-        reasoning=result.get("reasoning"),
-        model=req.model,
-        input_tokens=usage_data.get("input_tokens") if usage_data else None,
-        output_tokens=usage_data.get("output_tokens") if usage_data else None,
-    )
-    db.commit()
+
+    def _save() -> int:
+        song = get_user_song(db, current_user, setup.song_id)
+        version = _persist_chat_result(
+            db,
+            song,
+            rewritten_content=result["rewritten_content"],
+            changes_summary=result["changes_summary"],
+            assistant_content=result["assistant_message"],
+            original_content=result.get("original_content"),
+            reasoning=result.get("reasoning"),
+            model=req.model,
+            input_tokens=usage_data.get("input_tokens") if usage_data else None,
+            output_tokens=usage_data.get("output_tokens") if usage_data else None,
+        )
+        db.commit()
+        return version
+
+    version = await run_in_threadpool(_save)
 
     usage = TokenUsage(**usage_data) if usage_data else None
 
@@ -651,7 +738,7 @@ async def chat(
         original_content=result.get("original_content"),
         assistant_message=result["assistant_message"],
         changes_summary=result["changes_summary"],
-        version=song.current_version,
+        version=version,
         reasoning=result.get("reasoning"),
         usage=usage,
     )
@@ -665,27 +752,8 @@ async def chat_stream(
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
     _require_gateway()
-    song = get_user_song(db, current_user, req.song_id)
-    reject_documents(song, "sent to the model")
-    messages, history_len = _load_chat_messages(db, song.id, req.messages)
-    profile = db.query(Profile).filter(Profile.id == song.profile_id).first()
-
-    # Extract ORM values before commit.  commit() expires all cached attributes
-    # and the DB session may close before the SSE generator runs, making ORM
-    # attribute access raise DetachedInstanceError.
-    system_prompt = profile.system_prompt_chat if profile else None
-    original_content = song.original_content
-    # Use frontend-provided rewritten_content (avoids autosave race), else DB value.
-    # Explicit None check so an empty string from the client doesn't silently
-    # fall through to the DB value.
-    rewritten_content = (
-        req.rewritten_content if req.rewritten_content is not None else song.rewritten_content
-    )
-    song_id = song.id
-
-    # Persist the user message before streaming so it survives cancellation
-    _persist_user_message(db, song.id, req.messages)
-    db.commit()
+    setup = await run_in_threadpool(_prepare_chat, db, current_user, req)
+    song_id = setup.song_id
 
     async def event_generator() -> AsyncIterator[str]:
         accumulated = ""
@@ -695,17 +763,17 @@ async def chat_stream(
         _completed = False
         try:
             stream = llm_service.chat_edit_content_stream(
-                original_content=original_content,
-                messages=messages,
+                original_content=setup.original_content,
+                messages=setup.messages,
                 provider=settings.llm_provider,
                 model=req.model,
                 api_base=settings.llm_api_base,
                 reasoning_effort=req.reasoning_effort,
-                system_prompt=system_prompt,
+                system_prompt=setup.system_prompt,
                 max_tokens=req.max_tokens,
                 api_key=settings.llm_api_key,
-                history_len=history_len,
-                rewritten_content=rewritten_content,
+                history_len=setup.history_len,
+                rewritten_content=setup.rewritten_content,
             )
             async for kind, text in stream:
                 if await request.is_disconnected():
@@ -779,35 +847,23 @@ async def chat_stream(
         parsed = llm_service._parse_chat_response(accumulated)
         changes_summary = parsed["explanation"] or "Chat edit applied."
 
-        # Persist to DB using a fresh session.  The request session may be
-        # closed by the time this generator runs (FastAPI dependency cleanup).
-        persist_db = SessionLocal()
+        # Fresh session in the threadpool: the request session may be closed by
+        # now, and a commit on the loop would stall other streams. A failed
+        # commit reports no version rather than a stale one.
         version: int | None = None
         try:
-            fresh_song = persist_db.query(Song).filter(Song.id == song_id).first()
-            if fresh_song:
-                version = fresh_song.current_version
-                _persist_chat_result(
-                    persist_db,
-                    fresh_song,
-                    rewritten_content=parsed["content"],
-                    changes_summary=changes_summary,
-                    assistant_content=accumulated,
-                    original_content=parsed.get("original_content"),
-                    reasoning=reasoning_accumulated or None,
-                    model=req.model,
-                    input_tokens=usage_data.get("input_tokens") if usage_data else None,
-                    output_tokens=usage_data.get("output_tokens") if usage_data else None,
-                )
-                persist_db.commit()
-                version = fresh_song.current_version
-            else:
+            version = await run_in_threadpool(
+                _persist_chat_in_new_session,
+                song_id,
+                accumulated,
+                reasoning_accumulated,
+                req.model,
+                usage_data,
+            )
+            if version is None:
                 logger.warning("Chat stream persist: song %s not found", song_id)
         except Exception:
             logger.exception("Chat stream DB persist error")
-            persist_db.rollback()
-        finally:
-            persist_db.close()
 
         # Send final result
         done_data: dict[str, object] = {
@@ -853,10 +909,13 @@ async def suggest_tags(
     unmetered way onto the operator's gateway.
     """
     _require_gateway()
-    song = get_user_song(db, current_user, req.song_id)
-    reject_documents(song, "sent to the model")
 
-    counts = dict(user_tags(db, current_user.id))
+    def _load() -> tuple[Song, dict[str, int]]:
+        song = get_user_song(db, current_user, req.song_id)
+        reject_documents(song, "sent to the model")
+        return song, dict(user_tags(db, current_user.id))
+
+    song, counts = await run_in_threadpool(_load)
     existing_tags = sorted(counts)
 
     try:

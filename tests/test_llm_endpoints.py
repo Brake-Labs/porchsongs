@@ -2,12 +2,16 @@
 
 import asyncio
 import base64
+import inspect
+import threading
 from collections.abc import AsyncIterator
 from io import BytesIO
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -1674,9 +1678,7 @@ def test_suggest_tags_proposes_a_new_one_for_a_user_with_no_tags(
     mock_amessages: MagicMock, client: TestClient
 ) -> None:
     _, song = _make_profile_and_song(client)
-    mock_amessages.return_value = _fake_message_response(
-        '{"existing": [], "new": ["Test Artist"]}'
-    )
+    mock_amessages.return_value = _fake_message_response('{"existing": [], "new": ["Test Artist"]}')
 
     resp = client.post("/api/tags/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
 
@@ -1703,9 +1705,7 @@ def test_suggest_tags_falls_back_to_the_artist_when_the_reply_is_unusable(
 
 
 @patch("app.services.llm_service.amessages")
-def test_suggest_tags_does_not_tag_the_chart(
-    mock_amessages: MagicMock, client: TestClient
-) -> None:
+def test_suggest_tags_does_not_tag_the_chart(mock_amessages: MagicMock, client: TestClient) -> None:
     """Suggesting is not tagging. Only an explicit apply (a PUT) changes a chart."""
     _, song = _make_profile_and_song(client)
     mock_amessages.return_value = _fake_message_response('{"existing": [], "new": ["Campfire"]}')
@@ -1807,3 +1807,101 @@ def test_suggest_tags_reports_provider_failures(
 
     assert resp.status_code == 502
     assert resp.json()["detail"]["error_type"] == "provider_rate_limit"
+
+
+# --- Blocking DB work stays off the event loop ---
+
+
+def test_db_only_routes_are_sync() -> None:
+    """Routes that only do sync DB work are plain ``def``.
+
+    FastAPI runs those in its threadpool. An ``async def`` route doing a psycopg2
+    query runs it on the event loop and stalls every concurrent SSE stream.
+    """
+    from app.main import app
+    from app.routers import profiles, songs
+
+    routes = [r for r in songs.router.routes + profiles.router.routes if isinstance(r, APIRoute)]
+    routes += [r for r in app.routes if isinstance(r, APIRoute) and r.path == "/api/health"]
+    assert routes
+    offenders = [r.path for r in routes if inspect.iscoroutinefunction(r.endpoint)]
+    assert offenders == []
+
+
+@pytest.mark.parametrize("path", ["/api/chat", "/api/chat/stream"])
+def test_chat_db_work_runs_off_the_event_loop(
+    path: str, client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The async chat routes hand their DB reads and the persist to a worker thread."""
+    from app.routers import rewrite
+
+    _, song = _make_profile_and_song(client)
+    threads: dict[str, int] = {}
+
+    real_prepare = rewrite._prepare_chat
+    real_persist = rewrite._persist_chat_result
+
+    def spy_prepare(*args: Any, **kwargs: Any) -> Any:
+        threads["prepare"] = threading.get_ident()
+        return real_prepare(*args, **kwargs)
+
+    def spy_persist(*args: Any, **kwargs: Any) -> Any:
+        threads["persist"] = threading.get_ident()
+        return real_persist(*args, **kwargs)
+
+    reply = "<content>\nNew line\n</content>\nDone."
+
+    async def fake_llm(*args: Any, **kwargs: Any) -> Any:
+        # The LLM call is awaited on the event loop, so this is the loop thread.
+        threads["loop"] = threading.get_ident()
+        if kwargs.get("stream"):
+            return _async_iter(_make_stream_events([reply]))
+        return _fake_message_response(reply)
+
+    monkeypatch.setattr(rewrite, "_prepare_chat", spy_prepare)
+    monkeypatch.setattr(rewrite, "_persist_chat_result", spy_persist)
+    with patch("app.services.llm_service.amessages", side_effect=fake_llm):
+        resp = client.post(
+            path,
+            json={
+                "song_id": song["id"],
+                "messages": [{"role": "user", "content": "Change it"}],
+                **LLM_SETTINGS,
+            },
+        )
+    assert resp.status_code == 200
+    assert "event: error" not in resp.text
+    assert set(threads) == {"prepare", "persist", "loop"}
+    assert threads["prepare"] != threads["loop"]
+    assert threads["persist"] != threads["loop"]
+
+
+@patch("app.services.llm_service.amessages", new_callable=AsyncMock)
+def test_chat_stream_reports_no_version_when_persist_fails(
+    mock_amessages: AsyncMock, client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed commit must not report the pre-persist version as if it saved."""
+    import json
+
+    from app.routers import rewrite
+
+    _, song = _make_profile_and_song(client)
+    mock_amessages.return_value = _async_iter(
+        _make_stream_events(["<content>\nNew\n</content>\nDone."])
+    )
+
+    def boom(*args: Any, **kwargs: Any) -> int:
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(rewrite, "_persist_chat_result", boom)
+    resp = client.post(
+        "/api/chat/stream",
+        json={
+            "song_id": song["id"],
+            "messages": [{"role": "user", "content": "Change it"}],
+            **LLM_SETTINGS,
+        },
+    )
+    assert resp.status_code == 200
+    done = resp.text.split("event: done\ndata: ", 1)[1].split("\n\n", 1)[0]
+    assert json.loads(done)["version"] is None

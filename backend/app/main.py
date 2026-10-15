@@ -63,7 +63,7 @@ app.include_router(follow.router, prefix="/api")
 
 
 @app.get("/api/health", response_model=HealthResponse, tags=["health"])
-async def health(db: Session = Depends(get_db)) -> HealthResponse | JSONResponse:
+def health(db: Session = Depends(get_db)) -> HealthResponse | JSONResponse:
     """Public health-check endpoint for container orchestration."""
     try:
         db.execute(text("SELECT 1"))

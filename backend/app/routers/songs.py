@@ -94,7 +94,7 @@ UNTAGGED = "__untagged__"
 
 
 @router.get("/songs", response_model=list[SongOut])
-async def list_songs(
+def list_songs(
     profile_id: int | None = None,
     search: str | None = None,
     tags: list[str] | None = Query(default=None),
@@ -129,7 +129,7 @@ async def list_songs(
 
 
 @router.get("/songs/tags", response_model=list[TagOut])
-async def list_tags(
+def list_tags(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[TagOut]:
@@ -142,7 +142,7 @@ async def list_tags(
 
 
 @router.put("/songs/tags/{tag_name}", response_model=OkResponse)
-async def rename_tag(
+def rename_tag(
     tag_name: str,
     data: TagRename,
     current_user: User = Depends(get_current_user),
@@ -179,7 +179,7 @@ async def rename_tag(
 
 
 @router.put("/songs/artists", response_model=ArtistRenameResult)
-async def rename_artist(
+def rename_artist(
     data: ArtistRename,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -235,7 +235,7 @@ async def rename_artist(
 
 
 @router.delete("/songs/tags/{tag_name}", response_model=OkResponse)
-async def delete_tag(
+def delete_tag(
     tag_name: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -260,7 +260,7 @@ async def delete_tag(
 
 
 @router.post("/songs/documents", response_model=SongOut, status_code=201)
-async def upload_document(
+def upload_document(
     profile_id: int = Form(...),
     title: str | None = Form(None),
     artist: str | None = Form(None),
@@ -280,11 +280,12 @@ async def upload_document(
     # Read against the cap rather than reading and then measuring. Starlette spools
     # a large upload to disk, so an unguarded read() would not blow up the process,
     # but it would happily accept a 2GB file and only complain once it was all
-    # written down.
+    # written down. The route is sync, so this reads the spooled file directly;
+    # it runs in the threadpool, off the event loop.
     chunks: list[bytes] = []
     total = 0
     while True:
-        chunk = await file.read(1024 * 1024)
+        chunk = file.file.read(1024 * 1024)
         if not chunk:
             break
         total += len(chunk)
@@ -349,7 +350,7 @@ async def upload_document(
 
 
 @router.get("/songs/{song_ref}/file")
-async def download_song_file(
+def download_song_file(
     song_ref: str,
     request: Request,
     current_user: User = Depends(get_current_user),
@@ -405,7 +406,7 @@ async def download_song_file(
 
 
 @router.get("/songs/{song_ref}", response_model=SongOut)
-async def get_song(
+def get_song(
     song_ref: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -414,7 +415,7 @@ async def get_song(
 
 
 @router.get("/songs/{song_ref}/pdf")
-async def download_song_pdf(
+def download_song_pdf(
     song_ref: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -446,7 +447,7 @@ async def download_song_pdf(
 
 
 @router.post("/songs", response_model=SongOut, status_code=201)
-async def create_song(
+def create_song(
     data: SongCreate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -481,7 +482,7 @@ async def create_song(
 
 
 @router.put("/songs/{song_ref}", response_model=SongOut)
-async def update_song(
+def update_song(
     song_ref: str,
     data: SongUpdate,
     current_user: User = Depends(get_current_user),
@@ -514,7 +515,7 @@ async def update_song(
 
 
 @router.delete("/songs/{song_ref}", response_model=OkResponse)
-async def delete_song(
+def delete_song(
     song_ref: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -532,7 +533,7 @@ async def delete_song(
 
 
 @router.get("/songs/{song_ref}/revisions", response_model=list[SongRevisionOut])
-async def list_revisions(
+def list_revisions(
     song_ref: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -566,7 +567,7 @@ def _display_content(raw: str) -> str:
 
 
 @router.get("/songs/{song_ref}/messages", response_model=list[ChatMessageOut])
-async def list_messages(
+def list_messages(
     song_ref: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -596,7 +597,7 @@ async def list_messages(
 
 
 @router.post("/songs/{song_ref}/messages", response_model=list[ChatMessageOut], status_code=201)
-async def save_messages(
+def save_messages(
     song_ref: str,
     messages: list[ChatMessageCreate],
     current_user: User = Depends(get_current_user),
@@ -625,7 +626,7 @@ async def save_messages(
 
 
 @router.put("/songs/{song_ref}/status", response_model=SongOut)
-async def update_song_status(
+def update_song_status(
     song_ref: str,
     data: SongStatusUpdate,
     current_user: User = Depends(get_current_user),
