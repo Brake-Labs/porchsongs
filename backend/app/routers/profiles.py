@@ -18,7 +18,7 @@ router = APIRouter(tags=["profiles"])
 
 
 @router.get("/profiles", response_model=list[ProfileOut])
-async def list_profiles(
+def list_profiles(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[Profile]:
@@ -31,7 +31,7 @@ async def list_profiles(
 
 
 @router.post("/profiles", response_model=ProfileOut, status_code=201)
-async def create_profile(
+def create_profile(
     data: ProfileCreate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -54,7 +54,7 @@ async def create_profile(
 
 
 @router.get("/profiles/{profile_id}", response_model=ProfileOut)
-async def get_profile(
+def get_profile(
     profile_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -63,7 +63,7 @@ async def get_profile(
 
 
 @router.put("/profiles/{profile_id}", response_model=ProfileOut)
-async def update_profile(
+def update_profile(
     profile_id: int,
     data: ProfileUpdate,
     current_user: User = Depends(get_current_user),
@@ -91,7 +91,7 @@ async def update_profile(
 
 
 @router.delete("/profiles/{profile_id}", response_model=OkResponse)
-async def delete_profile(
+def delete_profile(
     profile_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),

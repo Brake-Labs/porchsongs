@@ -64,6 +64,15 @@ All LLM calls go through `any-llm-sdk`. API keys from server env vars. Two modes
 
 Always add `Cache-Control: no-cache` and `X-Accel-Buffering: no` headers. Never use Starlette's `BaseHTTPMiddleware` for SSE. Use pure ASGI middleware instead.
 
+### Sync DB vs. the Event Loop
+
+The engine is sync (psycopg2), so a query or commit inside an `async def` route blocks the event loop and stalls every concurrent SSE stream in the worker. Rules:
+
+- A route that only does DB work (or other blocking work such as PDF rendering) is plain `def`. FastAPI runs it in its threadpool.
+- A route that must be `async` (it awaits an LLM call or returns a stream) does its DB work through `run_in_threadpool` (`fastapi.concurrency`), including inside SSE generators and background tasks. Gather the reads into one sync helper and pass plain values, not ORM objects, to the async side.
+- Dependencies stay sync (`get_db`, `get_current_user`); FastAPI already runs them in the threadpool.
+- Shared counters such as `songs.current_version` are bumped in SQL (`UPDATE ... SET x = x + 1 RETURNING x`), never read-then-add in Python.
+
 ### Data Model
 
 PostgreSQL everywhere (production and tests). Alembic migrations in `alembic/`. Song lifecycle: paste → parse → auto-save draft → iterate via chat → completed. Songs carry any number of tags (`song_tags`), and the library filters on all of them at once. PDF export via `fpdf2`.

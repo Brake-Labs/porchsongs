@@ -196,6 +196,12 @@ class SongRevision(Base):
 
     song: Mapped["Song"] = relationship("Song", back_populates="revisions")
 
+    __table_args__ = (
+        # Two writers persisting a chat turn for the same song (the background
+        # finisher and the user's next request) must not both claim one version.
+        UniqueConstraint("song_id", "version", name="ux_song_revisions_song_version"),
+    )
+
 
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
