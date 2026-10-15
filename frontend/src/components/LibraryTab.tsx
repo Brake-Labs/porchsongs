@@ -594,16 +594,16 @@ export default function LibraryTab() {
     defaultArtistSortDir(artistSortKey),
   );
 
+  // One-based in the URL, and absent on the first page. Clamped to the list
+  // further down, once its length is known.
+  const requestedPage = Math.max(0, (Number.parseInt(searchParams.get('page') ?? '', 10) || 1) - 1);
+
   // Every filter change is one call to `applyView`. React Router resolves a
   // functional update against the parameters from the render the setter was
   // created in, not against anything an earlier call in the same handler has
   // already written, so two calls would silently keep only the second one's
   // changes. `pending` carries a write forward within a handler; the effect puts
   // it back in step after a Back or Forward, which never goes through here.
-  // One-based in the URL, and absent on the first page. Clamped to the list
-  // further down, once its length is known.
-  const requestedPage = Math.max(0, (Number.parseInt(searchParams.get('page') ?? '', 10) || 1) - 1);
-
   const pending = useRef(searchParams);
   useEffect(() => {
     pending.current = searchParams;

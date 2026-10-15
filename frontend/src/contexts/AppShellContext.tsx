@@ -41,7 +41,7 @@ export interface ParseContextValue {
   onClearParse: () => void;
 }
 
-/** Ways to change the workshop. Stable for the life of the shell. */
+/** Ways to change the workshop. Never changes with workshop state. */
 export interface WorkshopActionsValue {
   /** Open a saved song in the workshop. */
   onLoadSong: (song: Song) => Promise<void>;

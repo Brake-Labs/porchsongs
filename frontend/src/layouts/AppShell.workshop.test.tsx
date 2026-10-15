@@ -347,3 +347,19 @@ describe('context split', () => {
     expect(libraryRenders.count).toBe(before);
   });
 });
+
+describe('launch restore', () => {
+  it('does not replace a song the user opened while the restore was loading', async () => {
+    let resolveA!: (s: Song) => void;
+    mockApi.getSong!.mockImplementation((uuid: string) =>
+      uuid === SONG_A.value.uuid ? new Promise<Song>(r => { resolveA = r; }) : Promise.resolve(SONG_B.value));
+    renderApp('/app/library');
+
+    fireEvent.click(await screen.findByText('open-b'));
+    await waitForWorkshop('Song B');
+    await act(async () => { resolveA(SONG_A.value); });
+
+    expect(screen.getAllByLabelText('Song title')[0]).toHaveValue('Song B');
+    expect(screen.getAllByTestId('rewritten')[0]).toHaveTextContent('Lyrics of song B');
+  });
+});

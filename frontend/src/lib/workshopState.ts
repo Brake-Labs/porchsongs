@@ -66,6 +66,16 @@ function apply<T>(update: SetStateAction<T>, prev: T): T {
   return typeof update === 'function' ? (update as (p: T) => T)(prev) : update;
 }
 
+/** Set one field, keeping the same state object (no re-render) when nothing changed. */
+function set<K extends keyof WorkshopState>(
+  state: WorkshopState,
+  key: K,
+  update: SetStateAction<WorkshopState[K]>,
+): WorkshopState {
+  const next = apply(update, state[key]);
+  return Object.is(next, state[key]) ? state : { ...state, [key]: next };
+}
+
 /** Identity change. Unsaved edits belong to the song they were made on. */
 function withSong(state: WorkshopState, id: number | null, uuid: string | null): WorkshopState {
   if (state.currentSongId === id && state.currentSongUuid === uuid) return state;
@@ -105,15 +115,15 @@ export function workshopReducer(state: WorkshopState, action: WorkshopAction): W
     case 'setCurrentSong':
       return withSong(state, action.song?.id ?? null, action.song?.uuid ?? null);
     case 'setRewriteResult':
-      return { ...state, rewriteResult: apply(action.update, state.rewriteResult) };
+      return set(state, 'rewriteResult', action.update);
     case 'setChatMessages':
-      return { ...state, chatMessages: apply(action.update, state.chatMessages) };
+      return set(state, 'chatMessages', action.update);
     case 'setSongTitle':
-      return { ...state, songTitle: apply(action.update, state.songTitle) };
+      return set(state, 'songTitle', action.update);
     case 'setSongArtist':
-      return { ...state, songArtist: apply(action.update, state.songArtist) };
+      return set(state, 'songArtist', action.update);
     case 'setIsDirty':
-      return { ...state, isDirty: apply(action.update, state.isDirty) };
+      return set(state, 'isDirty', action.update);
     case 'parsed':
       return { ...state, songTitle: action.title, songArtist: action.artist };
   }

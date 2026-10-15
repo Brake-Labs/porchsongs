@@ -84,4 +84,15 @@ describe('workshopReducer', () => {
     });
     expect(next.rewriteResult).toMatchObject({ original_content: 'original 1', rewritten_content: 'changed' });
   });
+
+  it('discards unsaved edits when the open song is opened again from the library', () => {
+    const open = editing(workshopReducer(initialWorkshopState(null), { type: 'loadSong', song: song(1) }));
+    expect(workshopReducer(open, { type: 'loadSong', song: song(1) })).toMatchObject({ isDirty: false, songTitle: 'Song 1' });
+  });
+
+  it('returns the same state for a setter that changes nothing, so consumers do not re-render', () => {
+    const open = workshopReducer(initialWorkshopState(null), { type: 'loadSong', song: song(1) });
+    expect(workshopReducer(open, { type: 'setIsDirty', update: false })).toBe(open);
+    expect(workshopReducer(open, { type: 'setSongTitle', update: t => t })).toBe(open);
+  });
 });

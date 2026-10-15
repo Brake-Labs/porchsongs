@@ -102,6 +102,7 @@ export default function AppShell() {
 
   const loadSong = useCallback((song: Song) => {
     chatSessions.setActiveSong(song.id);
+    currentSongUuidRef.current = song.uuid;
     dispatch({ type: 'loadSong', song });
   }, [chatSessions]);
 
@@ -177,9 +178,11 @@ export default function AppShell() {
   // the surface they left, using the values sampled into `launch` above.
   useEffect(() => {
     if (authState !== 'ready' || rewriteResult || !currentSongUuid) return;
-    api.getSong(currentSongUuid).then(async (song: Song) => {
+    const requested = currentSongUuid;
+    api.getSong(requested).then(async (song: Song) => {
+      // The user may have opened another song while this was loading.
+      if (currentSongUuidRef.current !== requested) return;
       loadSong(song);
-      currentSongUuidRef.current = song.uuid;
       await loadChatHistory(song.uuid);
       // Restore route for PWA relaunch. manifest.json's start_url is /app, so a
       // relaunch lands here with a song restored but no idea which surface the
@@ -198,7 +201,7 @@ export default function AppShell() {
         // the chart, which meant an unrecognised value overrode the front door.
       }
     }).catch(() => {
-      setCurrentSong(null);
+      if (currentSongUuidRef.current === requested) setCurrentSong(null);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authState]);
@@ -297,7 +300,6 @@ export default function AppShell() {
 
   const handleLoadSong = useCallback(async (song: Song) => {
     loadSong(song);
-    currentSongUuidRef.current = song.uuid;
     navigate('/app/rewrite');
     await loadChatHistory(song.uuid);
   }, [loadSong, loadChatHistory, navigate]);
@@ -394,8 +396,6 @@ export default function AppShell() {
       </div>
     );
   }
-
-
 
   // The play route is a performance surface: a chart read from a few feet away,
   // often from a phone or tablet on a music stand. Header, tab bar, and footer are
