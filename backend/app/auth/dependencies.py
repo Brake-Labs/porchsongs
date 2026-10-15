@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -45,12 +45,16 @@ def _get_or_create_local_user(db: Session) -> User:
 
 
 def get_current_user(
+    request: Request,
     db: Session = Depends(get_db),
 ) -> User:
-    """Return the local default user.
+    """Return the user for this request.
 
-    In OSS mode there is no authentication — every request is served by the
-    single local user.  When a premium plugin is loaded it overrides this
-    dependency with its own JWT-backed implementation.
+    In OSS mode there is no authentication: every request is served by the
+    single local user. An app built with ``create_app(plugin)`` resolves the
+    user with the plugin's ``authenticator()`` instead.
     """
+    authenticate = getattr(request.app.state, "authenticate", None)
+    if authenticate is not None:
+        return authenticate(request, db)
     return _get_or_create_local_user(db)

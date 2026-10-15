@@ -54,7 +54,7 @@ SEO meta injection (premium): `premium/porchsongs_premium/seo.py` injects route-
 
 ### Auth
 
-Plugin architecture in `backend/app/auth/`. **OSS is auth-free**: `get_current_user` auto-creates and returns a single local user (`local@porchsongs.local`). No login required. Premium adds Google OAuth via `PREMIUM_PLUGIN` env var, overriding `get_current_user` with JWT validation. JWT tokens, refresh tokens, rate limiting, and login/logout endpoints all live in the premium layer. Every data endpoint uses `Depends(get_current_user)` with `user_id` filtering. The auth ABC (`AuthBackend`), token utilities, and rate limiter remain in OSS for premium to import.
+Plugin architecture in `backend/app/auth/`. **OSS is auth-free**: `get_current_user` auto-creates and returns a single local user (`local@porchsongs.local`). No login required. A hosted build extends the app through `create_app(plugin)` in `backend/app/main.py`: an `AppPlugin` (`backend/app/plugin.py`) contributes API routers, an `authenticator()` that `get_current_user` uses instead of the local user, an `auth_backend()`, and a `configure(app)` hook for page routes and middleware that runs before the SPA/static catch-all mounts. The module-level `app` is `create_app()` with no plugin. The older `PREMIUM_PLUGIN` loader (`get_auth_backend()`) still answers `/api/auth/config` when no plugin backend is given. JWT tokens, refresh tokens, rate limiting, and login/logout endpoints all live in the premium layer. Every data endpoint uses `Depends(get_current_user)` with `user_id` filtering. The auth ABC (`AuthBackend`), token utilities, and rate limiter remain in OSS for premium to import.
 
 ### LLM Integration
 
