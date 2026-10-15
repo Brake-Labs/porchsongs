@@ -14,6 +14,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .config import settings
 from .database import get_db
+from .plugin import AppPlugin
 from .routers import auth, follow, profiles, rewrite, songs
 from .schemas import HealthResponse
 
@@ -25,8 +26,6 @@ try:
     __version__ = pkg_version("porchsongs")
 except Exception:
     __version__ = "0.0.0-dev"
-
-app = FastAPI(title="porchsongs", version=__version__)
 
 # Vite names the entry chunk `assets/index-<hash>.js`; the hash changes on every
 # rebuild. Lazy chunks get their own names, so the first match is the entry.
@@ -45,35 +44,6 @@ def _extract_web_build_id(html: str) -> str | None:
     """
     match = _ENTRY_BUNDLE_RE.search(html)
     return match.group(1) if match else None
-
-
-app.add_middleware(
-    CORSMiddleware,  # type: ignore[arg-type]
-    allow_origins=settings.cors_origins.split(","),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(auth.router, prefix="/api")
-app.include_router(profiles.router, prefix="/api")
-app.include_router(songs.router, prefix="/api")
-app.include_router(rewrite.router, prefix="/api")
-app.include_router(follow.router, prefix="/api")
-
-
-@app.get("/api/health", response_model=HealthResponse, tags=["health"])
-def health(db: Session = Depends(get_db)) -> HealthResponse | JSONResponse:
-    """Public health-check endpoint for container orchestration."""
-    try:
-        db.execute(text("SELECT 1"))
-    except Exception:
-        logger.warning("Health check failed: database unreachable")
-        return JSONResponse(
-            status_code=503,
-            content={"status": "degraded", "version": __version__},
-        )
-    return HealthResponse(status="ok", version=__version__)
 
 
 # Files that decide which build everything else comes from, and so must never be
@@ -154,8 +124,6 @@ class CacheHeadersMiddleware:
         await self.app(scope, receive, send_with_cache)
 
 
-app.add_middleware(CacheHeadersMiddleware)  # type: ignore[arg-type]
-
 # Serve the React build output (frontend/dist) if it exists, otherwise serve frontend/ directly.
 frontend_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 frontend_dir = Path(__file__).resolve().parent.parent.parent / "frontend"
@@ -168,10 +136,22 @@ if _static_dir is not None:
     _index_html_path = _static_dir / "index.html"
     _index_html_content = _index_html_path.read_text() if _index_html_path.exists() else ""
 
-_web_build_id = _extract_web_build_id(_index_html_content)
+_web_build_id_value = _extract_web_build_id(_index_html_content)
 
 
-@app.get("/api/web-build-id", include_in_schema=False)
+def health(db: Session = Depends(get_db)) -> HealthResponse | JSONResponse:
+    """Public health-check endpoint for container orchestration."""
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception:
+        logger.warning("Health check failed: database unreachable")
+        return JSONResponse(
+            status_code=503,
+            content={"status": "degraded", "version": __version__},
+        )
+    return HealthResponse(status="ok", version=__version__)
+
+
 async def web_build_id() -> JSONResponse:
     """Report the deployed entry-bundle hash so clients can detect a stale page.
 
@@ -179,20 +159,71 @@ async def web_build_id() -> JSONResponse:
     every route (marketing, login, app) and even when the database is degraded.
     `no-store` so the staleness check is never answered from a cache.
     """
-    return JSONResponse({"web_build_id": _web_build_id}, headers={"Cache-Control": "no-store"})
+    return JSONResponse(
+        {"web_build_id": _web_build_id_value}, headers={"Cache-Control": "no-store"}
+    )
 
 
-if _static_dir is not None:
+async def _spa_fallback() -> HTMLResponse:
+    """Serve index.html for SPA client-side routes."""
+    return HTMLResponse(_index_html_content)
 
-    @app.get("/app")
-    @app.get("/app/{rest:path}")
-    @app.get("/rewrite")
-    @app.get("/library")
-    @app.get("/library/{rest:path}")
-    @app.get("/settings")
-    @app.get("/settings/{rest:path}")
-    async def _spa_fallback() -> HTMLResponse:
-        """Serve index.html for SPA client-side routes."""
-        return HTMLResponse(_index_html_content)
 
-    app.mount("/", StaticFiles(directory=str(_static_dir), html=True), name="frontend")
+# Registered in this order to keep the OpenAPI spec (and so the generated
+# frontend types) identical to the stacked decorators this replaced.
+_SPA_PATHS = (
+    "/settings/{rest:path}",
+    "/settings",
+    "/library/{rest:path}",
+    "/library",
+    "/rewrite",
+    "/app/{rest:path}",
+    "/app",
+)
+
+
+def create_app(plugin: AppPlugin | None = None) -> FastAPI:
+    """Build the porchsongs app, letting *plugin* contribute before the catch-all.
+
+    See ``app.plugin`` for the order hooks run in. Each call returns a new app,
+    so a plugin's routes, middleware and auth never leak into another app.
+    """
+    plugin = plugin or AppPlugin()
+    app = FastAPI(title="porchsongs", version=__version__)
+
+    app.add_middleware(
+        CORSMiddleware,  # type: ignore[arg-type]
+        allow_origins=settings.cors_origins.split(","),
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    for router in (auth.router, profiles.router, songs.router, rewrite.router, follow.router):
+        app.include_router(router, prefix="/api")
+    for router in plugin.routers():
+        app.include_router(router, prefix="/api")
+
+    app.add_api_route(
+        "/api/health", health, methods=["GET"], response_model=HealthResponse, tags=["health"]
+    )
+    app.add_middleware(CacheHeadersMiddleware)  # type: ignore[arg-type]
+    app.add_api_route("/api/web-build-id", web_build_id, methods=["GET"], include_in_schema=False)
+
+    # Read by get_current_user and /api/auth/config. Stored on the app rather
+    # than set as a dependency override, so a test clearing overrides cannot
+    # silently drop a plugin's auth and fall back to the local admin user.
+    app.state.authenticate = plugin.authenticator()
+    app.state.auth_backend = plugin.auth_backend()
+
+    plugin.configure(app)
+
+    if _static_dir is not None:
+        for path in _SPA_PATHS:
+            app.add_api_route(path, _spa_fallback, methods=["GET"])
+        app.mount("/", StaticFiles(directory=str(_static_dir), html=True), name="frontend")
+
+    return app
+
+
+app = create_app()
