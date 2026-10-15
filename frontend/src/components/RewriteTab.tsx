@@ -247,8 +247,16 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   }, [isDirty]);
 
   // Leaving the workshop cancels the autosave timer below, so save whatever it
-  // was waiting on now. handleSave is a no-op when nothing is dirty.
-  useEffect(() => () => { void handleSaveRef.current(); }, []);
+  // was waiting on now. handleSave is a no-op when nothing is dirty. Skipped
+  // while a chat reply is streaming: the chart then holds a partial reply, and
+  // the backend saves the finished one itself.
+  const flushRef = useRef({ chatSessions, currentSongId });
+  flushRef.current = { chatSessions, currentSongId };
+  useEffect(() => () => {
+    const { chatSessions: sessions, currentSongId: songId } = flushRef.current;
+    if (sessions?.get(songId).sending) return;
+    void handleSaveRef.current();
+  }, []);
 
   // Autosave: debounce manual edits by 1.5s
   useEffect(() => {

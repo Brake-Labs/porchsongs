@@ -64,4 +64,23 @@ describe('ChatSessionStore', () => {
     expect(sink.onContentUpdated).toHaveBeenCalledWith('new');
     expect(messages().map(m => m.content)).toEqual(['hi', 'done']);
   });
+
+  it('sends a queued message against the content the previous reply produced', async () => {
+    let finish!: (v: typeof RESULT) => void;
+    chatStream.mockReturnValueOnce(new Promise(r => { finish = r; }));
+    chatStream.mockReturnValueOnce(new Promise(() => {}));
+    const store = new ChatSessionStore();
+    const { sink } = makeSink();
+    // The sink still holds the pre-reply chart: React has not re-rendered yet.
+    store.setSink({ ...sink, rewrittenContent: 'old' });
+    store.setActiveSong(1);
+
+    const first = store.send(1, msg('one'));
+    void store.send(1, msg('two'));
+    finish({ ...RESULT, rewritten_content: 'new' });
+    await first;
+
+    expect(chatStream).toHaveBeenCalledTimes(2);
+    expect(chatStream.mock.calls[1]![0]).toMatchObject({ rewritten_content: 'new' });
+  });
 });

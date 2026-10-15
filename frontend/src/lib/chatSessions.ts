@@ -47,6 +47,9 @@ interface Session {
   snapshot: ChatSessionSnapshot;
   abort: AbortController | null;
   queue: QueuedMessage[];
+  // The chart as the last reply in this run of the queue left it. The sink
+  // cannot say: the next queued request goes out before React re-renders.
+  latestContent?: string;
 }
 
 const IDLE: ChatSessionSnapshot = Object.freeze({
@@ -157,11 +160,11 @@ export class ChatSessionStore {
     session.abort = controller;
     this.update(songId, { sending: true, reasoningText: '' });
 
-    // Prefer what is on screen now, which includes any edit the previous
-    // message in the queue just made.
+    // Prefer the settings on screen now; for content, prefer what the previous
+    // reply in the queue produced, which the sink has not caught up with yet.
     const live = this.isActive(songId) ? this.sink : null;
     const llmSettings = live?.llmSettings ?? queued?.llmSettings ?? { model: '', reasoning_effort: '' };
-    const rewrittenContent = live ? live.rewrittenContent : queued?.rewrittenContent;
+    const rewrittenContent = session.latestContent ?? (live ? live.rewrittenContent : queued?.rewrittenContent);
 
     const streamId = this.nextStreamId++;
     const parser = new StreamParser();
@@ -213,6 +216,7 @@ export class ChatSessionStore {
       const finalMsg: ChatMessage = hasContent
         ? { role: 'assistant', content: stripXmlTags(result.changes_summary), rawContent: result.assistant_message, reasoning, model: llmSettings.model }
         : { role: 'assistant', content: stripXmlTags(result.assistant_message), reasoning, model: llmSettings.model };
+      if (result.rewritten_content != null) session.latestContent = result.rewritten_content;
       this.write(songId, sink => {
         sink.setMessages(putBubble(finalMsg));
         if (result.rewritten_content != null) sink.onContentUpdated(result.rewritten_content);
@@ -235,7 +239,14 @@ export class ChatSessionStore {
         const errorType = (err as Error & { errorType?: string }).errorType;
         note = { role: 'assistant', content: 'Error: ' + (err as Error).message, errorType };
       }
-      this.write(songId, sink => sink.setMessages(prev => [...prev.filter(m => !m.pending && m.streamId !== streamId), note]));
+      // A cancelled reply keeps what it streamed so far. A failed one loses its
+      // partial bubble, so Retry (which pops the error and the user message)
+      // does not leave the user message behind to be sent twice.
+      const keepPartial = (err as Error).name === 'AbortError';
+      this.write(songId, sink => sink.setMessages(prev => [
+        ...prev.filter(m => !m.pending && (keepPartial || m.streamId !== streamId)),
+        note,
+      ]));
     } finally {
       session.abort = null;
       this.update(songId, { streaming: false, reasoningText: '' });
@@ -251,6 +262,7 @@ export class ChatSessionStore {
         }));
         void this.request(songId, next.apiContent, next.text, next);
       } else {
+        session.latestContent = undefined;
         this.update(songId, { sending: false });
       }
     }

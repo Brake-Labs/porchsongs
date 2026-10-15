@@ -260,4 +260,56 @@ describe('a chat stream that outlives its song', () => {
     // The queued message goes out once the first finishes.
     expect(mockApi.chatStream).toHaveBeenCalledTimes(2);
   });
+
+  it('does not save a half-streamed chart when leaving mid-reply', async () => {
+    let onToken!: (t: string) => void;
+    let fail!: (e: Error) => void;
+    mockApi.chatStream!.mockImplementation((_req: unknown, tok: (t: string) => void) => {
+      onToken = tok;
+      return new Promise((_res, rej) => { fail = rej; });
+    });
+    renderApp();
+    await waitForWorkshop('Song A');
+
+    const input = screen.getByPlaceholderText(/change the song|change it/);
+    fireEvent.change(input, { target: { value: 'Make it about dogs' } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+    });
+    await act(async () => { onToken('Sure.<content>Dogs every'); });
+    expect(screen.getAllByTestId('rewritten')[0]).toHaveTextContent('Dogs every');
+
+    fireEvent.click(screen.getByText('to-library'));
+    await screen.findByTestId('library');
+    await act(async () => { fail(new Error('provider exploded')); });
+
+    expect(mockApi.updateSong).not.toHaveBeenCalled();
+  });
+
+  it('keeps the partial reply on cancel', async () => {
+    let onToken!: (t: string) => void;
+    mockApi.chatStream!.mockImplementation((_req: unknown, tok: (t: string) => void, signal: AbortSignal) => {
+      onToken = tok;
+      return new Promise((_res, rej) => {
+        signal.addEventListener('abort', () => {
+          const e = new Error('aborted');
+          e.name = 'AbortError';
+          rej(e);
+        });
+      });
+    });
+    renderApp();
+    await waitForWorkshop('Song A');
+
+    const input = screen.getByPlaceholderText(/change the song|change it/);
+    fireEvent.change(input, { target: { value: 'Make it about dogs' } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+    });
+    await act(async () => { onToken('Here is a partial answer'); });
+    await act(async () => { fireEvent.click(screen.getByText('Cancel')); });
+
+    expect(screen.getByText('Here is a partial answer')).toBeInTheDocument();
+    expect(screen.getByText('Cancelled.')).toBeInTheDocument();
+  });
 });
