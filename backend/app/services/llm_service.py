@@ -61,6 +61,86 @@ class LLMCallParams:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class TextDelta:
+    """A chunk of the model's reply text."""
+
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReasoningDelta:
+    """A chunk of the model's reasoning (thinking) text."""
+
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class UsageReport:
+    """Final token usage for the call, sent once near the end of a stream."""
+
+    usage: dict[str, int | None]
+
+
+StreamEvent = TextDelta | ReasoningDelta | UsageReport
+
+
+@dataclass(slots=True)
+class StreamAccumulator:
+    """Collects a stream's reply, reasoning and usage as events arrive."""
+
+    text: str = ""
+    reasoning: str = ""
+    usage: dict[str, int | None] | None = None
+
+    def consume(self, event: StreamEvent) -> None:
+        if isinstance(event, TextDelta):
+            self.text += event.text
+        elif isinstance(event, ReasoningDelta):
+            self.reasoning += event.text
+        else:
+            self.usage = event.usage
+
+
+async def _stream_events(params: LLMCallParams) -> AsyncIterator[StreamEvent]:
+    """Send a streaming call and translate provider events into ``StreamEvent``s."""
+    response = cast(
+        "AsyncIterator[MessageStreamEvent]",
+        await params.send(stream=True),
+    )
+
+    input_usage: dict[str, int | None] = {}
+
+    async for event in response:
+        if event.type == "message_start" and event.message:
+            u = event.message.usage
+            input_usage = {
+                "input_tokens": u.input_tokens,
+                "cache_creation_input_tokens": u.cache_creation_input_tokens,
+                "cache_read_input_tokens": u.cache_read_input_tokens,
+            }
+        elif event.type == "content_block_delta" and event.delta:
+            if event.delta.type == "text_delta":
+                yield TextDelta(event.delta.text)
+            elif event.delta.type == "thinking_delta":
+                yield ReasoningDelta(event.delta.thinking)
+        elif event.type == "message_delta" and event.usage:
+            usage_data: dict[str, int | None] = {
+                # Some gateway models report input tokens only on message_delta
+                # rather than message_start; prefer whichever is non-zero.
+                "input_tokens": (input_usage.get("input_tokens") or 0)
+                or (getattr(event.usage, "input_tokens", None) or 0),
+                "output_tokens": event.usage.output_tokens,
+            }
+            cache_create = input_usage.get("cache_creation_input_tokens")
+            cache_read = input_usage.get("cache_read_input_tokens")
+            if cache_create is not None:
+                usage_data["cache_creation_input_tokens"] = cache_create
+            if cache_read is not None:
+                usage_data["cache_read_input_tokens"] = cache_read
+            yield UsageReport(usage_data)
+
+
 def _resolve_thinking(
     reasoning_effort: str | None,
 ) -> tuple[dict[str, Any] | None, dict[str, str] | None]:
@@ -352,7 +432,7 @@ async def parse_content(
         api_key,
     )
     clean_response = cast("MessageResponse", await params.send())
-    clean_result = _parse_clean_response(_get_content(clean_response), content)
+    clean_result = parse_clean_response(_get_content(clean_response), content)
     reasoning = _get_reasoning(clean_response)
     usage = _get_usage(clean_response)
 
@@ -375,12 +455,8 @@ async def parse_content_stream(
     system_prompt: str | None = None,
     max_tokens: int | None = None,
     api_key: str | None = None,
-) -> AsyncIterator[tuple[str, str]]:
-    """Stream parse tokens as ``(type, text)`` tuples.
-
-    Types: ``"token"`` for content, ``"reasoning"`` for reasoning/thinking,
-    ``"usage"`` for final token usage JSON.
-    """
+) -> AsyncIterator[StreamEvent]:
+    """Stream a parse call as typed events (see ``StreamEvent``)."""
     params = _build_parse_params(
         content,
         provider,
@@ -392,41 +468,8 @@ async def parse_content_stream(
         max_tokens,
         api_key,
     )
-    response = cast(
-        "AsyncIterator[MessageStreamEvent]",
-        await params.send(stream=True),
-    )
-
-    input_usage: dict[str, int | None] = {}
-
-    async for event in response:
-        if event.type == "message_start" and event.message:
-            u = event.message.usage
-            input_usage = {
-                "input_tokens": u.input_tokens,
-                "cache_creation_input_tokens": u.cache_creation_input_tokens,
-                "cache_read_input_tokens": u.cache_read_input_tokens,
-            }
-        elif event.type == "content_block_delta" and event.delta:
-            if event.delta.type == "text_delta":
-                yield ("token", event.delta.text)
-            elif event.delta.type == "thinking_delta":
-                yield ("reasoning", event.delta.thinking)
-        elif event.type == "message_delta" and event.usage:
-            usage_data: dict[str, int | None] = {
-                # Some gateway models report input tokens only on message_delta
-                # rather than message_start; prefer whichever is non-zero.
-                "input_tokens": (input_usage.get("input_tokens") or 0)
-                or (getattr(event.usage, "input_tokens", None) or 0),
-                "output_tokens": event.usage.output_tokens,
-            }
-            cache_create = input_usage.get("cache_creation_input_tokens")
-            cache_read = input_usage.get("cache_read_input_tokens")
-            if cache_create is not None:
-                usage_data["cache_creation_input_tokens"] = cache_create
-            if cache_read is not None:
-                usage_data["cache_read_input_tokens"] = cache_read
-            yield ("usage", json.dumps(usage_data))
+    async for event in _stream_events(params):
+        yield event
 
 
 def _extract_xml_section(raw: str, tag: str) -> str | None:
@@ -451,7 +494,7 @@ def _parse_meta_section(meta_text: str) -> dict[str, str | None]:
     return {"title": title, "artist": artist}
 
 
-def _parse_clean_response(raw: str, fallback_original: str) -> dict[str, str | None]:
+def parse_clean_response(raw: str, fallback_original: str) -> dict[str, str | None]:
     """Parse the cleanup LLM response (Call 1).
 
     Extracts <meta> (title/artist) and <original> (cleaned text).
@@ -472,7 +515,7 @@ def _parse_clean_response(raw: str, fallback_original: str) -> dict[str, str | N
     return {"original": original, "title": title, "artist": artist}
 
 
-def _parse_chat_response(raw: str) -> dict[str, str | None]:
+def parse_chat_response(raw: str) -> dict[str, str | None]:
     """Parse chat LLM response, extracting content from <content> tags and explanation.
 
     Returns ``{"content": ..., "original_content": ..., "explanation": ...}``
@@ -609,7 +652,7 @@ async def chat_edit_content(
     response = cast("MessageResponse", await params.send())
 
     raw_response = _get_content(response)
-    parsed = _parse_chat_response(raw_response)
+    parsed = parse_chat_response(raw_response)
     reasoning = _get_reasoning(response)
     usage = _get_usage(response)
 
@@ -638,12 +681,8 @@ async def chat_edit_content_stream(
     api_key: str | None = None,
     history_len: int = 0,
     rewritten_content: str | None = None,
-) -> AsyncIterator[tuple[str, str]]:
-    """Stream a chat-based content edit token by token as ``(type, text)`` tuples.
-
-    Types: ``"token"`` for content, ``"reasoning"`` for reasoning/thinking,
-    ``"usage"`` for final token usage JSON.
-    """
+) -> AsyncIterator[StreamEvent]:
+    """Stream a chat-based content edit as typed events (see ``StreamEvent``)."""
     params = _build_chat_params(
         original_content,
         messages,
@@ -657,41 +696,8 @@ async def chat_edit_content_stream(
         history_len=history_len,
         rewritten_content=rewritten_content,
     )
-    response = cast(
-        "AsyncIterator[MessageStreamEvent]",
-        await params.send(stream=True),
-    )
-
-    input_usage: dict[str, int | None] = {}
-
-    async for event in response:
-        if event.type == "message_start" and event.message:
-            u = event.message.usage
-            input_usage = {
-                "input_tokens": u.input_tokens,
-                "cache_creation_input_tokens": u.cache_creation_input_tokens,
-                "cache_read_input_tokens": u.cache_read_input_tokens,
-            }
-        elif event.type == "content_block_delta" and event.delta:
-            if event.delta.type == "text_delta":
-                yield ("token", event.delta.text)
-            elif event.delta.type == "thinking_delta":
-                yield ("reasoning", event.delta.thinking)
-        elif event.type == "message_delta" and event.usage:
-            usage_data: dict[str, int | None] = {
-                # Some gateway models report input tokens only on message_delta
-                # rather than message_start; prefer whichever is non-zero.
-                "input_tokens": (input_usage.get("input_tokens") or 0)
-                or (getattr(event.usage, "input_tokens", None) or 0),
-                "output_tokens": event.usage.output_tokens,
-            }
-            cache_create = input_usage.get("cache_creation_input_tokens")
-            cache_read = input_usage.get("cache_read_input_tokens")
-            if cache_create is not None:
-                usage_data["cache_creation_input_tokens"] = cache_create
-            if cache_read is not None:
-                usage_data["cache_read_input_tokens"] = cache_read
-            yield ("usage", json.dumps(usage_data))
+    async for event in _stream_events(params):
+        yield event
 
 
 FOLLOW_ARBITER_SYSTEM_PROMPT = """You help a live lyric-following app decide which line of a song a \

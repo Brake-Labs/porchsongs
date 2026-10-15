@@ -2,8 +2,8 @@ import asyncio
 import base64
 import json
 import logging
-from collections.abc import AsyncIterator, Awaitable
-from dataclasses import dataclass
+from collections.abc import AsyncIterator, Awaitable, Iterator
+from contextlib import contextmanager
 from io import BytesIO
 from typing import TypeVar
 
@@ -20,18 +20,14 @@ from any_llm import AuthenticationError as LLMAuthError
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
-from sqlalchemy import update
 from sqlalchemy.orm import Session
-from sqlalchemy.orm.attributes import set_committed_value
 
 from ..auth.dependencies import get_current_user
 from ..auth.scoping import get_user_profile, get_user_song
 from ..config import settings
-from ..database import SessionLocal, get_db
-from ..models import ChatMessage as ChatMessageModel
-from ..models import Profile, Song, SongRevision, User
+from ..database import get_db
+from ..models import User
 from ..schemas import (
-    ChatMessage,
     ChatRequest,
     ChatResponse,
     DefaultPromptsResponse,
@@ -50,18 +46,17 @@ from ..schemas import (
     UrlScrapeResponse,
 )
 from ..services import llm_service, scrape_service
+from ..services.chat_turn import ChatTurn
+from ..services.llm_service import ReasoningDelta, StreamAccumulator, StreamEvent, TextDelta
 from ..services.tags import user_tags
 from .songs import reject_documents
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Strong references to background tasks so they aren't GC'd before completion.
-_background_tasks: set[asyncio.Task[None]] = set()
 
-
-def _require_gateway() -> None:
-    """Raise 503 when no LLM gateway is configured (``LLM_API_BASE`` unset)."""
+def require_gateway() -> None:
+    """Dependency: 503 when no LLM gateway is configured (``LLM_API_BASE`` unset)."""
     if not settings.llm_api_base:
         raise HTTPException(
             status_code=503,
@@ -127,6 +122,45 @@ def _format_llm_error(e: Exception, provider: str | None = None) -> dict[str, st
     }
 
 
+@contextmanager
+def llm_errors() -> Iterator[None]:
+    """Turn an LLM call's failure into a 502 carrying the ``error_type`` contract.
+
+    ``HTTPException`` passes through untouched (e.g. the 499 from ``_cancellable``).
+    Every LLM route, here and in ``follow.py``, goes through this or ``_sse_error``,
+    and both resolve ``_format_llm_error`` from this module at call time, which is
+    what premium's tests patch.
+    """
+    try:
+        yield
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=502, detail=_format_llm_error(e, settings.llm_provider)
+        ) from None
+
+
+def _sse(event: str, data: object) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+def _sse_error(e: Exception) -> str:
+    return _sse("error", _format_llm_error(e, settings.llm_provider))
+
+
+def _sse_delta(event: StreamEvent) -> str | None:
+    """The SSE frame for a streamed delta. Usage is not forwarded until ``done``."""
+    if isinstance(event, TextDelta):
+        return _sse("token", event.text)
+    if isinstance(event, ReasoningDelta):
+        return _sse("reasoning", event.text)
+    return None
+
+
+_SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+
+
 T = TypeVar("T")
 
 
@@ -160,18 +194,17 @@ async def get_default_prompts(
     )
 
 
-@router.post("/parse", response_model=ParseResponse)
+@router.post("/parse", response_model=ParseResponse, dependencies=[Depends(require_gateway)])
 async def parse(
     req: ParseRequest,
     request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ParseResponse:
-    _require_gateway()
     profile = await run_in_threadpool(get_user_profile, db, current_user, req.profile_id)
     system_prompt = profile.system_prompt_parse
 
-    try:
+    with llm_errors():
         result = await _cancellable(
             request,
             llm_service.parse_content(
@@ -186,12 +219,6 @@ async def parse(
                 api_key=settings.llm_api_key,
             ),
         )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=502, detail=_format_llm_error(e, settings.llm_provider)
-        ) from None
 
     usage_data = result.get("usage")
     usage = TokenUsage(**usage_data) if usage_data else None
@@ -205,24 +232,21 @@ async def parse(
     )
 
 
-@router.post("/parse/stream")
+@router.post("/parse/stream", dependencies=[Depends(require_gateway)])
 async def parse_stream(
     req: ParseRequest,
     request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
-    _require_gateway()
     profile = await run_in_threadpool(get_user_profile, db, current_user, req.profile_id)
 
-    # Extract ORM value before the generator runs — the DB session may be
+    # Extract ORM value before the generator runs: the DB session may be
     # closed by then, making ORM attribute access raise DetachedInstanceError.
     system_prompt = profile.system_prompt_parse
 
     async def event_generator() -> AsyncIterator[str]:
-        accumulated = ""
-        reasoning_accumulated = ""
-        usage_data: dict[str, int] | None = None
+        reply = StreamAccumulator()
         try:
             stream = llm_service.parse_content_stream(
                 content=req.content,
@@ -235,41 +259,36 @@ async def parse_stream(
                 max_tokens=req.max_tokens,
                 api_key=settings.llm_api_key,
             )
-            async for kind, text in stream:
+            async for event in stream:
                 if await request.is_disconnected():
                     return
-                if kind == "reasoning":
-                    reasoning_accumulated += text
-                    yield f"event: reasoning\ndata: {json.dumps(text)}\n\n"
-                elif kind == "usage":
-                    usage_data = json.loads(text)
-                else:
-                    accumulated += text
-                    yield f"event: token\ndata: {json.dumps(text)}\n\n"
+                reply.consume(event)
+                frame = _sse_delta(event)
+                if frame is not None:
+                    yield frame
         except Exception as e:
             logger.exception("Parse stream LLM error")
-            yield f"event: error\ndata: {json.dumps(_format_llm_error(e, settings.llm_provider))}\n\n"
+            yield _sse_error(e)
             return
 
-        # Parse the accumulated response
-        parsed = llm_service._parse_clean_response(accumulated, req.content)
+        parsed = llm_service.parse_clean_response(reply.text, req.content)
         done_data: dict[str, object] = {
             "original_content": parsed["original"],
             "title": parsed["title"],
             "artist": parsed["artist"],
-            "reasoning": reasoning_accumulated or None,
-            "usage": usage_data,
+            "reasoning": reply.reasoning or None,
+            "usage": reply.usage,
         }
-        yield f"event: done\ndata: {json.dumps(done_data)}\n\n"
+        yield _sse("done", done_data)
 
     return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        event_generator(), media_type="text/event-stream", headers=_SSE_HEADERS
     )
 
 
-@router.post("/parse/image", response_model=ImageExtractResponse)
+@router.post(
+    "/parse/image", response_model=ImageExtractResponse, dependencies=[Depends(require_gateway)]
+)
 async def parse_image(
     req: ImageExtractRequest,
     request: Request,
@@ -277,10 +296,9 @@ async def parse_image(
     db: Session = Depends(get_db),
 ) -> ImageExtractResponse:
     """Extract song text from an uploaded image using LLM vision."""
-    _require_gateway()
     await run_in_threadpool(get_user_profile, db, current_user, req.profile_id)
 
-    try:
+    with llm_errors():
         result = await _cancellable(
             request,
             llm_service.extract_text_from_image(
@@ -292,12 +310,6 @@ async def parse_image(
                 api_key=settings.llm_api_key,
             ),
         )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=502, detail=_format_llm_error(e, settings.llm_provider)
-        ) from None
 
     usage_data = result.get("usage")
     usage = TokenUsage(**usage_data) if usage_data else None
@@ -425,460 +437,96 @@ def parse_url(
     )
 
 
-def _deserialize_content(raw: str) -> str | list[dict[str, object]]:
-    """Deserialize a persisted content value back to its original form."""
-    if raw.startswith("["):
-        try:
-            return json.loads(raw)
-        except (json.JSONDecodeError, ValueError):
-            pass
-    return raw
-
-
-def _load_chat_messages(
-    db: Session,
-    song_id: int,
-    req_messages: list[ChatMessage],
-) -> tuple[list[dict[str, object]], int]:
-    """Load persisted chat history and append new request messages.
-
-    Returns (all_messages, history_len) where history_len is the count of
-    messages from the database (before the new request messages).
-    """
-    history_rows = (
-        db.query(ChatMessageModel)
-        .filter(ChatMessageModel.song_id == song_id, ChatMessageModel.is_note.is_(False))
-        .order_by(ChatMessageModel.created_at)
-        .all()
-    )
-    history: list[dict[str, object]] = [
-        {"role": row.role, "content": _deserialize_content(row.content)} for row in history_rows
-    ]
-    history_len = len(history)
-    return history + [{"role": m.role, "content": m.content} for m in req_messages], history_len
-
-
-def _persist_user_message(
-    db: Session,
-    song_id: int,
-    req_messages: list[ChatMessage],
-) -> None:
-    """Persist the user message from the request so it survives cancellation."""
-    last_user_msg = req_messages[-1] if req_messages else None
-    if last_user_msg and last_user_msg.role == "user":
-        content = last_user_msg.content
-        db.add(
-            ChatMessageModel(
-                song_id=song_id,
-                role="user",
-                content=json.dumps(content) if isinstance(content, list) else content,
-                is_note=False,
-            )
-        )
-
-
-def _persist_chat_result(
-    db: Session,
-    song: Song,
-    rewritten_content: str | None,
-    changes_summary: str,
-    assistant_content: str,
-    original_content: str | None = None,
-    reasoning: str | None = None,
-    model: str | None = None,
-    input_tokens: int | None = None,
-    output_tokens: int | None = None,
-) -> int:
-    """Update song, create revision, and save assistant message (does not commit).
-
-    Returns the song's version after this turn.
-
-    The user message is persisted earlier via ``_persist_user_message`` so that
-    it survives request cancellation.
-    """
-    if original_content is not None:
-        song.original_content = original_content
-
-    version = song.current_version
-    if rewritten_content is not None:
-        song.rewritten_content = rewritten_content
-        song.changes_summary = changes_summary
-        # Bump in the database, not in Python. A read-then-add lets two persists
-        # for one song (the background finisher and the user's next request)
-        # claim the same version. The UPDATE also holds the row lock until
-        # commit, so the second writer waits and reads the first one's number.
-        version = db.execute(
-            update(Song)
-            .where(Song.id == song.id)
-            .values(current_version=Song.current_version + 1)
-            .returning(Song.current_version)
-            .execution_options(synchronize_session=False)
-        ).scalar_one()
-        set_committed_value(song, "current_version", version)
-
-        db.add(
-            SongRevision(
-                song_id=song.id,
-                version=version,
-                rewritten_content=rewritten_content,
-                changes_summary=changes_summary,
-                edit_type="chat",
-            )
-        )
-
-    db.add(
-        ChatMessageModel(
-            song_id=song.id,
-            role="assistant",
-            content=assistant_content,
-            is_note=False,
-            reasoning=reasoning,
-            model=model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-        )
-    )
-    return version
-
-
-def _persist_chat_in_new_session(
-    song_id: int,
-    accumulated: str,
-    reasoning_accumulated: str,
-    model: str | None,
-    usage_data: dict[str, int] | None,
-) -> int | None:
-    """Persist a streamed chat turn in its own session and commit.
-
-    Sync, for ``run_in_threadpool``. The request session may be closed by the
-    time a stream finishes. Returns the committed version, or None if the song
-    is gone. Raises (after rolling back) if the commit fails.
-    """
-    parsed = llm_service._parse_chat_response(accumulated)
-    db = SessionLocal()
-    try:
-        song = db.query(Song).filter(Song.id == song_id).first()
-        if not song:
-            return None
-        version = _persist_chat_result(
-            db,
-            song,
-            rewritten_content=parsed["content"],
-            changes_summary=parsed["explanation"] or "Chat edit applied.",
-            assistant_content=accumulated,
-            original_content=parsed.get("original_content"),
-            reasoning=reasoning_accumulated or None,
-            model=model,
-            input_tokens=usage_data.get("input_tokens") if usage_data else None,
-            output_tokens=usage_data.get("output_tokens") if usage_data else None,
-        )
-        db.commit()
-        return version
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
-
-
-async def _finish_chat_in_background(
-    stream: AsyncIterator[tuple[str, str]],
-    accumulated: str,
-    reasoning_accumulated: str,
-    song_id: int,
-    model: str | None,
-    usage_data: dict[str, int] | None = None,
-) -> None:
-    """Continue consuming an LLM stream and persist the result after client disconnect.
-
-    Uses its own DB session since the request session may be closed.
-    """
-    try:
-        async with asyncio.timeout(120):  # 2 min guard against hung streams
-            async for kind, text in stream:
-                if kind == "reasoning":
-                    reasoning_accumulated += text
-                elif kind == "usage":
-                    usage_data = json.loads(text)
-                else:
-                    accumulated += text
-    except TimeoutError:
-        logger.warning("Background chat stream timed out after 120s, persisting partial result")
-    except Exception:
-        logger.exception("Background chat stream completion error (LLM)")
-        return
-
-    try:
-        version = await run_in_threadpool(
-            _persist_chat_in_new_session,
-            song_id,
-            accumulated,
-            reasoning_accumulated,
-            model,
-            usage_data,
-        )
-    except Exception:
-        logger.exception("Background chat stream DB persist error")
-        return
-    if version is None:
-        logger.warning("Background chat persist: song %s not found", song_id)
-    else:
-        logger.info("Background chat persist succeeded for song %s", song_id)
-
-
-@dataclass
-class _ChatSetup:
-    """What a chat turn needs from the database, read before the LLM call.
-
-    Plain values, not ORM objects: the session is committed (expiring them) and
-    may be closed before a stream finishes.
-    """
-
-    song_id: int
-    messages: list[dict[str, object]]
-    history_len: int
-    system_prompt: str | None
-    original_content: str
-    rewritten_content: str | None
-
-
-def _prepare_chat(db: Session, current_user: User, req: ChatRequest) -> _ChatSetup:
-    """Load the song and history and persist the user message (sync; commits).
-
-    The user message is committed before the LLM call so it survives
-    cancellation.
-    """
-    song = get_user_song(db, current_user, req.song_id)
-    reject_documents(song, "sent to the model")
-    messages, history_len = _load_chat_messages(db, song.id, req.messages)
-    profile = db.query(Profile).filter(Profile.id == song.profile_id).first()
-    setup = _ChatSetup(
-        song_id=song.id,
-        messages=messages,
-        history_len=history_len,
-        system_prompt=profile.system_prompt_chat if profile else None,
-        original_content=song.original_content,
-        # Use frontend-provided rewritten_content (avoids autosave race), else DB
-        # value. Explicit None check so an empty string from the client doesn't
-        # silently fall through to the DB value.
-        rewritten_content=(
-            req.rewritten_content if req.rewritten_content is not None else song.rewritten_content
-        ),
-    )
-    _persist_user_message(db, song.id, req.messages)
-    db.commit()
-    return setup
-
-
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/chat", response_model=ChatResponse, dependencies=[Depends(require_gateway)])
 async def chat(
     req: ChatRequest,
     request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ChatResponse:
-    _require_gateway()
-    setup = await run_in_threadpool(_prepare_chat, db, current_user, req)
+    turn = await run_in_threadpool(ChatTurn.prepare, db, current_user, req)
 
-    try:
-        result = await _cancellable(
-            request,
-            llm_service.chat_edit_content(
-                original_content=setup.original_content,
-                messages=setup.messages,
-                provider=settings.llm_provider,
-                model=req.model,
-                api_base=settings.llm_api_base,
-                reasoning_effort=req.reasoning_effort,
-                system_prompt=setup.system_prompt,
-                max_tokens=req.max_tokens,
-                api_key=settings.llm_api_key,
-                history_len=setup.history_len,
-                rewritten_content=setup.rewritten_content,
-            ),
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=502, detail=_format_llm_error(e, settings.llm_provider)
-        ) from None
+    with llm_errors():
+        await _cancellable(request, turn.complete())
 
-    usage_data = result.get("usage")
-
-    def _save() -> int:
-        song = get_user_song(db, current_user, setup.song_id)
-        version = _persist_chat_result(
-            db,
-            song,
-            rewritten_content=result["rewritten_content"],
-            changes_summary=result["changes_summary"],
-            assistant_content=result["assistant_message"],
-            original_content=result.get("original_content"),
-            reasoning=result.get("reasoning"),
-            model=req.model,
-            input_tokens=usage_data.get("input_tokens") if usage_data else None,
-            output_tokens=usage_data.get("output_tokens") if usage_data else None,
-        )
-        db.commit()
-        return version
-
-    version = await run_in_threadpool(_save)
-
-    usage = TokenUsage(**usage_data) if usage_data else None
-
-    return ChatResponse(
-        rewritten_content=result["rewritten_content"],
-        original_content=result.get("original_content"),
-        assistant_message=result["assistant_message"],
-        changes_summary=result["changes_summary"],
-        version=version,
-        reasoning=result.get("reasoning"),
-        usage=usage,
-    )
+    version = await run_in_threadpool(turn.persist)
+    if version is None:
+        raise HTTPException(status_code=404, detail="Song not found")
+    return ChatResponse.model_validate(turn.result(version))
 
 
-@router.post("/chat/stream")
+@router.post("/chat/stream", dependencies=[Depends(require_gateway)])
 async def chat_stream(
     req: ChatRequest,
     request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
-    _require_gateway()
-    setup = await run_in_threadpool(_prepare_chat, db, current_user, req)
-    song_id = setup.song_id
+    turn = await run_in_threadpool(ChatTurn.prepare, db, current_user, req)
 
     async def event_generator() -> AsyncIterator[str]:
-        accumulated = ""
-        reasoning_accumulated = ""
-        usage_data: dict[str, int] | None = None
-        stream: AsyncIterator[tuple[str, str]] | None = None
-        _completed = False
+        stream = turn.stream()
+        # Set once this generator no longer owns the stream: it ran to the end,
+        # failed, or was handed to a background task.
+        settled = False
         try:
-            stream = llm_service.chat_edit_content_stream(
-                original_content=setup.original_content,
-                messages=setup.messages,
-                provider=settings.llm_provider,
-                model=req.model,
-                api_base=settings.llm_api_base,
-                reasoning_effort=req.reasoning_effort,
-                system_prompt=setup.system_prompt,
-                max_tokens=req.max_tokens,
-                api_key=settings.llm_api_key,
-                history_len=setup.history_len,
-                rewritten_content=setup.rewritten_content,
-            )
-            async for kind, text in stream:
+            async for event in stream:
+                # Record the event before anything else: async for has already
+                # taken it off the iterator, so a hand-off must not drop it.
+                turn.consume(event)
                 if await request.is_disconnected():
-                    # Process the current token before handing off —
-                    # async for already consumed it from the iterator.
-                    if kind == "reasoning":
-                        reasoning_accumulated += text
-                    elif kind == "usage":
-                        usage_data = json.loads(text)
-                    else:
-                        accumulated += text
-                    # Client gone (e.g. mobile tab suspended).
-                    # Finish the LLM call in a background task so the
-                    # result is persisted and available when they return.
-                    task = asyncio.create_task(
-                        _finish_chat_in_background(
-                            stream,
-                            accumulated,
-                            reasoning_accumulated,
-                            song_id,
-                            req.model,
-                            usage_data=usage_data,
-                        )
-                    )
-                    _background_tasks.add(task)
-                    task.add_done_callback(_background_tasks.discard)
-                    _completed = True
+                    # Client gone (e.g. mobile tab suspended). Finish the LLM
+                    # call in the background so the reply is saved for them.
+                    turn.hand_off(stream)
+                    settled = True
                     return
-                if kind == "reasoning":
-                    reasoning_accumulated += text
-                    yield f"event: reasoning\ndata: {json.dumps(text)}\n\n"
-                elif kind == "usage":
-                    usage_data = json.loads(text)
-                else:
-                    accumulated += text
-                    yield f"event: token\ndata: {json.dumps(text)}\n\n"
-            # Stream fully consumed; inline persist follows after finally.
-            _completed = True
+                frame = _sse_delta(event)
+                if frame is not None:
+                    yield frame
+            settled = True
         except Exception as e:
-            _completed = True
+            settled = True
             logger.exception("Chat stream LLM error")
-            yield f"event: error\ndata: {json.dumps(_format_llm_error(e, settings.llm_provider))}\n\n"
+            yield _sse_error(e)
             return
         finally:
-            if not _completed and stream is not None:
+            if not settled:
                 # Generator abandoned by Starlette (client disconnected between
-                # yields, so the is_disconnected() check never ran).  Spawn a
-                # background task to finish the LLM call and persist the result.
-                # This covers the pre-first-token window too: the LLM call was
-                # initiated, so we must let it complete even if no tokens have
-                # been accumulated yet.
+                # yields, so the is_disconnected() check never ran). This covers
+                # the pre-first-token window too: the LLM call was initiated, so
+                # let it complete even if nothing has arrived yet.
                 logger.info(
                     "Chat stream generator abandoned with %d chars accumulated, "
                     "spawning background task for song %s",
-                    len(accumulated),
-                    song_id,
+                    len(turn.reply.text),
+                    turn.song_id,
                 )
-                task = asyncio.create_task(
-                    _finish_chat_in_background(
-                        stream,
-                        accumulated,
-                        reasoning_accumulated,
-                        song_id,
-                        req.model,
-                    )
-                )
-                _background_tasks.add(task)
-                task.add_done_callback(_background_tasks.discard)
-
-        # Parse the accumulated response
-        parsed = llm_service._parse_chat_response(accumulated)
-        changes_summary = parsed["explanation"] or "Chat edit applied."
+                turn.hand_off(stream)
 
         # Fresh session in the threadpool: the request session may be closed by
         # now, and a commit on the loop would stall other streams. A failed
         # commit reports no version rather than a stale one.
         version: int | None = None
         try:
-            version = await run_in_threadpool(
-                _persist_chat_in_new_session,
-                song_id,
-                accumulated,
-                reasoning_accumulated,
-                req.model,
-                usage_data,
-            )
+            version = await run_in_threadpool(turn.persist)
             if version is None:
-                logger.warning("Chat stream persist: song %s not found", song_id)
+                logger.warning("Chat stream persist: song %s not found", turn.song_id)
         except Exception:
             logger.exception("Chat stream DB persist error")
 
-        # Send final result
-        done_data: dict[str, object] = {
-            "rewritten_content": parsed["content"],
-            "original_content": parsed.get("original_content"),
-            "assistant_message": accumulated,
-            "changes_summary": changes_summary,
-            "version": version,
-            "reasoning": reasoning_accumulated or None,
-            "usage": usage_data,
-        }
-        yield f"event: done\ndata: {json.dumps(done_data)}\n\n"
+        yield _sse("done", turn.result(version))
 
     return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        event_generator(), media_type="text/event-stream", headers=_SSE_HEADERS
     )
 
 
-@router.post("/tags/suggest", response_model=TagSuggestResponse, tags=["songs"])
+@router.post(
+    "/tags/suggest",
+    response_model=TagSuggestResponse,
+    tags=["songs"],
+    dependencies=[Depends(require_gateway)],
+)
 async def suggest_tags(
     req: TagSuggestRequest,
     request: Request,
@@ -902,7 +550,6 @@ async def suggest_tags(
     path, and an organising endpoint hidden among the CRUD routes would be an
     unmetered way onto the operator's gateway.
     """
-    _require_gateway()
 
     def _load() -> tuple[str | None, str | None, str, dict[str, int]]:
         song = get_user_song(db, current_user, req.song_id)
@@ -913,7 +560,7 @@ async def suggest_tags(
     title, artist, content, counts = await run_in_threadpool(_load)
     existing_tags = sorted(counts)
 
-    try:
+    with llm_errors():
         result = await _cancellable(
             request,
             llm_service.suggest_tags(
@@ -928,12 +575,6 @@ async def suggest_tags(
                 max_tokens=req.max_tokens,
             ),
         )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=502, detail=_format_llm_error(e, settings.llm_provider)
-        ) from None
 
     # The service says whether a tag is new; the count is this router's to add,
     # since it is the one holding the numbers. A tag the service marked new has
@@ -958,20 +599,20 @@ async def suggest_tags(
     )
 
 
-@router.get("/models", response_model=ModelsResponse, tags=["providers"])
+@router.get(
+    "/models",
+    response_model=ModelsResponse,
+    tags=["providers"],
+    dependencies=[Depends(require_gateway)],
+)
 async def list_models(
     current_user: User = Depends(get_current_user),
 ) -> ModelsResponse:
     """List the models the configured gateway exposes for the current API key."""
-    _require_gateway()
-    try:
+    with llm_errors():
         models = await llm_service.get_models(
             settings.llm_provider,
             api_base=settings.llm_api_base,
             api_key=settings.llm_api_key,
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=502, detail=_format_llm_error(e, settings.llm_provider)
-        ) from None
     return ModelsResponse(models=models)

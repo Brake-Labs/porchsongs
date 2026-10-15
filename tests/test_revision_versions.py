@@ -20,7 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import Profile, Song, SongRevision, User
-from app.routers.rewrite import _persist_chat_result
+from app.services.chat_turn import persist_chat_result
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -46,7 +46,7 @@ def _make_song(db: Session, user: User) -> Song:
 def _persist(db: Session, song_id: int, content: str) -> int:
     song = db.get(Song, song_id)
     assert song is not None
-    return _persist_chat_result(
+    return persist_chat_result(
         db,
         song,
         rewritten_content=content,
@@ -116,7 +116,7 @@ def test_persist_without_new_content_keeps_version(db_session: Session, test_use
     song_id = _make_song(db_session, test_user).id
     song = db_session.get(Song, song_id)
     assert song is not None
-    version = _persist_chat_result(
+    version = persist_chat_result(
         db_session, song, rewritten_content=None, changes_summary="", assistant_content="hi"
     )
     db_session.commit()

@@ -17,6 +17,8 @@ from sqlalchemy.orm import Session
 
 from app.models import ChatMessage as ChatMessageModel
 from app.models import Song, SongRevision
+from app.services.chat_turn import ChatTurn
+from app.services.llm_service import StreamEvent, TextDelta, UsageReport
 
 
 def _fake_message_response(text: str) -> MagicMock:
@@ -927,10 +929,25 @@ def test_chat_after_image_preserves_multimodal_for_llm(
 # --- Background stream completion (client disconnect recovery) ---
 
 
-def test_finish_chat_in_background_persists_result(client: TestClient, db_session: Session) -> None:
-    """When a client disconnects mid-stream, _finish_chat_in_background should
+def _turn(song_id: int, text: str = "", reasoning: str = "") -> ChatTurn:
+    """A turn part-way through its stream, as the router hands it off."""
+    turn = ChatTurn(
+        song_id=song_id,
+        messages=[],
+        history_len=0,
+        system_prompt=None,
+        original_content="",
+        rewritten_content=None,
+        model="gpt-4o-mini",
+    )
+    turn.reply.text = text
+    turn.reply.reasoning = reasoning
+    return turn
+
+
+def test_finish_in_background_persists_result(client: TestClient, db_session: Session) -> None:
+    """When a client disconnects mid-stream, ChatTurn.finish_in_background should
     consume remaining tokens and persist the result to the database."""
-    from app.routers.rewrite import _finish_chat_in_background
 
     _, song_data = _make_profile_and_song(client)
     song_id = song_data["id"]
@@ -942,24 +959,18 @@ def test_finish_chat_in_background_persists_result(client: TestClient, db_sessio
 
     # Simulate an async stream with remaining tokens (as if the client
     # disconnected after receiving some tokens but before the stream ended).
-    async def _fake_remaining_stream() -> AsyncIterator[tuple[str, str]]:
-        yield ("token", "\nBetter lyrics here")
-        yield ("token", "\n</content>")
-        yield ("token", "\nI improved the lyrics.")
-        yield ("usage", '{"input_tokens": 10, "output_tokens": 20}')
+    async def _fake_remaining_stream() -> AsyncIterator[StreamEvent]:
+        yield TextDelta("\nBetter lyrics here")
+        yield TextDelta("\n</content>")
+        yield TextDelta("\nI improved the lyrics.")
+        yield UsageReport({"input_tokens": 10, "output_tokens": 20})
 
     # The accumulated text so far (before disconnect) already has the opening tag.
     accumulated = "<content>\nHi there world"
     reasoning = "thinking about improvements"
 
     asyncio.run(
-        _finish_chat_in_background(
-            _fake_remaining_stream(),
-            accumulated,
-            reasoning,
-            song_id,
-            "gpt-4o-mini",
-        )
+        _turn(song_id, accumulated, reasoning).finish_in_background(_fake_remaining_stream())
     )
 
     # Refresh the session to see changes from the background task's own session
@@ -985,9 +996,8 @@ def test_abandoned_generator_spawns_background_task(
     client: TestClient, db_session: Session
 ) -> None:
     """When Starlette abandons the SSE generator (e.g. client disconnects between
-    yields), the finally block should spawn _finish_chat_in_background to persist
+    yields), the finally block should spawn ChatTurn.finish_in_background to persist
     the result."""
-    from app.routers.rewrite import _finish_chat_in_background
 
     _, song_data = _make_profile_and_song(client)
     song_id = song_data["id"]
@@ -998,26 +1008,20 @@ def test_abandoned_generator_spawns_background_task(
     assert song.current_version == 1
 
     # Simulate: generator received some tokens, then was abandoned (GeneratorExit).
-    # We test _finish_chat_in_background directly since the abandonment trigger
+    # We test ChatTurn.finish_in_background directly since the abandonment trigger
     # (GeneratorExit from Starlette) is the same codepath as the finally block.
-    async def _fake_remaining_stream() -> AsyncIterator[tuple[str, str]]:
-        yield ("token", "\nMore lyrics")
-        yield ("token", "\n</content>")
-        yield ("token", "\nExplanation of changes.")
-        yield ("usage", '{"input_tokens": 10, "output_tokens": 20}')
+    async def _fake_remaining_stream() -> AsyncIterator[StreamEvent]:
+        yield TextDelta("\nMore lyrics")
+        yield TextDelta("\n</content>")
+        yield TextDelta("\nExplanation of changes.")
+        yield UsageReport({"input_tokens": 10, "output_tokens": 20})
 
     # Tokens accumulated before the generator was abandoned
     accumulated = "<content>\nHi there world"
     reasoning = ""
 
     asyncio.run(
-        _finish_chat_in_background(
-            _fake_remaining_stream(),
-            accumulated,
-            reasoning,
-            song_id,
-            "gpt-4o-mini",
-        )
+        _turn(song_id, accumulated, reasoning).finish_in_background(_fake_remaining_stream())
     )
 
     db_session.expire_all()
@@ -1031,13 +1035,10 @@ def test_abandoned_generator_spawns_background_task(
     assert len(revisions) == 2
 
 
-def test_finish_chat_in_background_zero_accumulated(
-    client: TestClient, db_session: Session
-) -> None:
+def test_finish_in_background_zero_accumulated(client: TestClient, db_session: Session) -> None:
     """When a client disconnects before the first LLM token, the background
     task should still consume the entire stream and persist the result.
     Regression test for the pre-first-token disconnect bug."""
-    from app.routers.rewrite import _finish_chat_in_background
 
     _, song_data = _make_profile_and_song(client)
     song_id = song_data["id"]
@@ -1048,25 +1049,17 @@ def test_finish_chat_in_background_zero_accumulated(
 
     # Simulate: client disconnected before any tokens arrived.  The entire
     # LLM response comes through the background task.
-    async def _fake_full_stream() -> AsyncIterator[tuple[str, str]]:
-        yield ("token", "<content>\nBrand new lyrics here")
-        yield ("token", "\n</content>")
-        yield ("token", "\nHere are the new lyrics I wrote.")
-        yield ("usage", '{"input_tokens": 50, "output_tokens": 30}')
+    async def _fake_full_stream() -> AsyncIterator[StreamEvent]:
+        yield TextDelta("<content>\nBrand new lyrics here")
+        yield TextDelta("\n</content>")
+        yield TextDelta("\nHere are the new lyrics I wrote.")
+        yield UsageReport({"input_tokens": 50, "output_tokens": 30})
 
     # No tokens were accumulated before disconnect
     accumulated = ""
     reasoning = ""
 
-    asyncio.run(
-        _finish_chat_in_background(
-            _fake_full_stream(),
-            accumulated,
-            reasoning,
-            song_id,
-            "gpt-4o-mini",
-        )
-    )
+    asyncio.run(_turn(song_id, accumulated, reasoning).finish_in_background(_fake_full_stream()))
 
     db_session.expire_all()
 
@@ -1678,9 +1671,7 @@ def test_suggest_tags_proposes_a_new_one_for_a_user_with_no_tags(
     mock_amessages: MagicMock, client: TestClient
 ) -> None:
     _, song = _make_profile_and_song(client)
-    mock_amessages.return_value = _fake_message_response(
-        '{"existing": [], "new": ["Test Artist"]}'
-    )
+    mock_amessages.return_value = _fake_message_response('{"existing": [], "new": ["Test Artist"]}')
 
     resp = client.post("/api/tags/suggest", json={"song_id": song["id"], **LLM_SETTINGS})
 
@@ -1707,9 +1698,7 @@ def test_suggest_tags_falls_back_to_the_artist_when_the_reply_is_unusable(
 
 
 @patch("app.services.llm_service.amessages")
-def test_suggest_tags_does_not_tag_the_chart(
-    mock_amessages: MagicMock, client: TestClient
-) -> None:
+def test_suggest_tags_does_not_tag_the_chart(mock_amessages: MagicMock, client: TestClient) -> None:
     """Suggesting is not tagging. Only an explicit apply (a PUT) changes a chart."""
     _, song = _make_profile_and_song(client)
     mock_amessages.return_value = _fake_message_response('{"existing": [], "new": ["Campfire"]}')
@@ -1838,17 +1827,16 @@ def test_chat_db_work_runs_off_the_event_loop(
 ) -> None:
     """The async chat routes hand their DB reads and the persist to a worker thread."""
     from app.models import User
-    from app.routers import rewrite
-    from app.routers.rewrite import _ChatSetup
     from app.schemas import ChatRequest
+    from app.services import chat_turn
 
     _, song = _make_profile_and_song(client)
     threads: dict[str, int] = {}
 
-    real_prepare = rewrite._prepare_chat
-    real_persist = rewrite._persist_chat_result
+    real_prepare = ChatTurn.prepare
+    real_persist = chat_turn.persist_chat_result
 
-    def spy_prepare(db: Session, user: User, req: ChatRequest) -> _ChatSetup:
+    def spy_prepare(db: Session, user: User, req: ChatRequest) -> ChatTurn:
         threads["prepare"] = threading.get_ident()
         return real_prepare(db, user, req)
 
@@ -1865,8 +1853,8 @@ def test_chat_db_work_runs_off_the_event_loop(
             return _async_iter(_make_stream_events([reply]))
         return _fake_message_response(reply)
 
-    monkeypatch.setattr(rewrite, "_prepare_chat", spy_prepare)
-    monkeypatch.setattr(rewrite, "_persist_chat_result", spy_persist)
+    monkeypatch.setattr(ChatTurn, "prepare", spy_prepare)
+    monkeypatch.setattr(chat_turn, "persist_chat_result", spy_persist)
     with patch("app.services.llm_service.amessages", side_effect=fake_llm):
         resp = client.post(
             path,
@@ -1890,7 +1878,7 @@ def test_chat_stream_reports_no_version_when_persist_fails(
     """A failed commit must not report the pre-persist version as if it saved."""
     import json
 
-    from app.routers import rewrite
+    from app.services import chat_turn
 
     _, song = _make_profile_and_song(client)
     mock_amessages.return_value = _async_iter(
@@ -1900,7 +1888,7 @@ def test_chat_stream_reports_no_version_when_persist_fails(
     def boom(*args: object, **kwargs: object) -> int:
         raise RuntimeError("db down")
 
-    monkeypatch.setattr(rewrite, "_persist_chat_result", boom)
+    monkeypatch.setattr(chat_turn, "persist_chat_result", boom)
     resp = client.post(
         "/api/chat/stream",
         json={

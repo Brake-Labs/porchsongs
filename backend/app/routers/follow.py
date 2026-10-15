@@ -6,13 +6,14 @@ sending recognized text plus a few candidate lines and asking which one fits.
 Text only; no audio ever reaches the server.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from ..auth.dependencies import get_current_user
 from ..config import settings
 from ..models import User
 from ..schemas import FollowDisambiguateRequest, FollowDisambiguateResponse
 from ..services import llm_service
+from .rewrite import llm_errors, require_gateway
 
 router = APIRouter(tags=["follow"])
 
@@ -24,16 +25,16 @@ router = APIRouter(tags=["follow"])
     "/follow/disambiguate",
     response_model=FollowDisambiguateResponse,
     include_in_schema=False,
+    dependencies=[Depends(require_gateway)],
 )
 async def disambiguate(
     req: FollowDisambiguateRequest,
     current_user: User = Depends(get_current_user),
 ) -> FollowDisambiguateResponse:
-    if not settings.llm_api_base:
-        raise HTTPException(status_code=503, detail="No LLM gateway configured")
     if not req.candidates:
         return FollowDisambiguateResponse(choice=None)
-    try:
+    # Any gateway failure is a 502; the client falls back to its local estimate.
+    with llm_errors():
         result = await llm_service.disambiguate_position(
             recent_words=req.recent_words,
             candidates=[{"index": c.index, "context": c.context} for c in req.candidates],
@@ -44,7 +45,4 @@ async def disambiguate(
             api_key=settings.llm_api_key,
             max_tokens=req.max_tokens,
         )
-    except Exception as e:
-        # Surface any gateway failure as 502; the client falls back to local.
-        raise HTTPException(status_code=502, detail=str(e)) from None
     return FollowDisambiguateResponse(choice=result["choice"])
