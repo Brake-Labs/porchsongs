@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useOutletContext, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import api, { STORAGE_KEYS } from '@/api';
 import ComparisonView from '@/components/ComparisonView';
 import ChatPanel from '@/components/ChatPanel';
@@ -34,64 +34,26 @@ import useMediaQuery from '@/hooks/useMediaQuery';
 import { QuotaBanner, OnboardingBanner, isQuotaError, QuotaUpgradeLink } from '@/extensions/quota';
 import { SAMPLE_SONGS, sampleToParseResult } from '@/data/sample-songs';
 import { guessSongMeta } from '@/lib/songMeta';
-import type { AppShellContext } from '@/layouts/AppShell';
-import type { ChatSessionStore } from '@/lib/chatSessions';
-import type { Profile, Song, RewriteResult, RewriteMeta, ChatMessage, LlmSettings, ParseResult } from '@/types';
+import { useParse, useSettings, useWorkshop } from '@/contexts/AppShellContext';
+import type { Song, ParseResult } from '@/types';
 import type { SampleSong } from '@/data/sample-songs';
 
 /** The four ways to get a chart in. Also the tab values on the import screen. */
 type ImportSource = 'paste' | 'photo' | 'file' | 'link';
 
-interface RewriteTabProps {
-  profile: Profile | null;
-  llmSettings: LlmSettings;
-  rewriteResult: RewriteResult | null;
-  rewriteMeta: RewriteMeta | null;
-  currentSongId: number | null;
-  currentSongUuid: string | null;
-  chatMessages: ChatMessage[];
-  setChatMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-  chatSessions?: ChatSessionStore;
-  songTitle: string;
-  setSongTitle: React.Dispatch<React.SetStateAction<string>>;
-  songArtist: string;
-  setSongArtist: React.Dispatch<React.SetStateAction<string>>;
-  isDirty: boolean;
-  setIsDirty: React.Dispatch<React.SetStateAction<boolean>>;
-  onNewRewrite: (result: RewriteResult | null, meta: RewriteMeta | null) => void;
-  onSongSaved: (song: Song) => void;
-  onContentUpdated: (content: string) => void;
-  onOriginalContentUpdated: (content: string) => void;
-  onChangeModel: (model: string) => void;
-  reasoningEffort: string;
-  onChangeReasoningEffort: (value: string) => void;
-  models: string[];
-  onOpenSettings: () => void;
-  isPremium?: boolean;
-  // Parse state (lifted to AppShell so it survives tab navigation)
-  parseLoading: boolean;
-  parseResult: ParseResult | null;
-  parsedContent: string;
-  setParsedContent: React.Dispatch<React.SetStateAction<string>>;
-  setParseResult: React.Dispatch<React.SetStateAction<ParseResult | null>>;
-  parseStreamText: string;
-  parseReasoningText: string;
-  parseError: string | null;
-  parseErrorType: string | undefined;
-  setParseError: React.Dispatch<React.SetStateAction<string | null>>;
-  onParse: (params: { content: string; instruction?: string }) => Promise<ParseResult | null>;
-  onCancelParse: () => void;
-  onClearParse: () => void;
-  // Bumped by the global "New Song" button; resets this tab's local state.
-  newSongNonce?: number;
-}
-
-export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
-  const ctx = useOutletContext<AppShellContext>();
+export default function RewriteTab() {
   const navigate = useNavigate();
   const {
     profile,
     llmSettings,
+    onChangeModel,
+    reasoningEffort,
+    onChangeReasoningEffort,
+    models,
+    onOpenSettings,
+    isPremium,
+  } = useSettings();
+  const {
     rewriteResult,
     currentSongId,
     currentSongUuid,
@@ -108,13 +70,9 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     onSongSaved,
     onContentUpdated,
     onOriginalContentUpdated: onOriginalContentUpdatedCtx,
-    onChangeModel,
-    reasoningEffort,
-    onChangeReasoningEffort,
-    models,
-    onOpenSettings,
-    isPremium,
-    // Parse state from AppShell
+    newSongNonce,
+  } = useWorkshop();
+  const {
     parseLoading,
     parseResult,
     parsedContent,
@@ -128,8 +86,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     onParse,
     onCancelParse,
     onClearParse,
-    newSongNonce,
-  } = { ...ctx, ...directProps } as RewriteTabProps;
+  } = useParse();
   const [input, setInputRaw] = useState(
     () => sessionStorage.getItem(STORAGE_KEYS.DRAFT_INPUT) || ''
   );

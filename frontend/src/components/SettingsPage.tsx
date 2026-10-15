@@ -1,8 +1,8 @@
-import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import ModelsTab from '@/components/settings/ModelsTab';
 import SystemPromptsTab from '@/components/settings/SystemPromptsTab';
-import type { AppShellContext } from '@/layouts/AppShell';
+import { useSettings } from '@/contexts/AppShellContext';
 import { getExtraSettingsTabs, renderPremiumSettingsTab, showOssSettingsTabs } from '@/extensions';
 
 const SETTINGS_TABS = [
@@ -11,7 +11,6 @@ const SETTINGS_TABS = [
 ] as const;
 
 export default function SettingsPage() {
-  const ctx = useOutletContext<AppShellContext>();
   const {
     model,
     models,
@@ -22,7 +21,7 @@ export default function SettingsPage() {
     onChangeReasoningEffort,
     isPremium,
     isAdmin,
-  } = ctx;
+  } = useSettings();
   const extraTabs = getExtraSettingsTabs(isPremium, isAdmin);
   const ossTabs = showOssSettingsTabs(isPremium) ? [...SETTINGS_TABS] : [];
   const visibleTabs = [...extraTabs, ...ossTabs];

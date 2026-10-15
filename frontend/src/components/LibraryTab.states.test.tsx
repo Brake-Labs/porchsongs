@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route, Outlet } from 'react-router-dom';
 import api from '@/api';
 import LibraryTab from '@/components/LibraryTab';
-import type { AppShellContext } from '@/layouts/AppShell';
+import { TestAppShell, type AppShellTestValue } from '@/test/app-shell-context';
 import type { Song } from '@/types';
 
 const MOCK_SONG = vi.hoisted<Song>(() => ({
@@ -57,13 +57,13 @@ const stubContext = {
   profile: { id: 1, is_default: true },
   llmSettings: { model: '', reasoning_effort: 'high' },
   onLoadSong: vi.fn(),
-} as unknown as AppShellContext;
+} as unknown as Partial<AppShellTestValue>;
 
 function renderLibrary() {
   return render(
     <MemoryRouter initialEntries={['/app/library']}>
       <Routes>
-        <Route element={<Outlet context={stubContext} />}>
+        <Route element={<TestAppShell value={stubContext}><Outlet /></TestAppShell>}>
           <Route path="/app/library" element={<LibraryTab />} />
         </Route>
         {/* Sentinels so navigation is observable. */}

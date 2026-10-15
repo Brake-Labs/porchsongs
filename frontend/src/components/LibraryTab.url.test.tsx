@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import LibraryTab from '@/components/LibraryTab';
-import type { AppShellContext } from '@/layouts/AppShell';
+import type { AppShellTestValue } from '@/test/app-shell-mocks';
 import type { Song, ChatMessage } from '@/types';
 
 /**
@@ -15,12 +15,13 @@ import type { Song, ChatMessage } from '@/types';
  * the address says so.
  */
 
-const mockOutletContext: Partial<AppShellContext> = {};
+const mockAppShell: Partial<AppShellTestValue> = {};
+vi.mock('@/contexts/AppShellContext', async () =>
+  (await import('@/test/app-shell-mocks')).mockAppShellHooks(() => mockAppShell));
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
   return {
     ...actual,
-    useOutletContext: () => mockOutletContext,
     useParams: () => ({}),
   };
 });
@@ -80,7 +81,7 @@ function makeSong(overrides: Partial<Song> = {}): Song {
 }
 
 function setupContext(): void {
-  Object.assign(mockOutletContext, {
+  Object.assign(mockAppShell, {
     profile: { id: 1, user_id: 'u1', display_name: 'Test', parse_prompt: '', chat_prompt: '' },
     llmSettings: { model: 'gpt-4o', reasoning_effort: 'high' },
     rewriteResult: null,
@@ -402,5 +403,59 @@ describe('LibraryTab filters in the URL', () => {
       view: 'artists',
       artist: 'neil young',
     });
+  });
+});
+
+describe('LibraryTab page in the URL', () => {
+  // Three pages at 20 a page, titled so the default (newest first) order is
+  // predictable: Song 45 leads page one, Song 5 leads page three.
+  const MANY = Array.from({ length: 45 }, (_, i) => makeSong({
+    id: i + 1,
+    title: `Song ${i + 1}`,
+    created_at: new Date(Date.UTC(2025, 0, 1, 0, i)).toISOString(),
+  }));
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    setupContext();
+  });
+
+  it('records paging, and Back returns to the previous page', async () => {
+    const user = userEvent.setup();
+    await renderLibrary('/app/library', MANY);
+    expect(screen.getByText('Page 1 of 3')).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText('Next page'));
+    expect(params()).toEqual({ page: '2' });
+    expect(screen.getByText('Page 2 of 3')).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText('Previous page'));
+    expect(params()).toEqual({});
+
+    await user.click(screen.getByLabelText('Next page'));
+    await user.click(screen.getByTestId('go-back'));
+    expect(params()).toEqual({});
+    expect(screen.getByText('Page 1 of 3')).toBeInTheDocument();
+  });
+
+  it('opens on the page a link names, as when coming Back from a song', async () => {
+    await renderLibrary('/app/library?page=3', MANY);
+    expect(screen.getByText('Page 3 of 3')).toBeInTheDocument();
+    expect(screen.getByText('Song 5')).toBeInTheDocument();
+    expect(screen.queryByText('Song 45')).not.toBeInTheDocument();
+  });
+
+  it('shows the last page for a page number past the end', async () => {
+    await renderLibrary('/app/library?page=99', MANY);
+    expect(screen.getByText('Page 3 of 3')).toBeInTheDocument();
+  });
+
+  it('starts a new search from the first page', async () => {
+    const user = userEvent.setup();
+    await renderLibrary('/app/library?page=2', MANY);
+
+    await user.type(screen.getByPlaceholderText('Search songs by title or artist...'), '1');
+    expect(params()).toEqual({ q: '1' });
   });
 });

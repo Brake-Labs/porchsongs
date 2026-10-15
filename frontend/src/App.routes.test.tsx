@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Outlet, useLocation } from 'react-router-dom';
+import { TestAppShell } from '@/test/app-shell-context';
 import App from '@/App';
 
 /**
@@ -27,7 +28,7 @@ vi.mock('@/components/UpdateBanner', () => ({ default: () => null }));
 // The shell renders chrome and loads a profile. Its Outlet is the only part the
 // route table needs.
 vi.mock('@/layouts/AppShell', () => ({
-  default: () => <Outlet context={{ llmSettings: { model: '' } }} />,
+  default: () => <TestAppShell><Outlet /></TestAppShell>,
 }));
 
 vi.mock('@/components/LibraryTab', () => ({ default: () => <div>LIBRARY LIST</div> }));

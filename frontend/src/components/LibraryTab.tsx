@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback, type DragEvent } from 'react';
-import { useNavigate, useLocation, useSearchParams, useOutletContext } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import api, { STORAGE_KEYS } from '@/api';
 import { Button } from '@/components/ui/button';
@@ -24,7 +24,7 @@ import TagSuggestDialog from '@/components/TagSuggestDialog';
 import TagEditDialog from '@/components/TagEditDialog';
 import { cn } from '@/lib/utils';
 import { SongCapNotice, SongShareAction, SongShareNotice, SongProvenanceTag } from '@/extensions';
-import type { AppShellContext } from '@/layouts/AppShell';
+import { useSettings, useWorkshopActions } from '@/contexts/AppShellContext';
 import type { Song } from '@/types';
 
 // shrink-0 because the tag row is a horizontal scroller below the sm
@@ -222,7 +222,7 @@ const BROWSE_MODES: ReadonlyArray<{ mode: BrowseMode; label: string }> = [
  * being trusted: these values arrive from whatever was pasted into the address
  * bar.
  */
-type ViewParam = 'view' | 'artist' | 'tags' | 'q' | 'sort' | 'dir' | 'artistSort' | 'artistDir';
+type ViewParam = 'view' | 'artist' | 'tags' | 'q' | 'sort' | 'dir' | 'artistSort' | 'artistDir' | 'page';
 
 const BROWSE_MODE_VALUES: readonly BrowseMode[] = ['songs', 'artists'];
 const SORT_KEYS: readonly SortKey[] = ['date', 'modified', 'title', 'artist'];
@@ -526,8 +526,8 @@ export function lyricsPreview(content: string): string {
 }
 
 export default function LibraryTab() {
-  const ctx = useOutletContext<AppShellContext>();
-  const onLoadSong = ctx.onLoadSong;
+  const settings = useSettings();
+  const { onLoadSong } = useWorkshopActions();
   const navigate = useNavigate();
   const location = useLocation();
   const [songs, setSongs] = useState<Song[]>([]);
@@ -600,6 +600,10 @@ export default function LibraryTab() {
   // already written, so two calls would silently keep only the second one's
   // changes. `pending` carries a write forward within a handler; the effect puts
   // it back in step after a Back or Forward, which never goes through here.
+  // One-based in the URL, and absent on the first page. Clamped to the list
+  // further down, once its length is known.
+  const requestedPage = Math.max(0, (Number.parseInt(searchParams.get('page') ?? '', 10) || 1) - 1);
+
   const pending = useRef(searchParams);
   useEffect(() => {
     pending.current = searchParams;
@@ -612,10 +616,14 @@ export default function LibraryTab() {
    * opening an artist, picking a tag. Typing in the search box and changing
    * the sort stay on replace, because a history entry per keystroke would leave
    * Back unable to get out of the library.
+   *
+   * Any change other than the page itself drops the page: a new filter or sort
+   * is a new list, and it starts at the top.
    */
   const applyView = useCallback(
     (changes: Partial<Record<ViewParam, string | null>>, options?: { push?: boolean }) => {
       const next = new URLSearchParams(pending.current);
+      if (Object.keys(changes).some(key => key !== 'page')) next.delete('page');
       for (const [key, value] of Object.entries(changes)) {
         if (value) next.set(key, value);
         else next.delete(key);
@@ -659,7 +667,10 @@ export default function LibraryTab() {
     applyView({ artistDir: dir === defaultArtistSortDir(artistSortKey) ? null : dir });
   }, [applyView, artistSortKey]);
 
-  const [page, setPage] = useState(0);
+  const goToPage = useCallback((index: number) => {
+    applyView({ page: index > 0 ? String(index + 1) : null }, { push: true });
+  }, [applyView]);
+
   const [dialogState, setDialogState] = useState<DialogState>({ kind: 'none' });
   const [scrollDir, setScrollDir] = useState<'vertical' | 'horizontal'>(() => {
     const stored = localStorage.getItem(STORAGE_KEYS.LIBRARY_LAYOUT);
@@ -879,9 +890,6 @@ export default function LibraryTab() {
     return result;
   }, [songs, searchQuery, activeTags, browseMode, selectedArtist]);
 
-  // Reset page when filters/sorting change
-  useEffect(() => { setPage(0); }, [searchQuery, activeTags, sortKey, sortDir, browseMode, selectedArtist]);
-
   // An artist can vanish under the drilled-in view: delete its last chart, or
   // retitle the artist from the song menu, and `selectedArtist` would keep
   // filtering the list down to nothing with a breadcrumb naming an artist that
@@ -919,6 +927,7 @@ export default function LibraryTab() {
   }, [filteredSongs, sortKey, sortDir]);
 
   const totalPages = Math.ceil(sortedSongs.length / SONGS_PER_PAGE);
+  const page = Math.min(requestedPage, Math.max(0, totalPages - 1));
   const pagedSongs = sortedSongs.slice(page * SONGS_PER_PAGE, (page + 1) * SONGS_PER_PAGE);
 
   // Measure the row height once the width and available height are in the DOM,
@@ -952,7 +961,7 @@ export default function LibraryTab() {
   }, [keptOffline, refreshKept]);
 
   const handleUploadFiles = useCallback(async (files: FileList | null) => {
-    const profileId = ctx.profile?.id;
+    const profileId = settings.profile?.id;
     if (!files?.length || !profileId) return;
     setUploadError(null);
     setUploading(true);
@@ -974,7 +983,7 @@ export default function LibraryTab() {
     // worked are kept and only the failures are named.
     if (failed.length) setUploadError(failed.join('; '));
     setUploading(false);
-  }, [ctx.profile?.id]);
+  }, [settings.profile?.id]);
 
   const handlePlay = useCallback((song: Song) => {
     navigate(`/app/play/${song.uuid}`, {
@@ -1349,7 +1358,7 @@ export default function LibraryTab() {
           </Button>
           <Button
             variant="secondary"
-            disabled={uploading || !ctx.profile}
+            disabled={uploading || !settings.profile}
             onClick={() => fileInputRef.current?.click()}
           >
             {uploading ? 'Adding...' : 'Add a tab PDF'}
@@ -1507,7 +1516,7 @@ export default function LibraryTab() {
               variant="secondary"
               size="sm"
               className="shrink-0 rounded-md"
-              disabled={uploading || !ctx.profile}
+              disabled={uploading || !settings.profile}
               onClick={() => fileInputRef.current?.click()}
               title="Store a tab PDF in your library"
             >
@@ -1819,7 +1828,7 @@ export default function LibraryTab() {
                 variant="secondary"
                 size="sm"
                 disabled={page === 0}
-                onClick={() => setPage(p => p - 1)}
+                onClick={() => goToPage(page - 1)}
                 aria-label="Previous page"
               >
                 &larr; Prev
@@ -1831,7 +1840,7 @@ export default function LibraryTab() {
                 variant="secondary"
                 size="sm"
                 disabled={page >= totalPages - 1}
-                onClick={() => setPage(p => p + 1)}
+                onClick={() => goToPage(page + 1)}
                 aria-label="Next page"
               >
                 Next &rarr;
@@ -1938,10 +1947,10 @@ export default function LibraryTab() {
         // platform model before the endpoint sees the body, exactly as it does
         // for parse and chat. So availability is a separate question from which
         // model string goes on the wire.
-        model={ctx.llmSettings?.model ?? ''}
-        canUseAi={ctx.isPremium || !!ctx.llmSettings?.model}
+        model={settings.llmSettings.model ?? ''}
+        canUseAi={settings.isPremium || !!settings.llmSettings.model}
         onApply={setSongTags}
-        onOpenSettings={ctx.onOpenSettings}
+        onOpenSettings={settings.onOpenSettings}
       />
     </div>
   );

@@ -1,15 +1,17 @@
 import { useState } from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import RewriteTab from '@/components/RewriteTab';
-import type { AppShellContext } from '@/layouts/AppShell';
+import { TestAppShell } from '@/test/app-shell-context';
+import type { AppShellTestValue } from '@/test/app-shell-mocks';
 import type { ChatMessage, ParseResult } from '@/types';
 
-// Mock react-router-dom: provide useOutletContext + a captured useNavigate
-const mockOutletContext: Partial<AppShellContext> = {};
+// Context fields a test sets before rendering <Workshop /> with no props.
+const mockAppShell: Partial<AppShellTestValue> = {};
+// Mock react-router-dom: provide a captured useNavigate
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
-  return { ...actual, useOutletContext: () => mockOutletContext, useNavigate: () => mockNavigate };
+  return { ...actual, useNavigate: () => mockNavigate };
 });
 
 // Mock api module
@@ -55,7 +57,7 @@ vi.mock('@/components/ui/resizable-columns', () => ({
 
 import api, { STORAGE_KEYS } from '@/api';
 
-function makeProps(overrides: Partial<AppShellContext> = {}): AppShellContext {
+function makeProps(overrides: Partial<AppShellTestValue> = {}): AppShellTestValue {
   return {
     profile: { id: 1, user_id: 'u1', display_name: 'Test', parse_prompt: '', chat_prompt: '' },
     llmSettings: { model: 'gpt-4o', reasoning_effort: 'high' },
@@ -88,28 +90,22 @@ function makeProps(overrides: Partial<AppShellContext> = {}): AppShellContext {
     onCancelParse: vi.fn(),
     onClearParse: vi.fn(),
     ...overrides,
-  } as unknown as AppShellContext;
+  } as unknown as AppShellTestValue;
 }
 
 /**
  * RewriteTab with the workshop state AppShell would own (title, artist, dirty
  * flag) held in real state, seeded the way AppShell seeds it.
  */
-function Workshop(props: Partial<AppShellContext>) {
-  const seed = { ...mockOutletContext, ...props };
+function Workshop(props: Partial<AppShellTestValue>) {
+  const seed = { ...mockAppShell, ...props };
   const [songTitle, setSongTitle] = useState(seed.rewriteMeta?.title ?? seed.parseResult?.title ?? '');
   const [songArtist, setSongArtist] = useState(seed.rewriteMeta?.artist ?? seed.parseResult?.artist ?? '');
   const [isDirty, setIsDirty] = useState(false);
   return (
-    <RewriteTab
-      {...props}
-      songTitle={songTitle}
-      setSongTitle={setSongTitle}
-      songArtist={songArtist}
-      setSongArtist={setSongArtist}
-      isDirty={isDirty}
-      setIsDirty={setIsDirty}
-    />
+    <TestAppShell value={{ ...seed, songTitle, setSongTitle, songArtist, setSongArtist, isDirty, setIsDirty }}>
+      <RewriteTab />
+    </TestAppShell>
   );
 }
 
@@ -772,7 +768,7 @@ describe('RewriteTab', () => {
 
       // Simulate the global button: AppShell clears shared state and bumps the nonce.
       rerender(
-        <RewriteTab
+        <Workshop
           {...props}
           parseResult={null}
           parsedContent=""
@@ -934,7 +930,7 @@ describe('RewriteTab', () => {
 
   it('offers a photo picker behind the Photo tab', () => {
     const props = makeProps();
-    Object.assign(mockOutletContext, props);
+    Object.assign(mockAppShell, props);
     render(<Workshop />);
     selectImportTab('Photo');
     expect(screen.getByRole('button', { name: 'Choose photo' })).toBeInTheDocument();
@@ -947,7 +943,7 @@ describe('RewriteTab', () => {
     (apiModule.default as Record<string, unknown>).parseImage = parseImageMock;
 
     const props = makeProps();
-    Object.assign(mockOutletContext, props);
+    Object.assign(mockAppShell, props);
     render(<Workshop />);
     selectImportTab('Photo');
 
@@ -956,7 +952,7 @@ describe('RewriteTab', () => {
 
   it('disables the photo picker when no model is selected, and says why', () => {
     const props = makeProps({ llmSettings: { model: '', reasoning_effort: '' } });
-    Object.assign(mockOutletContext, props);
+    Object.assign(mockAppShell, props);
     render(<Workshop />);
     selectImportTab('Photo');
 

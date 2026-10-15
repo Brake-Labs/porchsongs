@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route, Outlet } from 'react-router-dom';
+import { TestAppShell } from '@/test/app-shell-context';
 import api from '@/api';
 import PlayPage from '@/pages/PlayPage';
 import type { Song } from '@/types';
@@ -88,7 +89,7 @@ function renderPlay() {
   return render(
     <MemoryRouter initialEntries={['/app/play/abc-123']}>
       <Routes>
-        <Route element={<Outlet context={{ llmSettings: { model: '' } }} />}>
+        <Route element={<TestAppShell><Outlet /></TestAppShell>}>
           <Route path="/app/play/:uuid" element={<PlayPage />} />
         </Route>
         <Route path="/app/library" element={<div>library</div>} />

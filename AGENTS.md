@@ -47,7 +47,7 @@ React Router (`react-router-dom`) with `BrowserRouter`. App routes live under `/
 
 Key layers:
 - **`AuthContext`** (`src/contexts/AuthContext.tsx`): Auth state, login/logout. Wraps entire app.
-- **`AppShell`** (`src/layouts/AppShell.tsx`): Auth-gated layout for `/app/*`. Holds app state (profile, rewrite, LLM settings) and passes to children via `useOutletContext<AppShellContext>()`.
+- **`AppShell`** (`src/layouts/AppShell.tsx`): Auth-gated layout for `/app/*`. Holds app state (profile, rewrite, LLM settings) and provides it through split contexts in `src/contexts/AppShellContext.tsx`, read with `useSettings()`, `useParse()`, `useWorkshop()` and `useWorkshopActions()`. Tests provide them with `TestAppShell` (`src/test/app-shell-context.tsx`) or mock the hooks with `mockAppShellHooks` (`src/test/app-shell-mocks.ts`).
 - **`MarketingLayout`** (`src/layouts/MarketingLayout.tsx`): Marketing nav/footer (premium only).
 
 SEO meta injection (premium): `premium/porchsongs_premium/seo.py` injects route-specific meta tags into `index.html` server-side.
