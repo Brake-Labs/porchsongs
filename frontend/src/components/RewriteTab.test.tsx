@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import RewriteTab from '@/components/RewriteTab';
 import type { AppShellContext } from '@/layouts/AppShell';
@@ -91,6 +92,28 @@ function makeProps(overrides: Partial<AppShellContext> = {}): AppShellContext {
 }
 
 /**
+ * RewriteTab with the workshop state AppShell would own (title, artist, dirty
+ * flag) held in real state, seeded the way AppShell seeds it.
+ */
+function Workshop(props: Partial<AppShellContext>) {
+  const seed = { ...mockOutletContext, ...props };
+  const [songTitle, setSongTitle] = useState(seed.rewriteMeta?.title ?? seed.parseResult?.title ?? '');
+  const [songArtist, setSongArtist] = useState(seed.rewriteMeta?.artist ?? seed.parseResult?.artist ?? '');
+  const [isDirty, setIsDirty] = useState(false);
+  return (
+    <RewriteTab
+      {...props}
+      songTitle={songTitle}
+      setSongTitle={setSongTitle}
+      songArtist={songArtist}
+      setSongArtist={setSongArtist}
+      isDirty={isDirty}
+      setIsDirty={setIsDirty}
+    />
+  );
+}
+
+/**
  * Selects one of the four import source tabs (Paste / Photo / File / Link).
  *
  * Radix activates a tab on `mousedown`, not on `click`, so `fireEvent.click`
@@ -126,7 +149,7 @@ describe('RewriteTab', () => {
     const onParse = vi.fn().mockReturnValue(new Promise(() => {}));
 
     const props = makeProps({ onParse });
-    const { unmount } = render(<RewriteTab {...props} />);
+    const { unmount } = render(<Workshop {...props} />);
 
     // Type some input so the AI buttons are enabled
     const textarea = screen.getByPlaceholderText(/Paste lyrics/);
@@ -155,7 +178,7 @@ describe('RewriteTab', () => {
     it('saves the chart verbatim without calling onParse', async () => {
       const onParse = vi.fn();
       const props = makeProps({ onParse });
-      render(<RewriteTab {...props} />);
+      render(<Workshop {...props} />);
 
       const textarea = screen.getByPlaceholderText(/Paste lyrics/);
       fireEvent.change(textarea, {
@@ -185,7 +208,7 @@ describe('RewriteTab', () => {
 
     it('saves untitled rather than guessing when the chart has no usable title', async () => {
       const props = makeProps();
-      render(<RewriteTab {...props} />);
+      render(<Workshop {...props} />);
 
       fireEvent.change(screen.getByPlaceholderText(/Paste lyrics/), {
         target: { value: 'C G Am F\n| D | A |' },
@@ -203,7 +226,7 @@ describe('RewriteTab', () => {
       // The self-hosted case: no LLM gateway. Importing and playing must still
       // work, which is what gating the plain save on hasModel used to prevent.
       const props = makeProps({ isPremium: false, llmSettings: { model: '', reasoning_effort: 'high' } });
-      render(<RewriteTab {...props} />);
+      render(<Workshop {...props} />);
 
       fireEvent.change(screen.getByPlaceholderText(/Paste lyrics/), {
         target: { value: 'Some chart' },
@@ -217,7 +240,7 @@ describe('RewriteTab', () => {
     it('keeps the draft and surfaces an error when the save fails', async () => {
       (api.saveSong as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('cap reached'));
       const props = makeProps();
-      render(<RewriteTab {...props} />);
+      render(<Workshop {...props} />);
 
       const textarea = screen.getByPlaceholderText(/Paste lyrics/);
       fireEvent.change(textarea, { target: { value: 'Keep me' } });
@@ -235,7 +258,7 @@ describe('RewriteTab', () => {
 
   it('shows the import heading in INPUT state', () => {
     const props = makeProps();
-    render(<RewriteTab {...props} />);
+    render(<Workshop {...props} />);
 
     expect(screen.getByText('Import a song')).toBeInTheDocument();
     // Both import destinations are offered.
@@ -248,14 +271,14 @@ describe('RewriteTab', () => {
       parseResult: { title: 'Test', artist: 'Test', original_content: 'content' } as ParseResult,
       parsedContent: 'content',
     });
-    render(<RewriteTab {...props} />);
+    render(<Workshop {...props} />);
 
     expect(screen.getByText('Rewrite your song')).toBeInTheDocument();
   });
 
   it('input card expands to fill available space with flex layout', () => {
     const props = makeProps();
-    render(<RewriteTab {...props} />);
+    render(<Workshop {...props} />);
 
     // The Card wrapping the textareas should use flex-1 to fill space
     const lyricsTextarea = screen.getByPlaceholderText(/Paste lyrics/);
@@ -280,7 +303,7 @@ describe('RewriteTab', () => {
       rewriteMeta: { title: 'Test', artist: 'Test' },
       currentSongId: 1,
     });
-    const { container } = render(<RewriteTab {...props} />);
+    const { container } = render(<Workshop {...props} />);
 
     // No element should use a calc-based viewport height (the old fragile pattern)
     const allElements = container.querySelectorAll('*');
@@ -304,7 +327,7 @@ describe('RewriteTab', () => {
       currentSongId: 1,
       currentSongUuid: 'uuid-1',
     });
-    render(<RewriteTab {...props} />);
+    render(<Workshop {...props} />);
 
     // No save button should exist
     expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
@@ -328,7 +351,7 @@ describe('RewriteTab', () => {
       currentSongId: 1,
       currentSongUuid: 'uuid-1',
     });
-    render(<RewriteTab {...props} />);
+    render(<Workshop {...props} />);
 
     // Edit title
     const titleInput = screen.getAllByLabelText('Song title')[0]!;
@@ -360,7 +383,7 @@ describe('RewriteTab', () => {
       currentSongId: 1,
       currentSongUuid: 'uuid-1',
     });
-    render(<RewriteTab {...props} />);
+    render(<Workshop {...props} />);
 
     // Edit artist to trigger autosave
     const artistInput = screen.getAllByLabelText('Artist')[0]!;
@@ -384,7 +407,7 @@ describe('RewriteTab', () => {
   it('sets dirty state after chat update for autosave (fixes #189)', () => {
     vi.useFakeTimers();
     vi.mocked(api.updateSong).mockResolvedValue({} as never);
-    render(<RewriteTab {...makeProps({
+    render(<Workshop {...makeProps({
       rewriteResult: {
         original_content: 'original lyrics',
         rewritten_content: 'old rewritten lyrics',
@@ -411,7 +434,7 @@ describe('RewriteTab', () => {
 
   it('Cmd+S triggers save', async () => {
     vi.mocked(api.updateSong).mockResolvedValue({} as never);
-    render(<RewriteTab {...makeProps({
+    render(<Workshop {...makeProps({
       rewriteResult: {
         original_content: 'orig',
         rewritten_content: 'rewritten',
@@ -440,7 +463,7 @@ describe('RewriteTab', () => {
     const addSpy = vi.spyOn(window, 'addEventListener');
     const removeSpy = vi.spyOn(window, 'removeEventListener');
 
-    const { unmount } = render(<RewriteTab {...makeProps({
+    const { unmount } = render(<Workshop {...makeProps({
       rewriteResult: {
         original_content: 'orig',
         rewritten_content: 'rewritten',
@@ -474,7 +497,7 @@ describe('RewriteTab', () => {
   });
 
   it('does not save immediately on edit (waits for debounce)', () => {
-    render(<RewriteTab {...makeProps({
+    render(<Workshop {...makeProps({
       rewriteResult: {
         original_content: 'orig',
         rewritten_content: 'rewritten',
@@ -496,7 +519,7 @@ describe('RewriteTab', () => {
     const setParseResult = vi.fn();
     const setParsedContent = vi.fn();
     const props = makeProps({ setParseResult, setParsedContent });
-    render(<RewriteTab {...props} />);
+    render(<Workshop {...props} />);
 
     const sampleLink = await waitForSampleOffer();
 
@@ -519,7 +542,7 @@ describe('RewriteTab', () => {
       } as ParseResult,
       parsedContent: '[G]Amazing grace how [C]sweet the [G]sound',
     });
-    render(<RewriteTab {...props} />);
+    render(<Workshop {...props} />);
 
     // Should be in parsed state (chat panel visible, input hidden)
     expect(screen.getByTestId('chat-panel')).toBeInTheDocument();
@@ -531,7 +554,7 @@ describe('RewriteTab', () => {
       parseLoading: true,
       parseStreamText: 'partial output...',
     });
-    render(<RewriteTab {...props} />);
+    render(<Workshop {...props} />);
 
     // Should show loading indicator
     expect(screen.getByText('Importing song...')).toBeInTheDocument();
@@ -540,7 +563,7 @@ describe('RewriteTab', () => {
 
   it('offers a sample above the box when the library is confirmed empty', async () => {
     const props = makeProps();
-    render(<RewriteTab {...props} />);
+    render(<Workshop {...props} />);
 
     await waitForSampleOffer();
     const sampleText = screen.getByText(/Start with a sample/);
@@ -556,7 +579,7 @@ describe('RewriteTab', () => {
     // use for a sample, so the offer is now suppressed rather than relocated.
     localStorage.setItem(STORAGE_KEYS.HAS_REWRITTEN, '1');
     const props = makeProps();
-    render(<RewriteTab {...props} />);
+    render(<Workshop {...props} />);
 
     // Wait for the import screen so this cannot pass by asserting on nothing.
     await waitFor(() => expect(screen.getByPlaceholderText(/Paste lyrics/)).toBeInTheDocument());
@@ -570,7 +593,7 @@ describe('RewriteTab', () => {
     // showed a sample offer to returning users with a full library until the
     // check came back.
     vi.mocked(api.listSongs).mockReturnValueOnce(new Promise(() => {}) as never);
-    render(<RewriteTab {...makeProps()} />);
+    render(<Workshop {...makeProps()} />);
 
     await waitFor(() => expect(screen.getByPlaceholderText(/Paste lyrics/)).toBeInTheDocument());
     expect(screen.queryByText(SAMPLE_LINK_NAME)).not.toBeInTheDocument();
@@ -578,7 +601,7 @@ describe('RewriteTab', () => {
 
   it('shows paste-from-clipboard button when input is empty', () => {
     const props = makeProps();
-    render(<RewriteTab {...props} />);
+    render(<Workshop {...props} />);
 
     const pasteBtn = screen.getByRole('button', { name: 'Paste from clipboard' });
     expect(pasteBtn).toBeInTheDocument();
@@ -588,7 +611,7 @@ describe('RewriteTab', () => {
 
   it('hides paste-from-clipboard button after text is entered', () => {
     const props = makeProps();
-    render(<RewriteTab {...props} />);
+    render(<Workshop {...props} />);
 
     expect(screen.getByRole('button', { name: 'Paste from clipboard' })).toBeInTheDocument();
 
@@ -606,7 +629,7 @@ describe('RewriteTab', () => {
     });
 
     const props = makeProps();
-    render(<RewriteTab {...props} />);
+    render(<Workshop {...props} />);
 
     const pasteBtn = screen.getByRole('button', { name: 'Paste from clipboard' });
     fireEvent.click(pasteBtn);
@@ -629,7 +652,7 @@ describe('RewriteTab', () => {
     });
 
     const props = makeProps();
-    render(<RewriteTab {...props} />);
+    render(<Workshop {...props} />);
 
     const pasteBtn = screen.getByRole('button', { name: 'Paste from clipboard' });
     fireEvent.click(pasteBtn);
@@ -647,7 +670,7 @@ describe('RewriteTab', () => {
     // user has charts on another device, so they are not a new user here either.
     vi.mocked(api.listSongs).mockResolvedValueOnce([{ id: 1 }] as never);
     const props = makeProps();
-    render(<RewriteTab {...props} />);
+    render(<Workshop {...props} />);
 
     await waitFor(() => expect(api.listSongs).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByPlaceholderText(/Paste lyrics/)).toBeInTheDocument());
@@ -665,7 +688,7 @@ describe('RewriteTab', () => {
         parseResult: { title: 'Test', artist: 'Test', original_content: 'content' } as ParseResult,
         parsedContent: 'content',
       });
-      render(<RewriteTab {...props} />);
+      render(<Workshop {...props} />);
 
       expect(screen.getByRole('button', { name: '+ New' })).toBeInTheDocument();
     });
@@ -680,14 +703,14 @@ describe('RewriteTab', () => {
         rewriteMeta: { title: 'Test', artist: 'Test' },
         currentSongId: 1,
       });
-      render(<RewriteTab {...props} />);
+      render(<Workshop {...props} />);
 
       expect(screen.getByRole('button', { name: '+ New' })).toBeInTheDocument();
     });
 
     it('does not render in INPUT state', () => {
       const props = makeProps();
-      render(<RewriteTab {...props} />);
+      render(<Workshop {...props} />);
 
       expect(screen.queryByRole('button', { name: '+ New' })).not.toBeInTheDocument();
     });
@@ -706,7 +729,7 @@ describe('RewriteTab', () => {
         onNewRewrite,
         onClearParse,
       });
-      render(<RewriteTab {...props} />);
+      render(<Workshop {...props} />);
 
       fireEvent.click(screen.getByRole('button', { name: '+ New' }));
 
@@ -727,7 +750,7 @@ describe('RewriteTab', () => {
         onClearParse,
         onNewRewrite,
       });
-      render(<RewriteTab {...props} />);
+      render(<Workshop {...props} />);
 
       fireEvent.click(screen.getByRole('button', { name: '+ New' }));
 
@@ -745,7 +768,7 @@ describe('RewriteTab', () => {
         parsedContent: 'content',
         newSongNonce: 0,
       });
-      const { rerender } = render(<RewriteTab {...props} />);
+      const { rerender } = render(<Workshop {...props} />);
 
       // Simulate the global button: AppShell clears shared state and bumps the nonce.
       rerender(
@@ -765,12 +788,12 @@ describe('RewriteTab', () => {
 
   describe('Import from Link', () => {
     it('renders the Link tab in INPUT state', () => {
-      render(<RewriteTab {...makeProps()} />);
+      render(<Workshop {...makeProps()} />);
       expect(screen.getByRole('tab', { name: 'Link' })).toBeInTheDocument();
     });
 
     it('reveals an inline URL field when the tab is selected, with no dialog', () => {
-      render(<RewriteTab {...makeProps()} />);
+      render(<Workshop {...makeProps()} />);
       // The field is behind the tab, not present until it is chosen.
       expect(screen.queryByPlaceholderText('https://...')).not.toBeInTheDocument();
 
@@ -790,7 +813,7 @@ describe('RewriteTab', () => {
         source_url: 'https://chords.example.com/some-song',
       });
 
-      render(<RewriteTab {...makeProps()} />);
+      render(<Workshop {...makeProps()} />);
       selectImportTab('Link');
 
       const urlInput = screen.getByPlaceholderText('https://...');
@@ -829,7 +852,7 @@ describe('RewriteTab', () => {
       });
       vi.mocked(api.saveSong).mockResolvedValue({ id: 7, uuid: 'uuid-7', profile_id: 1 } as never);
 
-      render(<RewriteTab {...makeProps({ onParse })} />);
+      render(<Workshop {...makeProps({ onParse })} />);
 
       // Add content from a link
       selectImportTab('Link');
@@ -855,7 +878,7 @@ describe('RewriteTab', () => {
       const setParseError = vi.fn();
       vi.mocked(api.scrapeUrl).mockRejectedValue(new Error('That site blocked the request.'));
 
-      render(<RewriteTab {...makeProps({ setParseError })} />);
+      render(<Workshop {...makeProps({ setParseError })} />);
       selectImportTab('Link');
       fireEvent.change(screen.getByPlaceholderText('https://...'), {
         target: { value: 'https://example.com/song' },
@@ -873,7 +896,7 @@ describe('RewriteTab', () => {
     const onNewRewrite = vi.fn();
     const onContentUpdated = vi.fn();
 
-    render(<RewriteTab {...makeProps({
+    render(<Workshop {...makeProps({
       rewriteResult: {
         original_content: 'original lyrics',
         rewritten_content: 'old rewritten lyrics',
@@ -912,7 +935,7 @@ describe('RewriteTab', () => {
   it('offers a photo picker behind the Photo tab', () => {
     const props = makeProps();
     Object.assign(mockOutletContext, props);
-    render(<RewriteTab />);
+    render(<Workshop />);
     selectImportTab('Photo');
     expect(screen.getByRole('button', { name: 'Choose photo' })).toBeInTheDocument();
   });
@@ -925,7 +948,7 @@ describe('RewriteTab', () => {
 
     const props = makeProps();
     Object.assign(mockOutletContext, props);
-    render(<RewriteTab />);
+    render(<Workshop />);
     selectImportTab('Photo');
 
     expect(screen.getByRole('button', { name: 'Choose photo' })).not.toBeDisabled();
@@ -934,7 +957,7 @@ describe('RewriteTab', () => {
   it('disables the photo picker when no model is selected, and says why', () => {
     const props = makeProps({ llmSettings: { model: '', reasoning_effort: '' } });
     Object.assign(mockOutletContext, props);
-    render(<RewriteTab />);
+    render(<Workshop />);
     selectImportTab('Photo');
 
     expect(screen.getByRole('button', { name: 'Choose photo' })).toBeDisabled();
@@ -945,7 +968,7 @@ describe('RewriteTab', () => {
 
   describe('import source tabs', () => {
     it('offers all four ways in, with Paste selected first', () => {
-      render(<RewriteTab {...makeProps()} />);
+      render(<Workshop {...makeProps()} />);
 
       for (const name of ['Paste', 'Photo', 'File', 'Link'] as const) {
         expect(screen.getByRole('tab', { name })).toBeInTheDocument();
@@ -954,7 +977,7 @@ describe('RewriteTab', () => {
     });
 
     it('keeps the save actions on the Paste tab, which is where the text lands', () => {
-      render(<RewriteTab {...makeProps()} />);
+      render(<Workshop {...makeProps()} />);
       expect(screen.getByText('Add to library')).toBeInTheDocument();
 
       selectImportTab('File');
@@ -965,7 +988,7 @@ describe('RewriteTab', () => {
     });
 
     it('names its tablist, since the app nav is a second one on the same page', () => {
-      render(<RewriteTab {...makeProps()} />);
+      render(<Workshop {...makeProps()} />);
       // Unlabelled, a screen reader announces two indistinguishable tab lists.
       expect(screen.getByRole('tablist', { name: 'Import source' })).toBeInTheDocument();
     });
@@ -973,7 +996,7 @@ describe('RewriteTab', () => {
     it('focuses the URL field when the Link tab is chosen', () => {
       // The dialog this replaced autofocused its field, so choosing "Link" and
       // typing straight away worked. Losing that is a silent downgrade.
-      render(<RewriteTab {...makeProps()} />);
+      render(<Workshop {...makeProps()} />);
       selectImportTab('Link');
 
       expect(screen.getByPlaceholderText('https://...')).toHaveFocus();
@@ -987,7 +1010,7 @@ describe('RewriteTab', () => {
         source_url: 'https://chords.example.com/some-song',
       });
 
-      render(<RewriteTab {...makeProps()} />);
+      render(<Workshop {...makeProps()} />);
       selectImportTab('Link');
       fireEvent.change(screen.getByPlaceholderText('https://...'), {
         target: { value: 'https://chords.example.com/some-song' },
@@ -1004,7 +1027,7 @@ describe('RewriteTab', () => {
     });
 
     it('warns before an extraction overwrites text already in the paste box', () => {
-      render(<RewriteTab {...makeProps()} />);
+      render(<Workshop {...makeProps()} />);
 
       selectImportTab('Link');
       expect(screen.queryByText(/replaces what's currently in the Paste tab/)).not.toBeInTheDocument();
@@ -1022,7 +1045,7 @@ describe('RewriteTab', () => {
   describe('Import from File', () => {
     it('offers a file picker behind the File tab', () => {
       const props = makeProps();
-      render(<RewriteTab {...props} />);
+      render(<Workshop {...props} />);
       selectImportTab('File');
 
       expect(screen.getByRole('button', { name: 'Choose file' })).toBeInTheDocument();
@@ -1030,7 +1053,7 @@ describe('RewriteTab', () => {
 
     it('is disabled when no profile exists', () => {
       const props = makeProps({ profile: null });
-      render(<RewriteTab {...props} />);
+      render(<Workshop {...props} />);
       selectImportTab('File');
 
       expect(screen.getByRole('button', { name: 'Choose file' })).toBeDisabled();
@@ -1038,7 +1061,7 @@ describe('RewriteTab', () => {
 
     it('has a hidden file input with correct accept attribute for PDFs and text files', () => {
       const props = makeProps();
-      const { container } = render(<RewriteTab {...props} />);
+      const { container } = render(<Workshop {...props} />);
 
       // Find the doc file input (the one that accepts .pdf,.txt)
       const fileInputs = container.querySelectorAll('input[type="file"]');
@@ -1057,7 +1080,7 @@ describe('RewriteTab', () => {
       new File([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d])], name, { type: 'application/pdf' });
 
     it('offers keeping the PDF alongside extracting its text', () => {
-      render(<RewriteTab {...makeProps()} />);
+      render(<Workshop {...makeProps()} />);
       selectImportTab('File');
 
       expect(screen.getByRole('button', { name: 'Choose file' })).toBeInTheDocument();
@@ -1065,14 +1088,14 @@ describe('RewriteTab', () => {
     });
 
     it('is disabled when no profile exists', () => {
-      render(<RewriteTab {...makeProps({ profile: null })} />);
+      render(<Workshop {...makeProps({ profile: null })} />);
       selectImportTab('File');
 
       expect(screen.getByRole('button', { name: 'Store a tab PDF' })).toBeDisabled();
     });
 
     it('takes PDFs only, and more than one at a time', () => {
-      render(<RewriteTab {...makeProps()} />);
+      render(<Workshop {...makeProps()} />);
       const input = screen.getByTestId('import-tab-pdf-input') as HTMLInputElement;
 
       expect(input.accept).toBe('application/pdf,.pdf');
@@ -1083,7 +1106,7 @@ describe('RewriteTab', () => {
     });
 
     it('uploads the file and sends the user to the library', async () => {
-      render(<RewriteTab {...makeProps()} />);
+      render(<Workshop {...makeProps()} />);
       const input = screen.getByTestId('import-tab-pdf-input');
 
       await act(async () => {
@@ -1100,7 +1123,7 @@ describe('RewriteTab', () => {
     });
 
     it('uploads several files one at a time', async () => {
-      render(<RewriteTab {...makeProps()} />);
+      render(<Workshop {...makeProps()} />);
       const input = screen.getByTestId('import-tab-pdf-input');
 
       await act(async () => {
@@ -1117,7 +1140,7 @@ describe('RewriteTab', () => {
         .mockResolvedValueOnce({ id: 8, uuid: 'uuid-ok' } as never);
 
       const props = makeProps();
-      render(<RewriteTab {...props} />);
+      render(<Workshop {...props} />);
       const input = screen.getByTestId('import-tab-pdf-input');
 
       await act(async () => {
@@ -1134,7 +1157,7 @@ describe('RewriteTab', () => {
     it('stays put when every upload failed', async () => {
       vi.mocked(api.uploadDocument).mockRejectedValue(new Error('nope'));
 
-      render(<RewriteTab {...makeProps()} />);
+      render(<Workshop {...makeProps()} />);
       const input = screen.getByTestId('import-tab-pdf-input');
 
       await act(async () => {
@@ -1165,7 +1188,7 @@ describe('RewriteTab', () => {
     const surface = () => localStorage.getItem('test_last_surface');
 
     it('does not claim the surface for a song it merely had restored into it', () => {
-      render(<RewriteTab {...makeProps({ rewriteResult: RESTORED })} />);
+      render(<Workshop {...makeProps({ rewriteResult: RESTORED })} />);
 
       expect(surface()).toBeNull();
     });
@@ -1175,7 +1198,7 @@ describe('RewriteTab', () => {
       // is what made the app reopen on the editor forever.
       localStorage.setItem('test_last_surface', 'workshop');
 
-      render(<RewriteTab {...makeProps({ rewriteResult: RESTORED })} />);
+      render(<Workshop {...makeProps({ rewriteResult: RESTORED })} />);
 
       expect(surface()).toBeNull();
     });
@@ -1183,13 +1206,13 @@ describe('RewriteTab', () => {
     it('leaves another surface alone when it has nothing to claim', () => {
       localStorage.setItem('test_last_surface', 'play');
 
-      render(<RewriteTab {...makeProps({ rewriteResult: RESTORED })} />);
+      render(<Workshop {...makeProps({ rewriteResult: RESTORED })} />);
 
       expect(surface()).toBe('play');
     });
 
     it('claims the surface once the user edits the restored song', async () => {
-      render(<RewriteTab {...makeProps({ rewriteResult: RESTORED })} />);
+      render(<Workshop {...makeProps({ rewriteResult: RESTORED })} />);
       expect(surface()).toBeNull();
 
       fireEvent.change(screen.getAllByLabelText('Song title')[0]!, {
@@ -1200,7 +1223,7 @@ describe('RewriteTab', () => {
     });
 
     it('claims the surface for an unsaved parse result', async () => {
-      render(<RewriteTab {...makeProps({
+      render(<Workshop {...makeProps({
         parseResult: { title: 'Test', artist: 'Test', original_content: 'content' } as ParseResult,
       })} />);
 
@@ -1208,7 +1231,7 @@ describe('RewriteTab', () => {
     });
 
     it('claims the surface for a draft left in the paste box', async () => {
-      render(<RewriteTab {...makeProps()} />);
+      render(<Workshop {...makeProps()} />);
 
       fireEvent.change(screen.getByPlaceholderText(/Paste lyrics/), {
         target: { value: 'G  C  G' },
@@ -1218,7 +1241,7 @@ describe('RewriteTab', () => {
     });
 
     it('remembers the user worked here across a trip to the library', async () => {
-      const { unmount } = render(<RewriteTab {...makeProps()} />);
+      const { unmount } = render(<Workshop {...makeProps()} />);
       fireEvent.change(screen.getByPlaceholderText(/Paste lyrics/), {
         target: { value: 'G  C  G' },
       });
@@ -1229,7 +1252,7 @@ describe('RewriteTab', () => {
       // reset here and hand the surface back while the draft is still sitting in
       // the box, which is why the flag lives in sessionStorage.
       localStorage.removeItem('test_last_surface');
-      render(<RewriteTab {...makeProps()} />);
+      render(<Workshop {...makeProps()} />);
 
       await waitFor(() => expect(surface()).toBe('workshop'));
     });
@@ -1239,7 +1262,7 @@ describe('RewriteTab', () => {
       sessionStorage.clear(); // what a relaunch does
       localStorage.setItem('test_last_surface', 'workshop');
 
-      render(<RewriteTab {...makeProps({ rewriteResult: RESTORED })} />);
+      render(<Workshop {...makeProps({ rewriteResult: RESTORED })} />);
 
       expect(surface()).toBeNull();
     });
@@ -1257,7 +1280,7 @@ describe('RewriteTab', () => {
       vi.mocked(api.saveSong).mockResolvedValue({ id: 42, uuid: 'uuid-42', profile_id: 1 } as never);
 
       const props = makeProps({ onParse, onSongSaved });
-      render(<RewriteTab {...props} />);
+      render(<Workshop {...props} />);
 
       // Type input and click "Import & rewrite" (stays in the workshop)
       const textarea = screen.getByPlaceholderText(/Paste lyrics/);
@@ -1289,7 +1312,7 @@ describe('RewriteTab', () => {
       const onClearParse = vi.fn();
       vi.mocked(api.saveSong).mockResolvedValue({ id: 77, uuid: 'uuid-77', profile_id: 1 } as never);
 
-      render(<RewriteTab {...makeProps({ onParse, onSongSaved, onClearParse })} />);
+      render(<Workshop {...makeProps({ onParse, onSongSaved, onClearParse })} />);
 
       const textarea = screen.getByPlaceholderText(/Paste lyrics/);
       fireEvent.change(textarea, { target: { value: 'Amazing grace' } });
@@ -1310,7 +1333,7 @@ describe('RewriteTab', () => {
       vi.mocked(api.saveSong).mockResolvedValue({ id: 50, uuid: 'uuid-50', profile_id: 1 } as never);
 
       const props = makeProps({ onSongSaved });
-      render(<RewriteTab {...props} />);
+      render(<Workshop {...props} />);
 
       fireEvent.click(await waitForSampleOffer());
 
@@ -1334,7 +1357,7 @@ describe('RewriteTab', () => {
         currentSongId: 42,
         onSongSaved,
       });
-      render(<RewriteTab {...props} />);
+      render(<Workshop {...props} />);
 
       // Access the onBeforeSend callback passed to ChatPanel
       const onBeforeSend = capturedChatPanelProps.onBeforeSend as (() => Promise<number>) | undefined;
@@ -1356,7 +1379,7 @@ describe('RewriteTab', () => {
         .mockResolvedValueOnce({ id: 51, uuid: 'uuid-51', profile_id: 1 } as never);
 
       const props = makeProps({ onSongSaved });
-      render(<RewriteTab {...props} />);
+      render(<Workshop {...props} />);
 
       const sample = await waitForSampleOffer();
       fireEvent.click(sample);
@@ -1382,7 +1405,7 @@ describe('RewriteTab', () => {
         currentSongId: 42,
         currentSongUuid: 'uuid-42',
       });
-      render(<RewriteTab {...props} />);
+      render(<Workshop {...props} />);
 
       // Edit title in parsed state
       const titleInput = screen.getAllByLabelText('Song title')[0]!;
@@ -1404,7 +1427,7 @@ describe('RewriteTab', () => {
 
 describe('bulk link import entry', () => {
   it('the Link tab offers the bulk importer and opens it', async () => {
-    render(<RewriteTab {...makeProps()} />);
+    render(<Workshop {...makeProps()} />);
     selectImportTab('Link');
 
     fireEvent.click(screen.getByRole('button', { name: 'Paste all your links at once' }));
@@ -1437,7 +1460,7 @@ describe('desktop import layout', () => {
   });
 
   it('shows the paste surface and all three source tiles with no tab strip', () => {
-    render(<RewriteTab {...makeProps()} />);
+    render(<Workshop {...makeProps()} />);
 
     expect(screen.queryByRole('tablist', { name: 'Import source' })).not.toBeInTheDocument();
     expect(screen.getByPlaceholderText('Paste lyrics, or drop a file here...')).toBeInTheDocument();
@@ -1448,7 +1471,7 @@ describe('desktop import layout', () => {
   });
 
   it('opens the bulk importer from the rail', async () => {
-    render(<RewriteTab {...makeProps()} />);
+    render(<Workshop {...makeProps()} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Paste all your links at once' }));
     await waitFor(() =>

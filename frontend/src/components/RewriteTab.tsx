@@ -35,6 +35,7 @@ import { QuotaBanner, OnboardingBanner, isQuotaError, QuotaUpgradeLink } from '@
 import { SAMPLE_SONGS, sampleToParseResult } from '@/data/sample-songs';
 import { guessSongMeta } from '@/lib/songMeta';
 import type { AppShellContext } from '@/layouts/AppShell';
+import type { ChatSessionStore } from '@/lib/chatSessions';
 import type { Profile, Song, RewriteResult, RewriteMeta, ChatMessage, LlmSettings, ParseResult } from '@/types';
 import type { SampleSong } from '@/data/sample-songs';
 
@@ -50,6 +51,13 @@ interface RewriteTabProps {
   currentSongUuid: string | null;
   chatMessages: ChatMessage[];
   setChatMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  chatSessions?: ChatSessionStore;
+  songTitle: string;
+  setSongTitle: React.Dispatch<React.SetStateAction<string>>;
+  songArtist: string;
+  setSongArtist: React.Dispatch<React.SetStateAction<string>>;
+  isDirty: boolean;
+  setIsDirty: React.Dispatch<React.SetStateAction<boolean>>;
   onNewRewrite: (result: RewriteResult | null, meta: RewriteMeta | null) => void;
   onSongSaved: (song: Song) => void;
   onContentUpdated: (content: string) => void;
@@ -74,7 +82,6 @@ interface RewriteTabProps {
   onParse: (params: { content: string; instruction?: string }) => Promise<ParseResult | null>;
   onCancelParse: () => void;
   onClearParse: () => void;
-  onChatStreamingChange?: (streaming: boolean) => void;
   // Bumped by the global "New Song" button; resets this tab's local state.
   newSongNonce?: number;
 }
@@ -86,11 +93,17 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     profile,
     llmSettings,
     rewriteResult,
-    rewriteMeta,
     currentSongId,
     currentSongUuid,
     chatMessages,
     setChatMessages,
+    chatSessions,
+    songTitle,
+    setSongTitle,
+    songArtist,
+    setSongArtist,
+    isDirty,
+    setIsDirty,
     onNewRewrite,
     onSongSaved,
     onContentUpdated,
@@ -115,7 +128,6 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     onParse,
     onCancelParse,
     onClearParse,
-    onChatStreamingChange,
     newSongNonce,
   } = { ...ctx, ...directProps } as RewriteTabProps;
   const [input, setInputRaw] = useState(
@@ -137,9 +149,6 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const handleSaveRef = useRef<() => Promise<void>>(async () => {});
   const [mobilePane, setMobilePane] = useState<'chat' | 'content'>('chat');
   const [saveStatus, setSaveStatus] = useState<'saving' | 'saved' | null>(null);
-  const [isDirty, setIsDirty] = useState(false);
-  const [songTitle, setSongTitle] = useState('');
-  const [songArtist, setSongArtist] = useState('');
   const [scrapDialogOpen, setScrapDialogOpen] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
   const [showHints, setShowHints] = useState(false);
@@ -210,29 +219,20 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     }
   }, [currentSongId, currentSongUuid]);
 
-  // Sync title/artist from parse result when it arrives (including after
-  // navigating away and returning while a parse was in progress).
+  // Show the parsed chart when a parse result arrives (including after
+  // navigating away and returning while a parse was in progress). AppShell
+  // fills in the title and artist.
   const prevParseRef = useRef<ParseResult | null>(null);
   useEffect(() => {
     const wasNull = prevParseRef.current === null;
     if (wasNull && parseResult && !rewriteResult) {
-      setSongTitle(parseResult.title || '');
-      setSongArtist(parseResult.artist || '');
       setMobilePane('content');
     }
     prevParseRef.current = parseResult;
   }, [parseResult, rewriteResult]);
 
   useEffect(() => {
-    if (rewriteMeta) {
-      setSongTitle(rewriteMeta.title || '');
-      setSongArtist(rewriteMeta.artist || '');
-    }
-  }, [rewriteMeta]);
-
-  useEffect(() => {
     setSaveStatus(null);
-    setIsDirty(false);
   }, [currentSongUuid]);
 
   // Warn before navigating away with unsaved changes
@@ -245,6 +245,18 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [isDirty]);
+
+  // Leaving the workshop cancels the autosave timer below, so save whatever it
+  // was waiting on now. handleSave is a no-op when nothing is dirty. Skipped
+  // while a chat reply is streaming: the chart then holds a partial reply, and
+  // the backend saves the finished one itself.
+  const flushRef = useRef({ chatSessions, currentSongId });
+  flushRef.current = { chatSessions, currentSongId };
+  useEffect(() => () => {
+    const { chatSessions: sessions, currentSongId: songId } = flushRef.current;
+    if (sessions?.get(songId).sending) return;
+    void handleSaveRef.current();
+  }, []);
 
   // Autosave: debounce manual edits by 1.5s
   useEffect(() => {
@@ -664,6 +676,8 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const handleLoadSample = async (sample: SampleSong) => {
     if (sampleSavingRef.current) return;
     const result = sampleToParseResult(sample);
+    // Reset first: clearing the rewrite also clears the title and artist.
+    onNewRewrite(null, null);
     setParseResult(result);
     setParsedContent(result.original_content);
     setSongTitle(result.title ?? '');
@@ -671,7 +685,6 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     setInput('');
     setInstruction('');
     setParseError(null);
-    onNewRewrite(null, null);
     setMobilePane('content');
 
     // Save sample song to library immediately
@@ -737,7 +750,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
       onContentUpdated(newContent);
     }
     setIsDirty(true);
-  }, [rewriteResult, parseResult, parsedContent, profile, songTitle, songArtist, llmSettings, onNewRewrite, onContentUpdated]);
+  }, [rewriteResult, parseResult, parsedContent, profile, songTitle, songArtist, llmSettings, onNewRewrite, onContentUpdated, setIsDirty]);
 
   const handleNewSong = () => {
     onClearParse();
@@ -764,9 +777,6 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
     setInstruction('');
     setParseReasoningExpanded(false);
     setSaveStatus(null);
-    setIsDirty(false);
-    setSongTitle('');
-    setSongArtist('');
   }, [newSongNonce, setInput, setInstruction]);
 
   const handleScrap = async () => {
@@ -816,12 +826,12 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
   const handleTitleChange = useCallback((val: string) => {
     setSongTitle(val);
     setIsDirty(true);
-  }, []);
+  }, [setSongTitle, setIsDirty]);
 
   const handleArtistChange = useCallback((val: string) => {
     setSongArtist(val);
     setIsDirty(true);
-  }, []);
+  }, [setSongArtist, setIsDirty]);
 
   const handleOriginalContentUpdated = useCallback((newOriginal: string) => {
     if (!rewriteResult && parseResult) {
@@ -836,12 +846,12 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
       onOriginalContentUpdatedCtx(newOriginal);
       setIsDirty(true);
     }
-  }, [rewriteResult, parseResult, currentSongUuid, setParsedContent, onOriginalContentUpdatedCtx]);
+  }, [rewriteResult, parseResult, currentSongUuid, setParsedContent, onOriginalContentUpdatedCtx, setIsDirty]);
 
   const handleRewrittenChange = useCallback((newText: string) => {
     onContentUpdated(newText);
     setIsDirty(true);
-  }, [onContentUpdated]);
+  }, [onContentUpdated, setIsDirty]);
 
   const editableInputClass = 'bg-transparent border-0 border-b border-transparent can-hover:hover:border-dashed can-hover:hover:border-border focus:border-solid focus:border-primary p-0 pb-px min-w-0 w-full focus:outline-none cursor-text transition-colors';
 
@@ -1558,7 +1568,7 @@ export default function RewriteTab(directProps?: Partial<RewriteTabProps>) {
                 initialLoading={false}
                 {...(isParsed ? { onBeforeSend: handleBeforeSend } : { onContentStreaming: handleChatUpdate })}
                 onOriginalContentUpdated={handleOriginalContentUpdated}
-                onStreamingChange={onChatStreamingChange}
+                sessions={chatSessions}
                 rewrittenContent={rewriteResult?.rewritten_content}
                 flat
                 headerRight={

@@ -1,6 +1,7 @@
 import { render, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, Outlet } from 'react-router-dom';
 import type { AppShellContext } from '@/layouts/AppShell';
+import { ChatSessionStore } from '@/lib/chatSessions';
 import type { Song } from '@/types';
 
 const MOCK_SONG = vi.hoisted<Song>(() => ({
@@ -52,6 +53,13 @@ const stubContext: AppShellContext = {
   currentSongUuid: null,
   chatMessages: [],
   setChatMessages: vi.fn(),
+  chatSessions: new ChatSessionStore(),
+  songTitle: '',
+  setSongTitle: vi.fn(),
+  songArtist: '',
+  setSongArtist: vi.fn(),
+  isDirty: false,
+  setIsDirty: vi.fn(),
   onNewRewrite: vi.fn(),
   onSongSaved: vi.fn(),
   onContentUpdated: vi.fn(),
@@ -79,7 +87,6 @@ const stubContext: AppShellContext = {
   onParse: vi.fn().mockResolvedValue(null),
   onCancelParse: vi.fn(),
   onClearParse: vi.fn(),
-  onChatStreamingChange: vi.fn(),
   newSongNonce: 0,
 };
 
