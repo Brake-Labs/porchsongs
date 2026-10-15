@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route, Outlet, useLocation } from 'react-router-dom';
+import { TestAppShell, type AppShellTestValue } from '@/test/app-shell-context';
 import api from '@/api';
 import PlayPage from '@/pages/PlayPage';
 import { stepFontSize, clampFontSize, FONT_SIZE_MIN, FONT_SIZE_MAX } from '@/components/PlayView';
@@ -61,11 +62,11 @@ function LibraryProbe() {
   return <div data-testid="library-url">{location.pathname + location.search}</div>;
 }
 
-function renderAt(uuid: string, ctx: Record<string, unknown> = {}, state?: unknown) {
+function renderAt(uuid: string, ctx: Partial<AppShellTestValue> = {}, state?: unknown) {
   return render(
     <MemoryRouter initialEntries={[{ pathname: `/app/play/${uuid}`, state }]}>
       <Routes>
-        <Route element={<Outlet context={{ llmSettings: { model: '' }, ...ctx }} />}>
+        <Route element={<TestAppShell value={ctx}><Outlet /></TestAppShell>}>
           <Route path="/app/play/:uuid" element={<PlayPage />} />
         </Route>
         <Route path="/app/library" element={<LibraryProbe />} />

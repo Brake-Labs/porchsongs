@@ -2,15 +2,16 @@ import { screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '@/test/test-utils';
 import LibraryTab, { groupSongsByArtist } from '@/components/LibraryTab';
-import type { AppShellContext } from '@/layouts/AppShell';
+import type { AppShellTestValue } from '@/test/app-shell-mocks';
 import type { Song, ChatMessage } from '@/types';
 
-const mockOutletContext: Partial<AppShellContext> = {};
+const mockAppShell: Partial<AppShellTestValue> = {};
+vi.mock('@/contexts/AppShellContext', async () =>
+  (await import('@/test/app-shell-mocks')).mockAppShellHooks(() => mockAppShell));
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
   return {
     ...actual,
-    useOutletContext: () => mockOutletContext,
     useParams: () => ({}),
   };
 });
@@ -72,8 +73,8 @@ function makeSong(overrides: Partial<Song> = {}): Song {
   } as Song;
 }
 
-function setupContext(overrides: Partial<AppShellContext> = {}): void {
-  Object.assign(mockOutletContext, {
+function setupContext(overrides: Partial<AppShellTestValue> = {}): void {
+  Object.assign(mockAppShell, {
     profile: { id: 1, user_id: 'u1', display_name: 'Test', parse_prompt: '', chat_prompt: '' },
     llmSettings: { model: 'gpt-4o', reasoning_effort: 'high' },
     rewriteResult: null,

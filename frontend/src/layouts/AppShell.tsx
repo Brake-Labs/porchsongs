@@ -1,9 +1,17 @@
-import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
+import { useState, useEffect, useCallback, useMemo, useReducer, useRef, useSyncExternalStore } from 'react';
 import { Outlet, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import api, { ConnectionLostError, STORAGE_KEYS } from '@/api';
 import { chatHistoryToMessages } from '@/lib/chat-utils';
 import { ChatSessionStore } from '@/lib/chatSessions';
+import { initialWorkshopState, workshopReducer } from '@/lib/workshopState';
+import {
+  AppShellProviders,
+  type ParseContextValue,
+  type SettingsContextValue,
+  type WorkshopActionsValue,
+  type WorkshopStateValue,
+} from '@/contexts/AppShellContext';
 import useLocalStorage from '@/hooks/useLocalStorage';
 import useVisibilityRecovery from '@/hooks/useVisibilityRecovery';
 import Header from '@/components/Header';
@@ -15,63 +23,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { getFeatureRequestUrl, getReportIssueUrl } from '@/extensions';
 import type { Profile, RewriteResult, RewriteMeta, ChatMessage, Song, ParseResult } from '@/types';
-
-/** Context value provided to child routes via useOutletContext(). */
-export interface AppShellContext {
-  profile: Profile | null;
-  llmSettings: { model: string; reasoning_effort: string };
-  rewriteResult: RewriteResult | null;
-  rewriteMeta: RewriteMeta | null;
-  currentSongId: number | null;
-  currentSongUuid: string | null;
-  chatMessages: ChatMessage[];
-  setChatMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-  // Chat requests in flight, per song. Outlives ChatPanel so leaving the
-  // workshop neither loses a running stream nor lets it land on another song.
-  chatSessions: ChatSessionStore;
-  // Workshop title/artist and unsaved-edit flag. Held here, not in RewriteTab,
-  // so an edit made just before leaving the workshop is still there (and still
-  // saved) after it unmounts.
-  songTitle: string;
-  setSongTitle: React.Dispatch<React.SetStateAction<string>>;
-  songArtist: string;
-  setSongArtist: React.Dispatch<React.SetStateAction<string>>;
-  isDirty: boolean;
-  setIsDirty: React.Dispatch<React.SetStateAction<boolean>>;
-  onNewRewrite: (result: RewriteResult | null, meta: RewriteMeta | null) => void;
-  onSongSaved: (song: Song) => void;
-  onContentUpdated: (content: string) => void;
-  onOriginalContentUpdated: (content: string) => void;
-  onChangeModel: (model: string) => void;
-  reasoningEffort: string;
-  onChangeReasoningEffort: (value: string) => void;
-  onOpenSettings: () => void;
-  isPremium: boolean;
-  isAdmin: boolean;
-  // Model picker (gateway catalog)
-  model: string;
-  models: string[];
-  onSaveProfile: (data: Partial<Profile>) => Promise<Profile>;
-  // Library-specific props
-  onLoadSong: (song: Song) => Promise<void>;
-  // Parse state (survives tab navigation)
-  parseLoading: boolean;
-  parseResult: ParseResult | null;
-  parsedContent: string;
-  setParsedContent: React.Dispatch<React.SetStateAction<string>>;
-  setParseResult: React.Dispatch<React.SetStateAction<ParseResult | null>>;
-  parseStreamText: string;
-  parseReasoningText: string;
-  parseError: string | null;
-  parseErrorType: string | undefined;
-  setParseError: React.Dispatch<React.SetStateAction<string | null>>;
-  onParse: (params: { content: string; instruction?: string }) => Promise<ParseResult | null>;
-  onCancelParse: () => void;
-  onClearParse: () => void;
-  // Bumped whenever a new song is started from the global "New Song" button, so
-  // RewriteTab can reset its local (input/title/artist) state even while mounted.
-  newSongNonce: number;
-}
 
 export default function AppShell() {
   const { authState, currentAuthUser, authConfig, isPremium, handleLogout } = useAuth();
@@ -89,14 +40,34 @@ export default function AppShell() {
   // Gateway model catalog (fetched once)
   const [models, setModels] = useState<string[]>([]);
 
-  // Rewrite state (shared between RewriteTab, comparison, chat)
-  const [rewriteResult, setRewriteResult] = useState<RewriteResult | null>(null);
-  const [rewriteMeta, setRewriteMeta] = useState<RewriteMeta | null>(null);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  // The workshop: the open song, its chat, and unsaved edits. One reducer so
+  // opening a song swaps all of it at once.
+  const [workshop, dispatch] = useReducer(
+    workshopReducer,
+    null,
+    () => initialWorkshopState(localStorage.getItem(STORAGE_KEYS.CURRENT_SONG_ID) || null),
+  );
+  const { rewriteResult, currentSongId, currentSongUuid } = workshop;
   const [chatSessions] = useState(() => new ChatSessionStore());
-  const [songTitle, setSongTitle] = useState('');
-  const [songArtist, setSongArtist] = useState('');
-  const [isDirty, setIsDirty] = useState(false);
+  // The open song, readable from async callbacks that outlive a render.
+  const currentSongUuidRef = useRef(currentSongUuid);
+  currentSongUuidRef.current = currentSongUuid;
+
+  const setRewriteResult = useCallback((update: React.SetStateAction<RewriteResult | null>) => {
+    dispatch({ type: 'setRewriteResult', update });
+  }, []);
+  const setChatMessages = useCallback((update: React.SetStateAction<ChatMessage[]>) => {
+    dispatch({ type: 'setChatMessages', update });
+  }, []);
+  const setSongTitle = useCallback((update: React.SetStateAction<string>) => {
+    dispatch({ type: 'setSongTitle', update });
+  }, []);
+  const setSongArtist = useCallback((update: React.SetStateAction<string>) => {
+    dispatch({ type: 'setSongArtist', update });
+  }, []);
+  const setIsDirty = useCallback((update: React.SetStateAction<boolean>) => {
+    dispatch({ type: 'setIsDirty', update });
+  }, []);
 
   // Parse state (lives here so it survives tab navigation)
   const [parseLoading, setParseLoading] = useState(false);
@@ -107,12 +78,6 @@ export default function AppShell() {
   const [parseError, setParseError] = useState<string | null>(null);
   const [parseErrorType, setParseErrorType] = useState<string | undefined>();
   const parseAbortRef = useRef<AbortController | null>(null);
-
-  // Track current song: integer ID for chat requests, UUID for URL routing
-  const [currentSongId, setCurrentSongIdRaw] = useState<number | null>(null);
-  const [currentSongUuid, setCurrentSongUuidRaw] = useState<string | null>(() => {
-    return localStorage.getItem(STORAGE_KEYS.CURRENT_SONG_ID) || null;
-  });
 
   // Where the app was launched, sampled on the very first render.
   //
@@ -127,22 +92,36 @@ export default function AppShell() {
     surface: localStorage.getItem(STORAGE_KEYS.LAST_SURFACE),
   }));
 
+  // Every change of song goes through here or `loadSong`, which tell the chat
+  // sessions synchronously, so a reply that arrives right after a switch is
+  // already measured against the new song.
   const setCurrentSong = useCallback((song: Song | null) => {
-    // Synchronously, so a chat reply that arrives right after a song switch is
-    // already measured against the new song.
     chatSessions.setActiveSong(song?.id ?? null);
-    if (song) {
-      setCurrentSongIdRaw(song.id);
-      setCurrentSongUuidRaw(song.uuid);
-      localStorage.setItem(STORAGE_KEYS.CURRENT_SONG_ID, song.uuid);
-    } else {
-      setCurrentSongIdRaw(null);
-      setCurrentSongUuidRaw(null);
-      localStorage.removeItem(STORAGE_KEYS.CURRENT_SONG_ID);
-    }
+    dispatch({ type: 'setCurrentSong', song });
   }, [chatSessions]);
 
-  const llmSettings = { model, reasoning_effort: reasoningEffort };
+  const loadSong = useCallback((song: Song) => {
+    chatSessions.setActiveSong(song.id);
+    currentSongUuidRef.current = song.uuid;
+    dispatch({ type: 'loadSong', song });
+  }, [chatSessions]);
+
+  const loadChatHistory = useCallback(async (uuid: string) => {
+    let messages: ChatMessage[] = [];
+    try {
+      messages = chatHistoryToMessages(await api.getChatHistory(uuid));
+    } catch {
+      // Show an empty chat rather than the previous song's.
+    }
+    if (currentSongUuidRef.current === uuid) setChatMessages(messages);
+  }, [setChatMessages]);
+
+  useEffect(() => {
+    if (currentSongUuid) localStorage.setItem(STORAGE_KEYS.CURRENT_SONG_ID, currentSongUuid);
+    else localStorage.removeItem(STORAGE_KEYS.CURRENT_SONG_ID);
+  }, [currentSongUuid]);
+
+  const llmSettings = useMemo(() => ({ model, reasoning_effort: reasoningEffort }), [model, reasoningEffort]);
 
   // Re-sync song state from DB when the tab becomes visible after a stream
   // was active (handles mobile browser suspending the tab mid-generation).
@@ -199,30 +178,12 @@ export default function AppShell() {
   // the surface they left, using the values sampled into `launch` above.
   useEffect(() => {
     if (authState !== 'ready' || rewriteResult || !currentSongUuid) return;
-    api.getSong(currentSongUuid).then(async (song: Song) => {
-      chatSessions.setActiveSong(song.id);
-      setCurrentSongIdRaw(song.id);
-      setRewriteResult({
-        original_content: song.original_content,
-        rewritten_content: song.rewritten_content,
-        changes_summary: song.changes_summary || '',
-      });
-      setRewriteMeta({
-        title: song.title ?? undefined,
-        artist: song.artist ?? undefined,
-        source_url: song.source_url ?? undefined,
-        profile_id: song.profile_id,
-        llm_provider: song.llm_provider ?? undefined,
-        llm_model: song.llm_model ?? undefined,
-      });
-      setSongTitle(song.title ?? '');
-      setSongArtist(song.artist ?? '');
-      try {
-        const history = await api.getChatHistory(song.uuid);
-        setChatMessages(chatHistoryToMessages(history));
-      } catch {
-        setChatMessages([]);
-      }
+    const requested = currentSongUuid;
+    api.getSong(requested).then(async (song: Song) => {
+      // The user may have opened another song while this was loading.
+      if (currentSongUuidRef.current !== requested) return;
+      loadSong(song);
+      await loadChatHistory(song.uuid);
       // Restore route for PWA relaunch. manifest.json's start_url is /app, so a
       // relaunch lands here with a song restored but no idea which surface the
       // user was on. Someone who force-quit mid-performance should come back to
@@ -240,7 +201,7 @@ export default function AppShell() {
         // the chart, which meant an unrecognised value overrode the front door.
       }
     }).catch(() => {
-      setCurrentSong(null);
+      if (currentSongUuidRef.current === requested) setCurrentSong(null);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authState]);
@@ -257,20 +218,9 @@ export default function AppShell() {
   }, [profile]);
 
   const handleNewRewrite = useCallback((result: RewriteResult | null, meta: RewriteMeta | null) => {
-    setRewriteResult(result);
-    setRewriteMeta(meta);
-    if (meta) {
-      setSongTitle(meta.title ?? '');
-      setSongArtist(meta.artist ?? '');
-    }
-    if (!result) {
-      setChatMessages([]);
-      setCurrentSong(null);
-      setSongTitle('');
-      setSongArtist('');
-      setIsDirty(false);
-    }
-  }, [setCurrentSong]);
+    if (!result) chatSessions.setActiveSong(null);
+    dispatch({ type: 'newRewrite', result, meta });
+  }, [chatSessions]);
 
   const handleParse = useCallback(async (params: { content: string; instruction?: string }): Promise<ParseResult | null> => {
     if (!profile?.id) return null;
@@ -303,8 +253,7 @@ export default function AppShell() {
       );
       setParseResult(result);
       setParsedContent(result.original_content);
-      setSongTitle(result.title || '');
-      setSongArtist(result.artist || '');
+      dispatch({ type: 'parsed', title: result.title || '', artist: result.artist || '' });
       return result;
     } catch (err) {
       if (err instanceof ConnectionLostError) {
@@ -343,43 +292,17 @@ export default function AppShell() {
 
   const handleContentUpdated = useCallback((newContent: string) => {
     setRewriteResult(prev => prev ? { ...prev, rewritten_content: newContent } : prev);
-  }, []);
+  }, [setRewriteResult]);
 
   const handleOriginalUpdated = useCallback((newOriginal: string) => {
     setRewriteResult(prev => prev ? { ...prev, original_content: newOriginal } : prev);
-  }, []);
+  }, [setRewriteResult]);
 
   const handleLoadSong = useCallback(async (song: Song) => {
-    setRewriteResult({
-      original_content: song.original_content,
-      rewritten_content: song.rewritten_content,
-      changes_summary: song.changes_summary || '',
-    });
-    setRewriteMeta({
-      title: song.title ?? undefined,
-      artist: song.artist ?? undefined,
-      source_url: song.source_url ?? undefined,
-      profile_id: song.profile_id,
-      llm_provider: song.llm_provider ?? undefined,
-      llm_model: song.llm_model ?? undefined,
-    });
-    setSongTitle(song.title ?? '');
-    setSongArtist(song.artist ?? '');
-    setCurrentSong(song);
+    loadSong(song);
     navigate('/app/rewrite');
-
-    try {
-      const history = await api.getChatHistory(song.uuid);
-      setChatMessages(chatHistoryToMessages(history));
-    } catch {
-      setChatMessages([]);
-    }
-  }, [navigate, setCurrentSong]);
-
-  // Unsaved edits belong to the song they were made on.
-  useEffect(() => {
-    setIsDirty(false);
-  }, [currentSongUuid]);
+    await loadChatHistory(song.uuid);
+  }, [loadSong, loadChatHistory, navigate]);
 
   // Global "New Song" flow. Lives here (not in RewriteTab) so it can be
   // triggered from the tab bar / mobile nav on any tab. The nonce lets
@@ -408,6 +331,57 @@ export default function AppShell() {
     else startNewSong();
   }, [currentSongUuid, startNewSong]);
 
+  const isAdmin = currentAuthUser?.role === 'admin';
+  const openSettings = useCallback(() => navigate('/app/settings/models'), [navigate]);
+
+  const settingsValue = useMemo<SettingsContextValue>(() => ({
+    profile,
+    llmSettings,
+    model,
+    models,
+    reasoningEffort,
+    onChangeModel: setModel,
+    onChangeReasoningEffort: setReasoningEffort,
+    onOpenSettings: openSettings,
+    onSaveProfile: handleSaveProfile,
+    isPremium,
+    isAdmin,
+  }), [profile, llmSettings, model, models, reasoningEffort, setModel, setReasoningEffort, openSettings, handleSaveProfile, isPremium, isAdmin]);
+
+  const parseValue = useMemo<ParseContextValue>(() => ({
+    parseLoading,
+    parseResult,
+    parsedContent,
+    setParsedContent,
+    setParseResult,
+    parseStreamText,
+    parseReasoningText,
+    parseError,
+    parseErrorType,
+    setParseError,
+    onParse: handleParse,
+    onCancelParse: handleCancelParse,
+    onClearParse: handleClearParse,
+  }), [parseLoading, parseResult, parsedContent, parseStreamText, parseReasoningText, parseError, parseErrorType, handleParse, handleCancelParse, handleClearParse]);
+
+  const workshopActions = useMemo<WorkshopActionsValue>(() => ({
+    onLoadSong: handleLoadSong,
+    onNewRewrite: handleNewRewrite,
+    onSongSaved: handleSongSaved,
+    onContentUpdated: handleContentUpdated,
+    onOriginalContentUpdated: handleOriginalUpdated,
+    setChatMessages,
+    setSongTitle,
+    setSongArtist,
+    setIsDirty,
+    chatSessions,
+  }), [handleLoadSong, handleNewRewrite, handleSongSaved, handleContentUpdated, handleOriginalUpdated, setChatMessages, setSongTitle, setSongArtist, setIsDirty, chatSessions]);
+
+  const workshopValue = useMemo<WorkshopStateValue>(
+    () => ({ ...workshop, newSongNonce }),
+    [workshop, newSongNonce],
+  );
+
   // Redirect to login if not authenticated
   if (authState === 'login') {
     return <Navigate to="/app/login" replace />;
@@ -422,52 +396,6 @@ export default function AppShell() {
       </div>
     );
   }
-
-  const ctx: AppShellContext = {
-    profile,
-    llmSettings,
-    rewriteResult,
-    rewriteMeta,
-    currentSongId,
-    currentSongUuid,
-    chatMessages,
-    setChatMessages,
-    chatSessions,
-    songTitle,
-    setSongTitle,
-    songArtist,
-    setSongArtist,
-    isDirty,
-    setIsDirty,
-    onNewRewrite: handleNewRewrite,
-    onSongSaved: handleSongSaved,
-    onContentUpdated: handleContentUpdated,
-    onOriginalContentUpdated: handleOriginalUpdated,
-    onChangeModel: setModel,
-    reasoningEffort,
-    onChangeReasoningEffort: setReasoningEffort,
-    onOpenSettings: () => navigate('/app/settings/models'),
-    isPremium,
-    isAdmin: currentAuthUser?.role === 'admin',
-    model,
-    models,
-    onSaveProfile: handleSaveProfile,
-    onLoadSong: handleLoadSong,
-    parseLoading,
-    parseResult,
-    parsedContent,
-    setParsedContent,
-    setParseResult,
-    parseStreamText,
-    parseReasoningText,
-    parseError,
-    parseErrorType,
-    setParseError,
-    onParse: handleParse,
-    onCancelParse: handleCancelParse,
-    onClearParse: handleClearParse,
-    newSongNonce,
-  };
 
   // The play route is a performance surface: a chart read from a few feet away,
   // often from a phone or tablet on a music stand. Header, tab bar, and footer are
@@ -504,7 +432,14 @@ export default function AppShell() {
           chromeless ? 'px-0 py-0' : 'max-w-[1800px] px-2 sm:px-4 py-4',
         )}
       >
-        <Outlet context={ctx} />
+        <AppShellProviders
+          settings={settingsValue}
+          parse={parseValue}
+          workshop={workshopValue}
+          workshopActions={workshopActions}
+        >
+          <Outlet />
+        </AppShellProviders>
       </main>
       <footer className={cn('shrink-0 border-t border-border py-2 sm:py-3 px-4 text-xs text-muted-foreground', chromeless ? 'hidden' : 'hidden sm:block')}>
         <div className="flex items-center justify-center sm:justify-between max-w-[1800px] w-full mx-auto">

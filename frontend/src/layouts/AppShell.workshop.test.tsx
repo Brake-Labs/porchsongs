@@ -1,5 +1,5 @@
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter, Routes, Route, Link, useOutletContext } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, Link } from 'react-router-dom';
 import type { Song } from '@/types';
 
 /**
@@ -84,14 +84,18 @@ vi.mock('@/components/ComparisonView', () => ({
 }));
 
 import api from '@/api';
-import AppShell, { type AppShellContext } from '@/layouts/AppShell';
+import AppShell from '@/layouts/AppShell';
+import { useWorkshopActions } from '@/contexts/AppShellContext';
 import RewriteTab from '@/components/RewriteTab';
 
 const mockApi = api as unknown as Record<string, ReturnType<typeof vi.fn>>;
 
+const libraryRenders = { count: 0 };
+
 /** Library stand-in: one button per song, wired to the real onLoadSong. */
 function LibraryStub() {
-  const ctx = useOutletContext<AppShellContext>();
+  const ctx = useWorkshopActions();
+  libraryRenders.count++;
   return (
     <div data-testid="library">
       <button onClick={() => ctx.onLoadSong(SONG_A.value)}>open-a</button>
@@ -311,5 +315,51 @@ describe('a chat stream that outlives its song', () => {
 
     expect(screen.getByText('Here is a partial answer')).toBeInTheDocument();
     expect(screen.getByText('Cancelled.')).toBeInTheDocument();
+  });
+});
+
+describe('context split', () => {
+  it('does not re-render a route that only opens songs when the workshop changes underneath it', async () => {
+    let finish!: (v: unknown) => void;
+    mockApi.chatStream!.mockReturnValue(new Promise(r => { finish = r; }));
+    renderApp();
+    await waitForWorkshop('Song A');
+
+    const input = screen.getByPlaceholderText(/change the song|change it/);
+    fireEvent.change(input, { target: { value: 'Make it about dogs' } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+    });
+    fireEvent.click(screen.getByText('to-library'));
+    await screen.findByTestId('library');
+    const before = libraryRenders.count;
+
+    // The reply lands while the library is showing: workshop state changes.
+    await act(async () => {
+      finish({
+        rewritten_content: 'Dogs everywhere',
+        original_content: null,
+        changes_summary: 'Made it about dogs',
+        assistant_message: 'Made it about dogs',
+      });
+    });
+
+    expect(libraryRenders.count).toBe(before);
+  });
+});
+
+describe('launch restore', () => {
+  it('does not replace a song the user opened while the restore was loading', async () => {
+    let resolveA!: (s: Song) => void;
+    mockApi.getSong!.mockImplementation((uuid: string) =>
+      uuid === SONG_A.value.uuid ? new Promise<Song>(r => { resolveA = r; }) : Promise.resolve(SONG_B.value));
+    renderApp('/app/library');
+
+    fireEvent.click(await screen.findByText('open-b'));
+    await waitForWorkshop('Song B');
+    await act(async () => { resolveA(SONG_A.value); });
+
+    expect(screen.getAllByLabelText('Song title')[0]).toHaveValue('Song B');
+    expect(screen.getAllByTestId('rewritten')[0]).toHaveTextContent('Lyrics of song B');
   });
 });

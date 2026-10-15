@@ -1,6 +1,6 @@
 import { render, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, Outlet } from 'react-router-dom';
-import type { AppShellContext } from '@/layouts/AppShell';
+import { TestAppShell, type AppShellTestValue } from '@/test/app-shell-context';
 import { ChatSessionStore } from '@/lib/chatSessions';
 import type { Song } from '@/types';
 
@@ -44,8 +44,8 @@ vi.mock('@/api', () => ({
 }));
 
 // Minimal context stub for LibraryTab
-const stubContext: AppShellContext = {
-  profile: { id: 1, is_default: true } as AppShellContext['profile'],
+const stubContext: AppShellTestValue = {
+  profile: { id: 1, is_default: true } as AppShellTestValue['profile'],
   llmSettings: { model: '', reasoning_effort: 'high' },
   rewriteResult: null,
   rewriteMeta: null,
@@ -90,9 +90,9 @@ const stubContext: AppShellContext = {
   newSongNonce: 0,
 };
 
-/** Layout wrapper that provides AppShellContext via Outlet */
+/** Layout wrapper that provides AppShell's contexts */
 function ContextWrapper() {
-  return <Outlet context={stubContext} />;
+  return <TestAppShell value={stubContext}><Outlet /></TestAppShell>;
 }
 
 import LibraryTab from '@/components/LibraryTab';

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useParams, useNavigate, useLocation, useOutletContext } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import api, { STORAGE_KEYS } from '@/api';
 import { Button } from '@/components/ui/button';
 import Spinner from '@/components/ui/spinner';
@@ -32,7 +32,7 @@ import { maxColumnsForContent } from '@/lib/performanceLayout';
 import { transposeChart } from '@/lib/chords/transpose';
 import useWakeLock from '@/hooks/useWakeLock';
 import { cn } from '@/lib/utils';
-import type { AppShellContext } from '@/layouts/AppShell';
+import { useSettings, useWorkshopActions } from '@/contexts/AppShellContext';
 import type { Song } from '@/types';
 
 /**
@@ -99,7 +99,8 @@ export default function PlayPage() {
   const { uuid } = useParams<{ uuid: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const ctx = useOutletContext<AppShellContext>();
+  const { llmSettings } = useSettings();
+  const { onLoadSong } = useWorkshopActions();
   const navState = (location.state ?? null) as PlayNavState | null;
 
   const [song, setSong] = useState<Song | null>(null);
@@ -448,7 +449,7 @@ export default function PlayPage() {
                 Download PDF
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => ctx?.onLoadSong?.(song)}>
+              <DropdownMenuItem onClick={() => onLoadSong(song)}>
                 Rewrite with AI
               </DropdownMenuItem>
               {captureEnabled && (
@@ -516,7 +517,7 @@ export default function PlayPage() {
         fontSizeOverride={fontSize}
         columnsPref={perfColumns}
         transposeSemitones={transpose}
-        llmModel={ctx?.llmSettings?.model}
+        llmModel={llmSettings.model}
         onAutoFontSize={setAutoFontSize}
         followHandleRef={followHandle}
         onFollowStatus={handleFollowStatus}

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route, Outlet } from 'react-router-dom';
+import { TestAppShell, type AppShellTestValue } from '@/test/app-shell-context';
 import api from '@/api';
 import PlayPage from '@/pages/PlayPage';
 import type { Song } from '@/types';
@@ -68,11 +69,11 @@ function makeDocument(overrides: Partial<Song> = {}): Song {
   } as unknown as Song;
 }
 
-function renderAt(uuid: string, ctx: Record<string, unknown> = {}) {
+function renderAt(uuid: string, ctx: Partial<AppShellTestValue> = {}) {
   return render(
     <MemoryRouter initialEntries={[`/app/play/${uuid}`]}>
       <Routes>
-        <Route element={<Outlet context={{ llmSettings: { model: '' }, ...ctx }} />}>
+        <Route element={<TestAppShell value={ctx}><Outlet /></TestAppShell>}>
           <Route path="/app/play/:uuid" element={<PlayPage />} />
         </Route>
         <Route path="/app/library" element={<div>library list</div>} />

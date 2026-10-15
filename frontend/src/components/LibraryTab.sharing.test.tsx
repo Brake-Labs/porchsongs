@@ -2,7 +2,7 @@ import { screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '@/test/test-utils';
 import LibraryTab from '@/components/LibraryTab';
-import type { AppShellContext } from '@/layouts/AppShell';
+import type { AppShellTestValue } from '@/test/app-shell-mocks';
 import type { Song, ChatMessage } from '@/types';
 
 /**
@@ -15,10 +15,12 @@ import type { Song, ChatMessage } from '@/types';
  * feature with it, and only premium CI builds the merged frontend.
  */
 
-const mockOutletContext: Partial<AppShellContext> = {};
+const mockAppShell: Partial<AppShellTestValue> = {};
+vi.mock('@/contexts/AppShellContext', async () =>
+  (await import('@/test/app-shell-mocks')).mockAppShellHooks(() => mockAppShell));
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
-  return { ...actual, useOutletContext: () => mockOutletContext, useParams: () => ({}) };
+  return { ...actual, useParams: () => ({}) };
 });
 
 vi.mock('@/api', () => ({
@@ -94,7 +96,7 @@ function makeSong(overrides: Partial<Song> = {}): Song {
 }
 
 function setupContext() {
-  Object.assign(mockOutletContext, {
+  Object.assign(mockAppShell, {
     profile: { id: 1, user_id: 'u1', display_name: 'Test' },
     chatMessages: [] as ChatMessage[],
     setChatMessages: vi.fn(),
