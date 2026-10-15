@@ -201,14 +201,14 @@ def create_app(plugin: AppPlugin | None = None) -> FastAPI:
 
     for router in (auth.router, profiles.router, songs.router, rewrite.router, follow.router):
         app.include_router(router, prefix="/api")
-    for router in plugin.routers():
-        app.include_router(router, prefix="/api")
-
     app.add_api_route(
         "/api/health", health, methods=["GET"], response_model=HealthResponse, tags=["health"]
     )
     app.add_middleware(CacheHeadersMiddleware)  # type: ignore[arg-type]
     app.add_api_route("/api/web-build-id", web_build_id, methods=["GET"], include_in_schema=False)
+
+    for router in plugin.routers():
+        app.include_router(router, prefix="/api")
 
     # Read by get_current_user and /api/auth/config. Stored on the app rather
     # than set as a dependency override, so a test clearing overrides cannot

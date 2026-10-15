@@ -132,7 +132,17 @@ def test_plugin_does_not_leak_into_other_apps() -> None:
     assert main.app.state.authenticate is None
 
 
+def _route_paths(app: FastAPI) -> list[str | None]:
+    return [getattr(r, "path", None) for r in app.routes]
+
+
 def test_default_plugin_builds_the_oss_app() -> None:
-    oss = {getattr(r, "path", None) for r in main.app.routes}
-    default = {getattr(r, "path", None) for r in create_app(AppPlugin()).routes}
-    assert oss == default
+    # Order matters, not just membership: Starlette matches routes in order.
+    assert _route_paths(create_app(AppPlugin())) == _route_paths(main.app)
+
+
+def test_plugin_routers_follow_every_oss_api_route() -> None:
+    """A plugin router cannot shadow an OSS route such as /api/health."""
+    oss = [p for p in _route_paths(main.app) if p and p.startswith("/api/")]
+    paths = _route_paths(create_app(_Plugin()))
+    assert paths.index("/api/plugin/ping") > max(paths.index(p) for p in oss)

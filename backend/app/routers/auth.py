@@ -13,7 +13,9 @@ async def auth_config(request: Request) -> dict[str, object]:
     When a premium plugin is loaded it provides its own config (e.g. OAuth).
     """
     # An app plugin's auth_backend() answers first, then the PREMIUM_PLUGIN loader.
-    backend = getattr(request.app.state, "auth_backend", None) or get_auth_backend()
+    backend = getattr(request.app.state, "auth_backend", None)
+    if backend is None:
+        backend = get_auth_backend()
     if backend is None:
         return {"method": "none", "required": False}
     return backend.get_auth_config()
