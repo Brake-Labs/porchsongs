@@ -96,8 +96,17 @@ export async function clear(): Promise<void> {
  *
  * Only changed rows are written. A full rewrite on every library visit would churn
  * megabytes for nothing.
+ *
+ * `complete: false` marks a filtered list (one profile's songs, say). Its rows are
+ * written but nothing is pruned, because a song missing from it was filtered out,
+ * not deleted. Pruning on one used to drop every other profile's charts from the
+ * mirror as soon as the import tab checked for existing songs.
  */
-export async function putSongs(userId: number, songs: Song[]): Promise<void> {
+export async function putSongs(
+  userId: number,
+  songs: Song[],
+  { complete = true }: { complete?: boolean } = {},
+): Promise<void> {
   if (!isSupported()) return;
   await setOwner(userId);
   const database = await db();
@@ -120,13 +129,15 @@ export async function putSongs(userId: number, songs: Song[]): Promise<void> {
   // Drop anything deleted elsewhere, so the mirror cannot resurrect a chart the user
   // removed on another device. A kept tab goes with its song: a stored PDF whose
   // library row is gone is megabytes nobody can see, reach, or delete.
-  for (const uuid of existing.keys()) {
-    if (!incoming.has(uuid)) {
-      store.delete(uuid);
-      files.delete(uuid);
+  if (complete) {
+    for (const uuid of existing.keys()) {
+      if (!incoming.has(uuid)) {
+        store.delete(uuid);
+        files.delete(uuid);
+      }
     }
+    tx.objectStore(META).put(Date.now(), SYNCED_AT_KEY);
   }
-  tx.objectStore(META).put(Date.now(), SYNCED_AT_KEY);
   await tx.done;
 }
 
@@ -144,11 +155,30 @@ export async function getSongs(userId: number): Promise<Song[]> {
   return (await (await db()).getAll(SONGS)) as Song[];
 }
 
-/** One mirrored song, or null when absent or owned by somebody else. */
-export async function getSong(userId: number, uuid: string): Promise<Song | null> {
+/** Forget one song, e.g. after deleting it. Its kept tab goes with it. */
+export async function deleteSong(userId: number, uuid: string): Promise<void> {
+  if (!isSupported()) return;
+  if ((await owner()) !== userId) return;
+  const tx = (await db()).transaction([SONGS, FILES], 'readwrite');
+  await Promise.all([tx.objectStore(SONGS).delete(uuid), tx.objectStore(FILES).delete(uuid), tx.done]);
+}
+
+/**
+ * One mirrored song, or null when absent or owned by somebody else.
+ *
+ * `ref` is normally a uuid, but the server also accepts a numeric id, and old
+ * /app/library/:id bookmarks still send one. Offline those would miss a store keyed
+ * on uuid, so a numeric ref falls back to a scan.
+ */
+export async function getSong(userId: number, ref: string): Promise<Song | null> {
   if (!isSupported()) return null;
   if ((await owner()) !== userId) return null;
-  return ((await (await db()).get(SONGS, uuid)) as Song | undefined) ?? null;
+  const database = await db();
+  const byUuid = (await database.get(SONGS, ref)) as Song | undefined;
+  if (byUuid) return byUuid;
+  if (!/^\d+$/.test(ref)) return null;
+  const id = Number(ref);
+  return ((await database.getAll(SONGS)) as Song[]).find((s) => s.id === id) ?? null;
 }
 
 /** Mirror the profile list, so the app shell can boot without a connection. */

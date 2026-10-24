@@ -44,6 +44,7 @@ vi.mock('@/api', () => ({
     listModels: vi.fn().mockResolvedValue([]),
     getSong: vi.fn().mockResolvedValue(MOCK_SONG),
     getChatHistory: vi.fn().mockResolvedValue([]),
+    syncOfflineLibrary: vi.fn().mockResolvedValue(undefined),
   },
   ConnectionLostError: class ConnectionLostError extends Error {},
   STORAGE_KEYS: {
@@ -77,7 +78,33 @@ import AppShell from '@/layouts/AppShell';
 const mockApi = api as unknown as {
   getSong: ReturnType<typeof vi.fn>;
   getChatHistory: ReturnType<typeof vi.fn>;
+  syncOfflineLibrary: ReturnType<typeof vi.fn>;
 };
+
+describe('AppShell offline library sync', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('mirrors the library for offline use from any route, and again on reconnect', () => {
+    // A session opened straight onto a chart never renders the library tab, which
+    // was the only thing that mirrored every chart.
+    vi.useFakeTimers();
+    mockApi.syncOfflineLibrary.mockClear();
+    renderWithRouter(<AppShell />, { route: '/app/rewrite' });
+    expect(mockApi.syncOfflineLibrary).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+    expect(mockApi.syncOfflineLibrary).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      window.dispatchEvent(new Event('online'));
+    });
+    expect(mockApi.syncOfflineLibrary).toHaveBeenCalledTimes(2);
+  });
+});
 
 describe('AppShell layout', () => {
   it('wraps header and tabs in a sticky container', () => {
