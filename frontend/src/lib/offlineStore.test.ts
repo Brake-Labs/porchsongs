@@ -94,6 +94,37 @@ describe('offlineStore', () => {
       expect(typeof (await store.getSyncedAt())).toBe('number');
     });
 
+    it('a list marked incomplete writes rows but prunes nothing', async () => {
+      // One profile's songs is not the whole library: a chart missing from it was
+      // filtered out, not deleted.
+      await store.putSongs(ALICE, [song('a'), song('b', { profile_id: 2 })]);
+      await store.putSongs(ALICE, [song('a', { title: 'Renamed', updated_at: '2026-03-03T00:00:00Z' })], {
+        complete: false,
+      });
+      expect((await store.getSongs(ALICE)).map((s) => s.uuid).sort()).toEqual(['a', 'b']);
+      expect((await store.getSong(ALICE, 'a'))?.title).toBe('Renamed');
+    });
+
+    it('deleteSong drops the chart and its kept tab', async () => {
+      await store.putSongs(ALICE, [song('a'), song('b')]);
+      await store.putFile(ALICE, 'b', new Uint8Array(4).buffer, 'digest');
+      await store.deleteSong(ALICE, 'b');
+      expect((await store.getSongs(ALICE)).map((s) => s.uuid)).toEqual(['a']);
+      expect(await store.getFile(ALICE, 'b')).toBeNull();
+    });
+
+    it('deleteSong will not touch another user’s mirror', async () => {
+      await store.putSongs(ALICE, [song('a')]);
+      await store.deleteSong(BOB, 'a');
+      expect((await store.getSongs(ALICE)).map((s) => s.uuid)).toEqual(['a']);
+    });
+
+    it('getSong resolves a numeric id, which old /app/library/:id links send', async () => {
+      await store.putSongs(ALICE, [song('a', { id: 41 }), song('b', { id: 42 })]);
+      expect((await store.getSong(ALICE, '42'))?.uuid).toBe('b');
+      expect(await store.getSong(ALICE, '99')).toBeNull();
+    });
+
     it('putSong adds one chart without disturbing the rest', async () => {
       await store.putSongs(ALICE, [song('a')]);
       await store.putSong(ALICE, song('c'));

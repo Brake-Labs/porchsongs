@@ -299,8 +299,50 @@ function logout(): void {
   offlineStore.clear().catch(() => {});
 }
 
+/** Whether this page load has mirrored the full, unfiltered library yet. */
+let _librarySynced = false;
+/** Unfiltered library loads still waiting on the server. */
+let _libraryLoadsInFlight = 0;
+
+/**
+ * Write a song the server just returned into the offline mirror.
+ *
+ * The mirror is otherwise refreshed only by a library load, so a chart created or
+ * edited in the workshop and then played with no signal showed the version from
+ * before the edit, or was missing entirely.
+ */
+function _mirrorSong(song: Song): Song {
+  const userId = currentOwnerId();
+  if (userId != null) offlineStore.putSong(userId, song).catch(() => {});
+  return song;
+}
+
+/**
+ * Mirror the whole library once per page load, whichever route the app opened on.
+ *
+ * The library tab already does this as a side effect of rendering, but a session
+ * that never shows it (a deep link or a relaunch straight into a chart) used to
+ * leave only the opened chart available offline. A no-op when the library has
+ * already been loaded, so landing on it costs no second request.
+ */
+async function syncOfflineLibrary(): Promise<void> {
+  if (_librarySynced || _libraryLoadsInFlight > 0 || currentOwnerId() == null) return;
+  try {
+    await api.listSongs();
+  } catch {
+    // Offline or signed out. The next page load tries again.
+  }
+}
+
+/** Test seam: forget that the library was synced this page load. */
+export function _resetLibrarySyncForTests(): void {
+  _librarySynced = false;
+  _libraryLoadsInFlight = 0;
+}
+
 const api = {
   getAuthConfig,
+  syncOfflineLibrary,
   logout,
   tryRestoreSession: _tryRestoreSession as () => Promise<AuthUser | null>,
 
@@ -451,6 +493,8 @@ const api = {
 
   // Songs
   listSongs: async (profileId?: number) => {
+    const complete = profileId === undefined;
+    if (complete) _libraryLoadsInFlight++;
     // openapi-fetch rethrows fetch's raw TypeError on a dead network and never runs
     // its response hooks, so the offline path is a try/catch here rather than
     // anything in the middleware.
@@ -462,8 +506,10 @@ const api = {
       const songs = data as Song[];
       const userId = currentOwnerId();
       // Mirror the whole list. One unpaginated response covers the entire library, so
-      // a lazy per-song cache would leave most charts unopenable offline.
-      if (userId != null) offlineStore.putSongs(userId, songs).catch(() => {});
+      // a lazy per-song cache would leave most charts unopenable offline. A list
+      // filtered to one profile is not the whole library, so it must not prune.
+      if (complete) _librarySynced = true;
+      if (userId != null) offlineStore.putSongs(userId, songs, { complete }).catch(() => {});
       return songs;
     } catch (err) {
       // Only fall back for a genuinely dead network. Doing it on a 401 would show a
@@ -474,6 +520,8 @@ const api = {
         if (cached.length > 0) return cached;
       }
       throw err;
+    } finally {
+      if (complete) _libraryLoadsInFlight--;
     }
   },
   /** Every tag the user has, with how many songs carry each. */
@@ -548,7 +596,7 @@ const api = {
       body: body as never,
     });
     if (error) _throwApiError(error, 'Failed to save song');
-    return data as Song;
+    return _mirrorSong(data as Song);
   },
   updateSong: async (ref: string, body: Partial<Song>) => {
     const { data, error } = await client.PUT('/api/songs/{song_ref}', {
@@ -556,18 +604,18 @@ const api = {
       body: body as never,
     });
     if (error) _throwApiError(error, 'Failed to update song');
-    return data as Song;
+    return _mirrorSong(data as Song);
   },
   deleteSong: async (ref: string) => {
     const { error } = await client.DELETE('/api/songs/{song_ref}', {
       params: { path: { song_ref: ref } },
     });
     if (error) _throwApiError(error, 'Failed to delete song');
-    // Drop a kept copy now rather than waiting for the next library sync to notice
-    // the row is gone. Deleting a tab and watching the device keep the megabytes is
-    // the version of this that gets reported as a bug.
+    // Drop the mirrored chart and any kept copy now rather than waiting for the next
+    // library sync to notice the row is gone. Deleting a tab and watching the device
+    // keep the megabytes is the version of this that gets reported as a bug.
     const userId = currentOwnerId();
-    if (userId != null) offlineStore.deleteFile(userId, ref).catch(() => {});
+    if (userId != null) offlineStore.deleteSong(userId, ref).catch(() => {});
   },
   getSongRevisions: async (ref: string) => {
     const { data, error } = await client.GET('/api/songs/{song_ref}/revisions', {
@@ -628,7 +676,7 @@ const api = {
       const detail = await res.json().catch(() => null);
       throw new Error(detail?.detail ?? `Upload failed: ${res.status}`);
     }
-    return (await res.json()) as Song;
+    return _mirrorSong((await res.json()) as Song);
   },
 
   /**

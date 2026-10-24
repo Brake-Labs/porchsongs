@@ -24,6 +24,9 @@ import { cn } from '@/lib/utils';
 import { getFeatureRequestUrl, getReportIssueUrl } from '@/extensions';
 import type { Profile, RewriteResult, RewriteMeta, ChatMessage, Song, ParseResult } from '@/types';
 
+/** How long after sign-in to wait before mirroring the library for offline use. */
+const OFFLINE_SYNC_DELAY_MS = 2_000;
+
 export default function AppShell() {
   const { authState, currentAuthUser, authConfig, isPremium, handleLogout } = useAuth();
   const navigate = useNavigate();
@@ -163,6 +166,20 @@ export default function AppShell() {
     if (authState !== 'ready') return;
     loadProfile();
   }, [authState, loadProfile]);
+
+  // Keep every chart available offline, not only those on routes the user happened
+  // to visit. Deferred so the library tab's own load, when it is showing, goes first
+  // and this becomes a no-op; retried when the connection comes back.
+  useEffect(() => {
+    if (authState !== 'ready') return;
+    const sync = () => { api.syncOfflineLibrary(); };
+    const timer = window.setTimeout(sync, OFFLINE_SYNC_DELAY_MS);
+    window.addEventListener('online', sync);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('online', sync);
+    };
+  }, [authState]);
 
   // Load the gateway model catalog once auth is ready. Premium hides the model
   // controls entirely, so only fetch in OSS mode.

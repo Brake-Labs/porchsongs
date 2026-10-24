@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import {
   waitForAppReady,
   navigateToTab,
@@ -21,7 +21,7 @@ import { makeSongCreatePayload } from '../fixtures/mock-data';
  */
 
 /** Wait until a service worker controls the page. */
-async function waitForServiceWorker(page: import('@playwright/test').Page): Promise<void> {
+async function waitForServiceWorker(page: Page): Promise<void> {
   // `ready` resolves once a worker is active; `controller` is only set once it has
   // claimed this page. Both matter: routing offline navigations needs a controller,
   // not merely an active worker.
@@ -31,7 +31,95 @@ async function waitForServiceWorker(page: import('@playwright/test').Page): Prom
   });
 }
 
+/** Uuids of the charts in the offline mirror (IndexedDB), read from the page. */
+async function mirroredUuids(page: Page): Promise<string[]> {
+  return page.evaluate(
+    () =>
+      new Promise<string[]>((resolve) => {
+        const req = indexedDB.open('porchsongs-offline');
+        req.onsuccess = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains('songs')) {
+            db.close();
+            resolve([]);
+            return;
+          }
+          const keys = db.transaction('songs').objectStore('songs').getAllKeys();
+          keys.onsuccess = () => {
+            db.close();
+            resolve(keys.result as string[]);
+          };
+        };
+        req.onerror = () => resolve([]);
+      }),
+  );
+}
+
+async function waitForMirrored(page: Page, uuids: string[]): Promise<void> {
+  await expect
+    .poll(async () => {
+      const have = new Set(await mirroredUuids(page));
+      return uuids.filter((u) => !have.has(u)).length;
+    }, { timeout: 20_000 })
+    .toBe(0);
+}
+
+interface SeededSong {
+  id: number;
+  uuid: string;
+  line: string;
+}
+
+/**
+ * Removes what seedLibrary created. The e2e database is shared by every spec, and a
+ * second profile left behind changes which profile the smoke test sees first.
+ */
+let pendingCleanup: (() => Promise<void>) | null = null;
+
+/**
+ * A library bigger than any cache cap in the build (the pdf.js runtime cache keeps
+ * 8), with its last chart in a second profile.
+ */
+async function seedLibrary(baseURL: string, count: number): Promise<SeededSong[]> {
+  const profileId = await getDefaultProfileId(baseURL);
+  const res = await fetch(`${baseURL}/api/profiles`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ is_default: false }),
+  });
+  if (!res.ok) throw new Error(`Failed to create profile: ${res.status}`);
+  const second = (await res.json()) as { id: number };
+
+  const seeded: SeededSong[] = [];
+  const stamp = Date.now();
+  for (let i = 0; i < count; i++) {
+    const line = `offline line ${stamp}-${i}`;
+    const created = await createSongViaApi(baseURL, {
+      profile_id: i === count - 1 ? second.id : profileId,
+      title: `Offline ${stamp}-${i}`,
+      artist: 'Offline Band',
+      original_content: line,
+      rewritten_content: `[G]${line}`,
+    });
+    seeded.push({ id: created.id as number, uuid: created.uuid as string, line });
+  }
+  pendingCleanup = async () => {
+    for (const song of seeded) {
+      await fetch(`${baseURL}/api/songs/${song.uuid}`, { method: 'DELETE' });
+    }
+    await fetch(`${baseURL}/api/profiles/${second.id}`, { method: 'DELETE' });
+  };
+  return seeded;
+}
+
+const LIBRARY_SIZE = 25;
+
 test.describe('OSS Offline', () => {
+  test.afterEach(async () => {
+    await pendingCleanup?.();
+    pendingCleanup = null;
+  });
+
   test('registers a service worker and precaches the shell', async ({ page }) => {
     await page.goto('/');
     await waitForAppReady(page);
@@ -137,6 +225,63 @@ test.describe('OSS Offline', () => {
       await expect(page.locator('#root')).toBeAttached({ timeout: 15_000 });
       // The mirrored chart is readable with the network down.
       await expect(page.getByText('Amazing Grace').first()).toBeVisible({ timeout: 15_000 });
+    } finally {
+      await context.setOffline(false);
+    }
+  });
+
+  test('every chart in the library opens offline, across profiles', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    test.setTimeout(180_000);
+    const songs = await seedLibrary(baseURL!, LIBRARY_SIZE);
+
+    await page.goto('/app');
+    await waitForAppReady(page);
+    await waitForServiceWorker(page);
+    await waitForMirrored(page, songs.map((s) => s.uuid));
+    // The import tab lists one profile's songs. That list used to prune the mirror,
+    // evicting every chart in any other profile.
+    await navigateToTab(page, 'Import');
+    await expect(page).toHaveURL(/\/app\/rewrite/);
+    await page.waitForLoadState('networkidle');
+
+    await context.setOffline(true);
+    try {
+      for (const song of songs) {
+        await page.goto(`/app/play/${song.uuid}`);
+        await expect(page.getByText(song.line).first()).toBeVisible({ timeout: 10_000 });
+      }
+      // An old /app/library/:id bookmark carries a numeric id, not a uuid.
+      const first = songs[0]!;
+      await page.goto(`/app/library/${first.id}`);
+      await expect(page.getByText(first.line).first()).toBeVisible({ timeout: 10_000 });
+    } finally {
+      await context.setOffline(false);
+    }
+  });
+
+  test('a session opened straight onto a chart mirrors the whole library', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    const songs = await seedLibrary(baseURL!, 5);
+    const [opened, other] = [songs[0]!, songs[3]!];
+
+    // Never visits the library tab, which used to be the only thing that mirrored
+    // every chart. A PWA relaunch into a chart, or a shared link, looks like this.
+    await page.goto(`/app/play/${opened.uuid}`);
+    await expect(page.getByText(opened.line).first()).toBeVisible();
+    await waitForServiceWorker(page);
+    await waitForMirrored(page, songs.map((s) => s.uuid));
+
+    await context.setOffline(true);
+    try {
+      await page.goto(`/app/play/${other.uuid}`);
+      await expect(page.getByText(other.line).first()).toBeVisible({ timeout: 10_000 });
     } finally {
       await context.setOffline(false);
     }
